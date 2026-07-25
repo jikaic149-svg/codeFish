@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>RoboFish Partner Lab</title>
+  <style>
+    :root{color-scheme:dark;--bg:#07131b;--panel:#102631;--line:#285064;--accent:#31d6a1;--danger:#ff6070;--text:#eef8fb;--muted:#9bb5c0}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#123547,var(--bg) 58%);color:var(--text);font:15px/1.5 system-ui,sans-serif}
+    main{max-width:980px;margin:auto;padding:20px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px}.top a{color:var(--accent);text-decoration:none}
+    h1{font-size:24px;margin:0}.sub{color:var(--muted);margin:4px 0 18px}.notice{border:1px solid #795d24;background:#332a16;padding:12px 14px;border-radius:12px;margin:14px 0}
+    .grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.8fr);gap:16px}.panel{background:rgba(16,38,49,.92);border:1px solid var(--line);border-radius:14px;padding:16px}
+    textarea{width:100%;height:470px;resize:vertical;background:#051016;color:#dff9f0;border:1px solid var(--line);border-radius:10px;padding:13px;font:13px/1.55 ui-monospace,SFMono-Regular,monospace}
+    button{border:0;border-radius:10px;padding:11px 16px;font-weight:700;cursor:pointer}.buttons{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.save{background:var(--accent);color:#032017}.run{background:#438cff;color:white}.stop{background:var(--danger);color:white}
+    .status{padding:12px;border-radius:10px;background:#071820;border:1px solid var(--line);min-height:94px;white-space:pre-wrap}.ok{color:var(--accent)}.bad{color:var(--danger)}
+    code{color:#8de5ff}.actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:8px 0 18px}.chip{background:#091c25;border:1px solid #244655;padding:6px 8px;border-radius:7px;font:12px ui-monospace,monospace}
+    ul{padding-left:20px;color:var(--muted)}@media(max-width:760px){.grid{grid-template-columns:1fr}textarea{height:390px}}
+  </style>
+</head>
+<body><main>
+  <div class="top"><div><h1>RoboFish Partner Lab</h1><div class="sub">受限动作脚本 · Firmware 4.0.0 Partner Edition</div></div><a href="/gpio">返回驾驶界面</a></div>
+  <div class="notice">安全限制由固件强制执行：动力 20–70、转向强度 10–70、俯仰 45–135°、单步最长 30 秒、水泵最长 10 秒、总时长最长 5 分钟。任何手动控制或失联保护都会中止脚本。</div>
+  <div class="grid">
+    <section class="panel">
+      <textarea id="script" spellcheck="false" aria-label="Partner JSON script"></textarea>
+      <div class="buttons"><button class="save" onclick="saveScript()">校验并保存</button><button class="run" onclick="runScript()">运行</button><button class="stop" onclick="stopScript()">安全停止</button></div>
+    </section>
+    <aside class="panel">
+      <h3>当前状态</h3><div id="status" class="status">正在读取…</div>
+      <h3>允许的 action</h3>
+      <div class="actions">
+        <div class="chip">mode_bionic</div><div class="chip">mode_prop</div><div class="chip">mode_hybrid</div><div class="chip">forward</div>
+        <div class="chip">backward</div><div class="chip">left</div><div class="chip">right</div><div class="chip">stop</div>
+        <div class="chip">pitch</div><div class="chip">pump_on</div><div class="chip">pump_off</div>
+      </div>
+      <h3>字段</h3>
+      <ul><li><code>duration_ms</code>：动作时间</li><li><code>power</code>：推进动力 20–70</li><li><code>strength</code>：转向强度 10–70</li><li><code>angle</code>：俯仰角 45–135</li><li><code>repeat</code>：整体循环 1–10</li></ul>
+      <p class="sub">每一步开始前推进和水泵都会先归零。因此 pitch 不会意外继承上一动作的推进状态。</p>
+    </aside>
+  </div>
+</main>
+<script>
+const editor=document.getElementById('script'),statusBox=document.getElementById('status');
+async function loadScript(){try{const r=await fetch('/partner_script',{cache:'no-store'});editor.value=await r.text()}catch(e){show('读取脚本失败：'+e,true)}}
+function show(message,bad=false){statusBox.textContent=message;statusBox.className='status '+(bad?'bad':'ok')}
+async function api(url,options={method:'POST'}){const r=await fetch(url,options);let data={};try{data=await r.json()}catch(e){data={message:await r.text()}}if(!r.ok)throw new Error(data.error||data.message||('HTTP '+r.status));return data}
+async function saveScript(){try{JSON.parse(editor.value);const d=await api('/partner_script',{method:'POST',headers:{'Content-Type':'application/json'},body:editor.value});show(d.message||'已保存')}catch(e){show('保存失败：'+e.message,true)}}
+async function runScript(){try{const d=await api('/partner_run');show(d.message||'已启动')}catch(e){show('启动失败：'+e.message,true)}}
+async function stopScript(){try{const d=await api('/partner_stop');show(d.message||'已安全停止')}catch(e){show('停止失败：'+e.message,true)}}
+async function poll(){try{const r=await fetch('/partner_status',{cache:'no-store'}),s=await r.json();statusBox.className='status '+(s.running?'ok':'');statusBox.textContent='脚本：'+s.name+'\n状态：'+(s.running?'运行中':'已停止')+'\n步骤：'+s.step+'/'+s.steps+'  循环：'+s.pass+'/'+s.repeat+'\n本步剩余：'+s.remaining_ms+' ms'}catch(e){show('状态读取失败：'+e.message,true)}}
+loadScript();poll();setInterval(poll,1000);
+</script></body></html>

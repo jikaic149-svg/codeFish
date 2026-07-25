@@ -1,0 +1,17 @@
+# Keep documentation and tools consistently readable across platforms.
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.cpp text eol=lf
+reverse_analysis/disassembly/key_functions/*.asm text eol=lf
+reverse_analysis/disassembly/key_functions/*.tsv text eol=lf
+reverse_analysis/metadata/*.json text eol=lf
+reverse_analysis/metadata/*.tsv text eol=lf
+
+# These are byte-exact recovered evidence. Trailing spaces and empty TSV fields
+# are part of the source data and must not be rewritten by autocrlf or checks.
+reverse_analysis/segments/* binary
+reverse_analysis/web_assets/* -text whitespace=-trailing-space,-blank-at-eof
+reverse_analysis/strings/*.tsv -text whitespace=-trailing-space,-blank-at-eof
+reverse_analysis/references/*.tsv -text whitespace=-trailing-space,-blank-at-eof

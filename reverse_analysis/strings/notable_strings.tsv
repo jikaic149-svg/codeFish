@@ -1,0 +1,800 @@
+file_offset	virtual_address	segment	length	text
+0x00000269	0x3c0c0269	0	17	CPG Task Started!
+0x000002b1	0x3c0c02b1	0	16	  Tail Servo 1 (
+0x000002c7	0x3c0c02c7	0	22	1): GPIO %d (XIAO: D4)
+0x000002df	0x3c0c02df	0	16	  Tail Servo 2 (
+0x000002f5	0x3c0c02f5	0	22	2): GPIO %d (XIAO: D5)
+0x0000030d	0x3c0c030d	0	16	  Pitch Servo  (
+0x00000323	0x3c0c0323	0	22	) : GPIO %d (XIAO: D3)
+0x0000033b	0x3c0c033b	0	16	  Pump Relay   (
+0x00000351	0x3c0c0351	0	22	) : GPIO %d (XIAO: D0)
+0x0000037f	0x3c0c037f	0	22	) : GPIO %d (XIAO: D6)
+0x000003ad	0x3c0c03ad	0	22	) : GPIO %d (XIAO: D7)
+0x00000422	0x3c0c0422	0	17	   Pitch (D3): %s
+0x000004b2	0x3c0c04b2	0	6	BIONIC
+0x000004b9	0x3c0c04b9	0	4	PROP
+0x000004be	0x3c0c04be	0	6	HYBRID
+0x0000051b	0x3c0c051b	0	4	WiFi
+0x0000052f	0x3c0c052f	0	7	[DEMO] 
+0x00000546	0x3c0c0546	0	30	[PARTNER] Drive mode set to %u
+0x00000566	0x3c0c0566	0	14	DEMO_CANCELLED
+0x00000575	0x3c0c0575	0	21	DEMO_BLOCKED_FAILSAFE
+0x0000058b	0x3c0c058b	0	12	DEMO_STARTED
+0x00000598	0x3c0c0598	0	7	[DEMO] 
+0x000005d3	0x3c0c05d3	0	7	[DEMO] 
+0x000005e9	0x3c0c05e9	0	8	 BIONIC 
+0x00000604	0x3c0c0604	0	7	[DEMO] 
+0x00000617	0x3c0c0617	0	10	: Forward 
+0x00000624	0x3c0c0624	0	6	 Dive 
+0x0000063f	0x3c0c063f	0	14	[DEMO] -> DIVE
+0x0000064e	0x3c0c064e	0	17	[DEMO] -> SURFACE
+0x00000660	0x3c0c0660	0	14	[DEMO] -> STOP
+0x0000066f	0x3c0c066f	0	7	[DEMO] 
+0x00000683	0x3c0c0683	0	11	wifi_config
+0x0000068f	0x3c0c068f	0	28	Connecting to saved WiFi: %s
+0x000006ae	0x3c0c06ae	0	28	WiFi connected successfully!
+0x000006d9	0x3c0c06d9	0	23	WiFi connection failed.
+0x000006f1	0x3c0c06f1	0	26	No saved WiFi credentials.
+0x0000072b	0x3c0c072b	0	12	RoboFish-ND1
+0x0000074b	0x3c0c074b	0	47	 RoboFish FPV Controller v4.0.0 Partner Edition
+0x0000077e	0x3c0c077e	0	35	 Firmware Boot Successful - OTA OK!
+0x0000096b	0x3c0c096b	0	78	Legacy ArduinoOTA disabled (Partner Edition). Owner web OTA remains available.
+0x000009ba	0x3c0c09ba	0	13	Camera Ready!
+0x00000a1f	0x3c0c0a1f	0	5	 WiFi
+0x00000a7d	0x3c0c0a7d	0	5	 WiFi
+0x00000aa6	0x3c0c0aa6	0	22	 (SSID: RoboFish-GLS1)
+0x00000ae7	0x3c0c0ae7	0	7	CPGTask
+0x00000b66	0x3c0c0b66	0	13	Cache-Control
+0x00000b8d	0x3c0c0b8d	0	22	application/javascript
+0x00000ba4	0x3c0c0ba4	0	27	Access-Control-Allow-Origin
+0x00000bc1	0x3c0c0bc1	0	37	    const CACHE_NAME = 'robofish-v1';
+0x00000bfc	0x3c0c0bfc	0	14	      '/gpio',
+0x00000d59	0x3c0c0d59	0	38	    "name": "RoboFish FPV Controller",
+0x00000d80	0x3c0c0d80	0	29	    "short_name": "RoboFish",
+0x00000d9e	0x3c0c0d9e	0	25	    "start_url": "/gpio",
+0x000011fb	0x3c0c11fb	0	63	    <meta name="apple-mobile-web-app-title" content="RoboFish">
+0x00001240	0x3c0c1240	0	31	    <title>RoboFish FPV</title>
+0x00001636	0x3c0c1636	0	84	            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;
+0x00001741	0x3c0c1741	0	101	        #videoStream { width: 100%; height: 100%; object-fit: contain; transition: object-fit 0.3s; }
+0x00001804	0x3c0c1804	0	47	            #videoStream { object-fit: cover; }
+0x0000186e	0x3c0c186e	0	85	            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+0x00001ae0	0x3c0c1ae0	0	71	        .status-left { display: flex; gap: 15px; align-items: center; }
+0x00001cdc	0x3c0c1cdc	0	72	        .status-right { display: flex; gap: 20px; align-items: center; }
+0x00001e67	0x3c0c1e67	0	86	            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+0x0000200c	0x3c0c200c	0	164	        .crosshair::before { content: ''; position: absolute; top: 9px; left: 0; width: 20px; height: 2px; background: white; box-shadow: 0 0 4px rgba(0,0,0,0.5); }
+0x000020b1	0x3c0c20b1	0	163	        .crosshair::after { content: ''; position: absolute; top: 0; left: 9px; width: 2px; height: 20px; background: white; box-shadow: 0 0 4px rgba(0,0,0,0.5); }
+0x00002183	0x3c0c2183	0	86	            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+0x00002415	0x3c0c2415	0	24	        .controls-area {
+0x000029fb	0x3c0c29fb	0	68	        .d-up { top: 15px; left: 50%; transform: translateX(-50%); }
+0x00002a40	0x3c0c2a40	0	73	        .d-down { bottom: 15px; left: 50%; transform: translateX(-50%); }
+0x00002a8a	0x3c0c2a8a	0	70	        .d-left { left: 15px; top: 50%; transform: translateY(-50%); }
+0x00002ad1	0x3c0c2ad1	0	72	        .d-right { right: 15px; top: 50%; transform: translateY(-50%); }
+0x00002b2f	0x3c0c2b2f	0	67	            top: 50%; left: 50%; transform: translate(-50%, -50%); 
+0x00002d98	0x3c0c2d98	0	81	        .btn-y { top: 10px; left: 50%; transform: translateX(-50%); } /* Float */
+0x00002dea	0x3c0c2dea	0	83	        .btn-a { bottom: 10px; left: 50%; transform: translateX(-50%); } /* Dive */
+0x00002e3e	0x3c0c2e3e	0	80	        .btn-x { left: 10px; top: 50%; transform: translateY(-50%); } /* Pump */
+0x00002e8f	0x3c0c2e8f	0	82	        .btn-b { right: 10px; top: 50%; transform: translateY(-50%); } /* Reset */
+0x00002f29	0x3c0c2f29	0	85	            position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%);
+0x000034a5	0x3c0c34a5	0	66	        .unit { font-size: 10px; opacity: 0.7; margin-left: 2px; }
+0x0000351b	0x3c0c351b	0	79	            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+0x000035b6	0x3c0c35b6	0	72	            border-radius: 4px; border-left: 3px solid var(--dji-green);
+0x000036ce	0x3c0c36ce	0	211	        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+0x00003c88	0x3c0c3c88	0	29	            .controls-area { 
+0x00003e17	0x3c0c3e17	0	57	        <img id="videoStream" src="" alt="Connecting...">
+0x00003ecb	0x3c0c3ecb	0	37	            <div class="status-left">
+0x0000402c	0x3c0c402c	0	35	                <div>ROBOFISH</div>
+0x00004050	0x3c0c4050	0	118	                <div id="version-display" style="font-size: 10px; opacity: 0.5; margin-top: 2px;">v4.0.0 Partner</div>
+0x000040da	0x3c0c40da	0	38	            <div class="status-right">
+0x000041e3	0x3c0c41e3	0	68	                <div class="settings-btn" onclick="openWifiModal()">
+0x0000437a	0x3c0c437a	0	35	        <div class="controls-area">
+0x000043eb	0x3c0c43eb	0	227	                <button class="stick-btn dpad-btn d-up" onmousedown="send('forward')" onmouseup="send('stop')" ontouchstart="send('forward'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">
+0x000044db	0x3c0c44db	0	231	                <button class="stick-btn dpad-btn d-down" onmousedown="send('backward')" onmouseup="send('stop')" ontouchstart="send('backward'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">
+0x000045cf	0x3c0c45cf	0	223	                <button class="stick-btn dpad-btn d-left" onmousedown="send('left')" onmouseup="send('stop')" ontouchstart="send('left'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">
+0x000046bb	0x3c0c46bb	0	226	                <button class="stick-btn dpad-btn d-right" onmousedown="send('right')" onmouseup="send('stop')" ontouchstart="send('right'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">
+0x00004889	0x3c0c4889	0	33	                <!-- Y: Float -->
+0x000048ab	0x3c0c48ab	0	112	                <button class="stick-btn action-btn btn-y" onclick="send('float')" oncontextmenu="return false">
+0x0000491c	0x3c0c491c	0	89	                    <span class="btn-letter">Y</span><span class="btn-label">Float</span>
+0x00004990	0x3c0c4990	0	32	                <!-- A: Dive -->
+0x000049b1	0x3c0c49b1	0	111	                <button class="stick-btn action-btn btn-a" onclick="send('dive')" oncontextmenu="return false">
+0x00004a21	0x3c0c4a21	0	88	                    <span class="btn-letter">A</span><span class="btn-label">Dive</span>
+0x00004a94	0x3c0c4a94	0	32	                <!-- X: Pump -->
+0x00004ab5	0x3c0c4ab5	0	111	                <button class="stick-btn action-btn btn-x" onclick="send('pump')" oncontextmenu="return false">
+0x00004b25	0x3c0c4b25	0	88	                    <span class="btn-letter">X</span><span class="btn-label">Pump</span>
+0x00004d75	0x3c0c4d75	0	115	            <button class="pill-btn" id="demoBtn" onclick="send('demo')" oncontextmenu="return false">DEMO</button>
+0x00004de9	0x3c0c4de9	0	121	            <button class="pill-btn" onclick="location.href='/partner'" oncontextmenu="return false">PARTNER LAB</button>
+0x000051c3	0x3c0c51c3	0	13	    <!-- WiFi
+0x000051de	0x3c0c51de	0	38	    <div id="wifiModal" class="modal">
+0x00005239	0x3c0c5239	0	16	 WiFi Setup</h3>
+0x00005270	0x3c0c5270	0	96	                <input type="text" id="ssid" class="input-field" placeholder="WiFi Name (SSID)">
+0x0000530a	0x3c0c530a	0	88	                <input type="text" id="pass" class="input-field" placeholder="Password">
+0x0000539b	0x3c0c539b	0	123	                <button class="modal-btn btn-close" onclick="closeWifiModal()" oncontextmenu="return false">Cancel</button>
+0x00005417	0x3c0c5417	0	124	                <button class="modal-btn btn-save" onclick="saveWifi()" oncontextmenu="return false">Save & Restart</button>
+0x000054e7	0x3c0c54e7	0	153	                <button class="modal-btn btn-save" onclick="closeWifiModal(); openOtaModal();" style="background: #3498db;" oncontextmenu="return false">
+0x000055d2	0x3c0c55d2	0	12	    <!-- OTA
+0x000055f2	0x3c0c55f2	0	37	    <div id="otaModal" class="modal">
+0x0000564c	0x3c0c564c	0	4	 OTA
+0x00005688	0x3c0c5688	0	69	                <input type="password" id="otaPassword" placeholder="
+0x00005975	0x3c0c5975	0	73	            <div id="otaProgress" style="display: none; margin: 15px 0;">
+0x00005a11	0x3c0c5a11	0	149	                    <div id="otaProgressBar" style="background: #2ecc71; height: 20px; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
+0x00005abe	0x3c0c5abe	0	112	                <div id="otaProgressText" style="text-align: center; margin-top: 5px; font-size: 12px;">0%</div>
+0x00005b67	0x3c0c5b67	0	122	                <button class="modal-btn btn-close" onclick="closeOtaModal()" oncontextmenu="return false">Cancel</button>
+0x00005be2	0x3c0c5be2	0	134	                <button class="modal-btn btn-save" id="otaUploadBtn" onclick="uploadFirmware()" disabled oncontextmenu="return false">
+0x00005cd4	0x3c0c5cd4	0	125	                <button class="modal-btn btn-close" onclick="closeOtaModal(); openWifiModal();" oncontextmenu="return false">
+0x00005d57	0x3c0c5d57	0	4	WiFi
+0x00005d99	0x3c0c5d99	0	12	    <script>
+0x00005f6b	0x3c0c5f6b	0	33	        let isPumpActive = false;
+0x00006032	0x3c0c6032	0	70	            t.style.borderLeftColor = isError ? '#e74c3c' : '#2ecc71';
+0x000060a0	0x3c0c60a0	0	61	            setTimeout(() => t.style.display = 'none', 2000);
+0x000061f9	0x3c0c61f9	0	9	+TLS/WiFi
+0x000062f6	0x3c0c62f6	0	5	 CPG 
+0x0000681b	0x3c0c681b	0	35	            if(action === 'pump') {
+0x0000683f	0x3c0c683f	0	44	               isPumpActive = !isPumpActive;
+0x0000686c	0x3c0c686c	0	48	               const val = isPumpActive ? 1 : 0;
+0x0000689d	0x3c0c689d	0	52	               url = '/control?var=pump&val=' + val;
+0x000068d2	0x3c0c68d2	0	60	               name = isPumpActive ? 'Pump ON' : 'Pump OFF';
+0x0000694d	0x3c0c694d	0	33	               if(isPumpActive) {
+0x00006b2d	0x3c0c6b2d	0	75	                   'forward': {var:'servo_forward', val:1, name:'Forward'},
+0x00006b79	0x3c0c6b79	0	78	                   'backward': {var:'servo_backward', val:1, name:'Backward'},
+0x00006bc8	0x3c0c6bc8	0	66	                   'stop': {var:'servo_stop', val:1, name:'Stop'},
+0x00006c0b	0x3c0c6c0b	0	71	                   'left': {var:'servo_left', val:1, name:'Left Turn'},
+0x00006c53	0x3c0c6c53	0	74	                   'right': {var:'servo_right', val:1, name:'Right Turn'},
+0x00006c9e	0x3c0c6c9e	0	75	                   'float': {var:'pitch', val:45, name:'Pitch Up (Float)'},
+0x00006cea	0x3c0c6cea	0	76	                   'dive': {var:'pitch', val:135, name:'Pitch Down (Dive)'},
+0x00006d37	0x3c0c6d37	0	70	                   'reset': {var:'pitch', val:90, name:'Pitch Reset'},
+0x00006dc2	0x3c0c6dc2	0	59	                   'demo': {var:'demo', val:1, name:'Demo'}
+0x00006e31	0x3c0c6e31	0	87	                   url = '/control?var=' + map[action].var + '&val=' + map[action].val;
+0x00006f18	0x3c0c6f18	0	64	            if (action === 'forward' || action === 'backward' ||
+0x00006f59	0x3c0c6f59	0	64	                action === 'left'    || action === 'right'    ||
+0x000070ab	0x3c0c70ab	0	53	            if (demoRunning && action !== 'demo' && (
+0x000070e1	0x3c0c70e1	0	64	                action === 'forward' || action === 'backward' ||
+0x00007122	0x3c0c7122	0	64	                action === 'left'    || action === 'right'    ||
+0x000071a4	0x3c0c71a4	0	64	                action === 'float'   || action === 'dive'     ||
+0x000071e5	0x3c0c71e5	0	61	                action === 'reset'   || action === 'pump')) {
+0x00007223	0x3c0c7223	0	36	                demoRunning = false;
+0x00007248	0x3c0c7248	0	40	                setDemoBtnActive(false);
+0x00007271	0x3c0c7271	0	77	                if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; }
+0x0000737f	0x3c0c737f	0	35	                    // mode / demo 
+0x000073ce	0x3c0c73ce	0	93	                    return (action === 'mode' || action === 'demo') ? response.text() : null;
+0x0000755f	0x3c0c755f	0	90	                        setTimeout(() => modeBadge.style.color = 'var(--dji-green)', 500);
+0x000075f7	0x3c0c75f7	0	59	                    } else if (action === 'demo' && text) {
+0x00007633	0x3c0c7633	0	49	                        handleDemoResponse(text);
+0x000077bc	0x3c0c77bc	0	33	        // ---------------- Demo 
+0x00007812	0x3c0c7812	0	15	 DEMO_TOTAL_MS 
+0x00007861	0x3c0c7861	0	62	        const DEMO_TOTAL_MS = 4000 + 3500 + 4000 + 1200 + 400;
+0x000078a0	0x3c0c78a0	0	32	        let demoRunning = false;
+0x000078c1	0x3c0c78c1	0	29	        let demoTimer = null;
+0x000078e0	0x3c0c78e0	0	43	        function setDemoBtnActive(active) {
+0x0000790c	0x3c0c790c	0	59	            const btn = document.getElementById('demoBtn');
+0x00007a21	0x3c0c7a21	0	40	                btn.textContent = 'DEMO 
+0x00007ae1	0x3c0c7ae1	0	41	                btn.textContent = 'DEMO';
+0x00007b24	0x3c0c7b24	0	43	        function handleDemoResponse(text) {
+0x00007b50	0x3c0c7b50	0	42	            if (text === 'DEMO_STARTED') {
+0x00007b7b	0x3c0c7b7b	0	35	                demoRunning = true;
+0x00007b9f	0x3c0c7b9f	0	39	                setDemoBtnActive(true);
+0x00007c1c	0x3c0c7c1c	0	55	                if (demoTimer) clearTimeout(demoTimer);
+0x00007c54	0x3c0c7c54	0	46	                demoTimer = setTimeout(() => {
+0x00007c83	0x3c0c7c83	0	40	                    demoRunning = false;
+0x00007cac	0x3c0c7cac	0	44	                    setDemoBtnActive(false);
+0x00007cd9	0x3c0c7cd9	0	34	                }, DEMO_TOTAL_MS);
+0x00007cfc	0x3c0c7cfc	0	51	            } else if (text === 'DEMO_CANCELLED') {
+0x00007d30	0x3c0c7d30	0	36	                demoRunning = false;
+0x00007d55	0x3c0c7d55	0	40	                setDemoBtnActive(false);
+0x00007d7e	0x3c0c7d7e	0	77	                if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; }
+0x00007dfa	0x3c0c7dfa	0	58	            } else if (text === 'DEMO_BLOCKED_FAILSAFE') {
+0x00007e98	0x3c0c7e98	0	16	        // WiFi 
+0x00007eb5	0x3c0c7eb5	0	97	        function openWifiModal() { document.getElementById('wifiModal').style.display = 'flex'; }
+0x00007f17	0x3c0c7f17	0	98	        function closeWifiModal() { document.getElementById('wifiModal').style.display = 'none'; }
+0x00007f7a	0x3c0c7f7a	0	29	        function saveWifi() {
+0x00007f98	0x3c0c7f98	0	60	            const s = document.getElementById('ssid').value;
+0x00008012	0x3c0c8012	0	61	            if(!s) { alert('SSID cannot be empty'); return; }
+0x0000805d	0x3c0c805d	0	47	            showToast('Saving WiFi...', false);
+0x0000808d	0x3c0c808d	0	96	            fetch('/save_wifi?ssid=' + encodeURIComponent(s) + '&pass=' + encodeURIComponent(p))
+0x00008150	0x3c0c8150	0	37	                    closeWifiModal();
+0x00008189	0x3c0c8189	0	56	                .catch(e => alert('Error saving WiFi'));
+0x000081cd	0x3c0c81cd	0	15	        // OTA 
+0x00008212	0x3c0c8212	0	34	        function openOtaModal() { 
+0x00008235	0x3c0c8235	0	71	            document.getElementById('otaModal').style.display = 'flex';
+0x0000827d	0x3c0c827d	0	74	            document.getElementById('otaProgress').style.display = 'none';
+0x000082c8	0x3c0c82c8	0	73	            document.getElementById('otaProgressBar').style.width = '0%';
+0x00008312	0x3c0c8312	0	74	            document.getElementById('otaProgressText').textContent = '0%';
+0x00008367	0x3c0c8367	0	35	        function closeOtaModal() { 
+0x0000838b	0x3c0c838b	0	71	            document.getElementById('otaModal').style.display = 'none';
+0x000083fc	0x3c0c83fc	0	62	            document.getElementById('otaPassword').value = '';
+0x000084cc	0x3c0c84cc	0	68	            document.getElementById('otaUploadBtn').disabled = true;
+0x000086da	0x3c0c86da	0	73	                document.getElementById('otaUploadBtn').disabled = false;
+0x000087e2	0x3c0c87e2	0	77	            const otaPassword = document.getElementById('otaPassword').value;
+0x00008830	0x3c0c8830	0	31	            if (!otaPassword) {
+0x000088b0	0x3c0c88b0	0	75	            document.getElementById('otaProgress').style.display = 'block';
+0x000088fc	0x3c0c88fc	0	68	            document.getElementById('otaUploadBtn').disabled = true;
+0x00008941	0x3c0c8941	0	67	            document.getElementById('otaUploadBtn').textContent = '
+0x00008ae2	0x3c0c8ae2	0	71	                        const percent = (evt.loaded / evt.total) * 100;
+0x00008b2a	0x3c0c8b2a	0	94	                        document.getElementById('otaProgressBar').style.width = percent + '%';
+0x00008b89	0x3c0c8b89	0	107	                        document.getElementById('otaProgressText').textContent = Math.round(percent) + '%';
+0x00008d30	0x3c0c8d30	0	46	                                showToast('OTA
+0x00008d8d	0x3c0c8d8d	0	50	                                setTimeout(() => {
+0x00008e70	0x3c0c8e70	0	42	                                alert('OTA
+0x00008ed1	0x3c0c8ed1	0	89	                                document.getElementById('otaUploadBtn').disabled = false;
+0x00008f2b	0x3c0c8f2b	0	87	                                document.getElementById('otaUploadBtn').textContent = '
+0x00009046	0x3c0c9046	0	42	                            showToast('OTA
+0x000090d3	0x3c0c90d3	0	34	                        alert('OTA
+0x00009119	0x3c0c9119	0	81	                        document.getElementById('otaUploadBtn').disabled = false;
+0x0000916b	0x3c0c916b	0	79	                        document.getElementById('otaUploadBtn').textContent = '
+0x00009280	0x3c0c9280	0	77	                    document.getElementById('otaUploadBtn').disabled = false;
+0x000092ce	0x3c0c92ce	0	75	                    document.getElementById('otaUploadBtn').textContent = '
+0x00009350	0x3c0c9350	0	48	                xhr.open('POST', '/ota_upload');
+0x00009381	0x3c0c9381	0	81	                xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+0x000093d3	0x3c0c93d3	0	68	                xhr.setRequestHeader('X-OTA-Password', otaPassword);
+0x000094b0	0x3c0c94b0	0	32	        function startStream() {
+0x00009510	0x3c0c9510	0	63	            const img = document.getElementById('videoStream');
+0x00009565	0x3c0c9565	0	8	 stream 
+0x0000957f	0x3c0c957f	0	9	 control 
+0x00009593	0x3c0c9593	0	98	            const streamUrl = 'http://' + window.location.hostname + ':' + (port + 1) + '/stream';
+0x00009603	0x3c0c9603	0	32	            img.src = streamUrl;
+0x00009624	0x3c0c9624	0	67	            img.onload = () => { console.log('Stream connected'); }
+0x0000968a	0x3c0c968a	0	64	                console.log('Stream disconnected, retrying...');
+0x000096cb	0x3c0c96cb	0	86	                setTimeout(() => { img.src = streamUrl + '?t=' + Date.now(); }, 2000);
+0x0000988c	0x3c0c988c	0	98	                        ipDisplay.textContent = 'IP: ' + data.sta_ip + ' (' + data.sta_ssid + ')';
+0x00009a4c	0x3c0c9a4c	0	39	                    if (data.version) {
+0x00009a74	0x3c0c9a74	0	100	                        document.getElementById('version-display').textContent = 'v' + data.version;
+0x00009bd5	0x3c0c9bd5	0	26	            startStream();
+0x0000a050	0x3c0ca050	0	76	                if (lastAction === 'forward' || lastAction === 'backward' ||
+0x0000a09d	0x3c0ca09d	0	73	                    lastAction === 'left'    || lastAction === 'right') {
+0x0000a668	0x3c0ca668	0	13	    </script>
+0x0000a687	0x3c0ca687	0	50	{"success":true,"message":"Script safely stopped"}
+0x0000a710	0x3c0ca710	0	5	/gpio
+0x0000a71f	0x3c0ca71f	0	28	Script must be 1..3500 bytes
+0x0000a7a2	0x3c0ca7a2	0	55	{"success":true,"message":"Script validated and saved"}
+0x0000a806	0x3c0ca806	0	89	{"sta_connected":%d,"sta_ip":"%s","sta_ssid":"%s","ap_ip":"%s","version":"4.0.0-partner"}
+0x0000a860	0x3c0ca860	0	32	Saving WiFi Credentials: SSID=%s
+0x0000a88d	0x3c0ca88d	0	24	WiFi Saved. Rebooting...
+0x0000a95c	0x3c0ca95c	0	16	"brightness":%d,
+0x0000aa9f	0x3c0caa9f	0	14	X-OTA-Password
+0x0000aae6	0x3c0caae6	0	33	{"error":"OTA password required"}
+0x0000ab6d	0x3c0cab6d	0	32	{"error":"Invalid OTA password"}
+0x0000ac33	0x3c0cac33	0	35	{"error":"OTA partition not found"}
+0x0000ac91	0x3c0cac91	0	28	{"error":"OTA begin failed"}
+0x0000ad83	0x3c0cad83	0	33	{"error":"OTA validation failed"}
+0x0000adeb	0x3c0cadeb	0	14	========== OTA
+0x0000ae27	0x3c0cae27	0	64	{"success":true,"message":"OTA update successful, rebooting..."}
+0x0000afd0	0x3c0cafd0	0	10	brightness
+0x0000b07d	0x3c0cb07d	0	13	servo_forward
+0x0000b0a1	0x3c0cb0a1	0	14	servo_backward
+0x0000b0b0	0x3c0cb0b0	0	10	servo_left
+0x0000b0bb	0x3c0cb0bb	0	11	servo_right
+0x0000b0c7	0x3c0cb0c7	0	10	servo_stop
+0x0000b0d2	0x3c0cb0d2	0	5	pitch
+0x0000b0d8	0x3c0cb0d8	0	4	pump
+0x0000b0dd	0x3c0cb0dd	0	4	demo
+0x0000b0ef	0x3c0cb0ef	0	6	/gpio/
+0x0000b145	0x3c0cb145	0	10	/save_wifi
+0x0000b16e	0x3c0cb16e	0	11	/ota_upload
+0x0000b17a	0x3c0cb17a	0	8	/partner
+0x0000b183	0x3c0cb183	0	15	/partner_script
+0x0000b193	0x3c0cb193	0	12	/partner_run
+0x0000b1a0	0x3c0cb1a0	0	13	/partner_stop
+0x0000b1ae	0x3c0cb1ae	0	15	/partner_status
+0x0000b1c6	0x3c0cb1c6	0	8	/control
+0x0000b1d8	0x3c0cb1d8	0	7	/stream
+0x0000b207	0x3c0cb207	0	33	Script size must be 1..3500 bytes
+0x0000b229	0x3c0cb229	0	14	Partner script
+0x0000b394	0x3c0cb394	0	11	mode_bionic
+0x0000b3a0	0x3c0cb3a0	0	9	mode_prop
+0x0000b3aa	0x3c0cb3aa	0	11	mode_hybrid
+0x0000b3b6	0x3c0cb3b6	0	7	pump_on
+0x0000b3be	0x3c0cb3be	0	8	pump_off
+0x0000b417	0x3c0cb417	0	27	pitch angle must be 45..135
+0x0000b4c4	0x3c0cb4c4	0	38	pump_on duration_ms must be 100..10000
+0x0000b4eb	0x3c0cb4eb	0	38	pitch duration_ms must be at least 100
+0x0000b579	0x3c0cb579	0	35	Total duration must be 1..300000 ms
+0x0000b59d	0x3c0cb59d	0	11	partner_cfg
+0x0000b5a9	0x3c0cb5a9	0	26	Stored script is too large
+0x0000b5c4	0x3c0cb5c4	0	53	[PARTNER] Stored script invalid (%s); loading default
+0x0000b5fb	0x3c0cb5fb	0	45	[PARTNER] Internal default script invalid: %s
+0x0000b62a	0x3c0cb62a	0	43	[PARTNER] Loaded '%s' (%u steps, repeat %u)
+0x0000b657	0x3c0cb657	0	24	[PARTNER] Script stopped
+0x0000b68f	0x3c0cb68f	0	40	Cannot save script to persistent storage
+0x0000b6b8	0x3c0cb6b8	0	31	[PARTNER] Saved '%s' (%u steps)
+0x0000b6d9	0x3c0cb6d9	0	22	No valid script loaded
+0x0000b710	0x3c0cb710	0	22	[PARTNER] Started '%s'
+0x0000b728	0x3c0cb728	0	24	[PARTNER] Completed '%s'
+0x0000b74d	0x3c0cb74d	0	114	{"version":"4.0.0-partner","running":%s,"name":"%s","step":%u,"steps":%u,"pass":%u,"repeat":%u,"remaining_ms":%lu}
+0x0000b990	0x3c0cb990	0	4	GPIO
+0x0000bc18	0x3c0cbc18	0	96	//Users/weikun/Library/Arduino15/packages/esp32/hardware/esp32/3.3.7/cores/esp32/esp32-hal-rmt.c
+0x0000bca1	0x3c0cbca1	0	96	/Users/weikun/Library/Arduino15/packages/esp32/hardware/esp32/3.3.7/cores/esp32/esp32-hal-uart.c
+0x0000bd1e	0x3c0cbd1e	0	8	loopTask
+0x0000bd64	0x3c0cbd64	0	38	  Total Size        : %8u B (%6.1f KB)
+0x0000bf2e	0x3c0cbf2e	0	24	  Cores             : %d
+0x0000bfd7	0x3c0cbfd7	0	24	  2.4GHz WiFi       : %s
+0x0000c1cc	0x3c0cc1cc	0	18	, subtype: OTA_%lu
+0x0000c222	0x3c0cc222	0	8	COREDUMP
+0x0000c22b	0x3c0cc22b	0	8	NVS_KEYS
+0x0000c254	0x3c0cc254	0	6	SPIFFS
+0x0000c25b	0x3c0cc25b	0	8	LITTLEFS
+0x0000c2c7	0x3c0cc2c7	0	24	  ESP-IDF Version   : %s
+0x0000c2e7	0x3c0cc2e7	0	24	  Arduino Version   : %s
+0x0000c34f	0x3c0cc34f	0	288	esp32:esp32:XIAO_ESP32S3:UploadSpeed=921600,USBMode=hwcdc,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=8M,PartitionScheme=default_8MB,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default
+0x0000c4e2	0x3c0cc4e2	0	10	GPIO Info:
+0x0000c4ee	0x3c0cc4ee	0	33	  GPIO : BUS_TYPE[bus/unit][chan]
+0x0000c58f	0x3c0cc58f	0	17	GPIO number error
+0x0000c5a1	0x3c0cc5a1	0	53	GPIO number error (input-only pad has no internal PU)
+0x0000c5d7	0x3c0cc5d7	0	53	GPIO number error (input-only pad has no internal PD)
+0x0000c60d	0x3c0cc60d	0	25	GPIO interrupt type error
+0x0000c627	0x3c0cc627	0	26	GPIO output gpio_num error
+0x0000c642	0x3c0cc642	0	20	GPIO pull mode error
+0x0000c657	0x3c0cc657	0	32	E (%lu) %s: GPIO_PIN mask error 
+0x0000c6a7	0x3c0cc6a7	0	11	esp_ota_ops
+0x0000c6b3	0x3c0cc6b3	0	29	E (%lu) %s: not found otadata
+0x0000c6d2	0x3c0cc6d2	0	41	E (%lu) %s: mmap otadata filed. Err=0x%8x
+0x0000c724	0x3c0cc724	0	41	//IDF/components/app_update/esp_ota_ops.c
+0x0000c77c	0x3c0cc77c	0	72	E (%lu) %s: OTA image has invalid magic byte (expected 0xE9, saw 0x%02x)
+0x0000c86b	0x3c0cc86b	0	69	ota_app_count < 16 && "must erase the partition before writing to it"
+0x0000c93b	0x3c0cc93b	0	76	E (%lu) %s: Running app has not confirmed state (ESP_OTA_IMG_PENDING_VERIFY)
+0x0000d49d	0x3c0cd49d	0	39	esp_task_stack_is_sane_cache_disabled()
+0x0000d503	0x3c0cd503	0	70	!(xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED && cpuid != 0)
+0x0000d586	0x3c0cd586	0	25	cpuid == xPortGetCoreID()
+0x0000d625	0x3c0cd625	0	28	Guru Meditation Error: Core 
+0x0000d693	0x3c0cd693	0	58	Re-entered core dump! Exception happened during core dump!
+0x0000d71f	0x3c0cd71f	0	8	task_wdt
+0x0000d728	0x3c0cd728	0	55	E (%lu) %s: %s(%d): task watchdog was never initialized
+0x0000d761	0x3c0cd761	0	46	E (%lu) %s: %s(%d): task is already subscribed
+0x0000d7c1	0x3c0cd7c1	0	34	E (%lu) %s: %s(%d): task not found
+0x0000d82e	0x3c0cd82e	0	47	//IDF/components/esp_system/task_wdt/task_wdt.c
+0x0000d85e	0x3c0cd85e	0	49	E (%lu) %s: Print CPU %d (current core) backtrace
+0x0000d8e5	0x3c0cd8e5	0	16	idle_task_handle
+0x0000d8f6	0x3c0cd8f6	0	34	esp_task_wdt_add(idle_task_handle)
+0x0000d919	0x3c0cd919	0	63	esp_register_freertos_idle_hook_for_cpu(idle_hook_cb, core_num)
+0x0000d9f4	0x3c0cd9f4	0	90	Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+0x0000daaa	0x3c0cdaaa	0	95	E (%lu) %s: Running on single core variant of a chip, but app is built with multi-core support.
+0x0000db0b	0x3c0cdb0b	0	71	E (%lu) %s: Check that CONFIG_FREERTOS_UNICORE is enabled in menuconfig
+0x0000de5e	0x3c0cde5e	0	29	Interrupt wdt timeout on CPU0
+0x0000de7c	0x3c0cde7c	0	29	Interrupt wdt timeout on CPU1
+0x0000e0a2	0x3c0ce0a2	0	46	E (%lu) %s: %s(%d): Task snapshot alloc failed
+0x0000e2d9	0x3c0ce2d9	0	41	core_id < CONFIG_FREERTOS_NUMBER_OF_CORES
+0x0000e303	0x3c0ce303	0	43	//IDF/components/esp_system/crosscore_int.c
+0x0000e3ec	0x3c0ce3ec	0	15	ESP_ERR_TIMEOUT
+0x0000e429	0x3c0ce429	0	23	ESP_ERR_INVALID_VERSION
+0x0000e47e	0x3c0ce47e	0	16	ESP_ERR_NVS_BASE
+0x0000e48f	0x3c0ce48f	0	27	ESP_ERR_NVS_NOT_INITIALIZED
+0x0000e4ab	0x3c0ce4ab	0	21	ESP_ERR_NVS_NOT_FOUND
+0x0000e4c1	0x3c0ce4c1	0	25	ESP_ERR_NVS_TYPE_MISMATCH
+0x0000e4db	0x3c0ce4db	0	21	ESP_ERR_NVS_READ_ONLY
+0x0000e4f1	0x3c0ce4f1	0	28	ESP_ERR_NVS_NOT_ENOUGH_SPACE
+0x0000e50e	0x3c0ce50e	0	24	ESP_ERR_NVS_INVALID_NAME
+0x0000e527	0x3c0ce527	0	26	ESP_ERR_NVS_INVALID_HANDLE
+0x0000e542	0x3c0ce542	0	25	ESP_ERR_NVS_REMOVE_FAILED
+0x0000e55c	0x3c0ce55c	0	24	ESP_ERR_NVS_KEY_TOO_LONG
+0x0000e575	0x3c0ce575	0	21	ESP_ERR_NVS_PAGE_FULL
+0x0000e58b	0x3c0ce58b	0	25	ESP_ERR_NVS_INVALID_STATE
+0x0000e5a5	0x3c0ce5a5	0	26	ESP_ERR_NVS_INVALID_LENGTH
+0x0000e5c0	0x3c0ce5c0	0	25	ESP_ERR_NVS_NO_FREE_PAGES
+0x0000e5da	0x3c0ce5da	0	26	ESP_ERR_NVS_VALUE_TOO_LONG
+0x0000e5f5	0x3c0ce5f5	0	26	ESP_ERR_NVS_PART_NOT_FOUND
+0x0000e610	0x3c0ce610	0	29	ESP_ERR_NVS_NEW_VERSION_FOUND
+0x0000e62e	0x3c0ce62e	0	27	ESP_ERR_NVS_XTS_ENCR_FAILED
+0x0000e64a	0x3c0ce64a	0	27	ESP_ERR_NVS_XTS_DECR_FAILED
+0x0000e666	0x3c0ce666	0	26	ESP_ERR_NVS_XTS_CFG_FAILED
+0x0000e681	0x3c0ce681	0	29	ESP_ERR_NVS_XTS_CFG_NOT_FOUND
+0x0000e69f	0x3c0ce69f	0	30	ESP_ERR_NVS_ENCR_NOT_SUPPORTED
+0x0000e6be	0x3c0ce6be	0	32	ESP_ERR_NVS_KEYS_NOT_INITIALIZED
+0x0000e6df	0x3c0ce6df	0	28	ESP_ERR_NVS_CORRUPT_KEY_PART
+0x0000e6fc	0x3c0ce6fc	0	27	ESP_ERR_NVS_CONTENT_DIFFERS
+0x0000e718	0x3c0ce718	0	28	ESP_ERR_NVS_WRONG_ENCRYPTION
+0x0000e7d5	0x3c0ce7d5	0	16	ESP_ERR_OTA_BASE
+0x0000e7e6	0x3c0ce7e6	0	30	ESP_ERR_OTA_PARTITION_CONFLICT
+0x0000e805	0x3c0ce805	0	31	ESP_ERR_OTA_SELECT_INFO_INVALID
+0x0000e825	0x3c0ce825	0	27	ESP_ERR_OTA_VALIDATE_FAILED
+0x0000e841	0x3c0ce841	0	25	ESP_ERR_OTA_SMALL_SEC_VER
+0x0000e85b	0x3c0ce85b	0	27	ESP_ERR_OTA_ROLLBACK_FAILED
+0x0000e877	0x3c0ce877	0	34	ESP_ERR_OTA_ROLLBACK_INVALID_STATE
+0x0000e97d	0x3c0ce97d	0	17	ESP_ERR_WIFI_BASE
+0x0000e98f	0x3c0ce98f	0	21	ESP_ERR_WIFI_NOT_INIT
+0x0000e9a5	0x3c0ce9a5	0	24	ESP_ERR_WIFI_NOT_STARTED
+0x0000e9be	0x3c0ce9be	0	24	ESP_ERR_WIFI_NOT_STOPPED
+0x0000e9d7	0x3c0ce9d7	0	15	ESP_ERR_WIFI_IF
+0x0000e9e7	0x3c0ce9e7	0	17	ESP_ERR_WIFI_MODE
+0x0000e9f9	0x3c0ce9f9	0	18	ESP_ERR_WIFI_STATE
+0x0000ea0c	0x3c0cea0c	0	17	ESP_ERR_WIFI_CONN
+0x0000ea1e	0x3c0cea1e	0	16	ESP_ERR_WIFI_NVS
+0x0000ea2f	0x3c0cea2f	0	16	ESP_ERR_WIFI_MAC
+0x0000ea40	0x3c0cea40	0	17	ESP_ERR_WIFI_SSID
+0x0000ea52	0x3c0cea52	0	21	ESP_ERR_WIFI_PASSWORD
+0x0000ea68	0x3c0cea68	0	20	ESP_ERR_WIFI_TIMEOUT
+0x0000ea7d	0x3c0cea7d	0	22	ESP_ERR_WIFI_WAKE_FAIL
+0x0000ea94	0x3c0cea94	0	24	ESP_ERR_WIFI_WOULD_BLOCK
+0x0000eaad	0x3c0ceaad	0	24	ESP_ERR_WIFI_NOT_CONNECT
+0x0000eac6	0x3c0ceac6	0	17	ESP_ERR_WIFI_POST
+0x0000ead8	0x3c0cead8	0	23	ESP_ERR_WIFI_INIT_STATE
+0x0000eaf0	0x3c0ceaf0	0	23	ESP_ERR_WIFI_STOP_STATE
+0x0000eb08	0x3c0ceb08	0	22	ESP_ERR_WIFI_NOT_ASSOC
+0x0000eb1f	0x3c0ceb1f	0	24	ESP_ERR_WIFI_TX_DISALLOW
+0x0000eb38	0x3c0ceb38	0	21	ESP_ERR_WIFI_TWT_FULL
+0x0000eb4e	0x3c0ceb4e	0	30	ESP_ERR_WIFI_TWT_SETUP_TIMEOUT
+0x0000eb6d	0x3c0ceb6d	0	29	ESP_ERR_WIFI_TWT_SETUP_TXFAIL
+0x0000eb8b	0x3c0ceb8b	0	29	ESP_ERR_WIFI_TWT_SETUP_REJECT
+0x0000eba9	0x3c0ceba9	0	20	ESP_ERR_WIFI_DISCARD
+0x0000ebbe	0x3c0cebbe	0	28	ESP_ERR_WIFI_ROC_IN_PROGRESS
+0x0000ebdb	0x3c0cebdb	0	22	ESP_ERR_WIFI_REGISTRAR
+0x0000ebf2	0x3c0cebf2	0	21	ESP_ERR_WIFI_WPS_TYPE
+0x0000ec08	0x3c0cec08	0	19	ESP_ERR_WIFI_WPS_SM
+0x0000ed35	0x3c0ced35	0	24	ESP_ERR_DPP_AUTH_TIMEOUT
+0x0000ed67	0x3c0ced67	0	24	ESP_ERR_DPP_CONF_TIMEOUT
+0x0000ed92	0x3c0ced92	0	27	ESP_ERR_MESH_WIFI_NOT_START
+0x0000ee6a	0x3c0cee6a	0	20	ESP_ERR_MESH_TIMEOUT
+0x0000f21f	0x3c0cf21f	0	24	ESP_ERR_FLASH_OP_TIMEOUT
+0x0000f3c6	0x3c0cf3c6	0	25	ESP_ERR_HTTP_READ_TIMEOUT
+0x0000f4d7	0x3c0cf4d7	0	34	ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT
+0x0000f533	0x3c0cf533	0	40	ESP_ERR_ESP_TLS_SERVER_HANDSHAKE_TIMEOUT
+0x0000f898	0x3c0cf898	0	22	ESP_ERR_HTTPS_OTA_BASE
+0x0000f8af	0x3c0cf8af	0	29	ESP_ERR_HTTPS_OTA_IN_PROGRESS
+0x0000f9d7	0x3c0cf9d7	0	18	ESP_ERR_HTTPD_TASK
+0x0000fe57	0x3c0cfe57	0	51	//IDF/components/heap/tlsf/tlsf_control_functions.h
+0x0000fe8b	0x3c0cfe8b	0	97	block_to_ptr(block) == align_ptr(block_to_ptr(block), ALIGN_SIZE) && "block not aligned properly"
+0x00010050	0x3c0d0050	0	65	ALIGN_SIZE == control->small_block_size / control->sl_index_count
+0x000106c6	0x3c0d06c6	0	23	gpio_num != GPIO_NUM_NC
+0x00010a66	0x3c0d0a66	0	68	core_id >= 0 && core_id < SOC_CPU_CORES_NUM && intr_desc_ret != NULL
+0x00010ae7	0x3c0d0ae7	0	31	esp_task_wdt_init(&twdt_config)
+0x00010cd9	0x3c0d0cd9	0	82	!( ( xTaskGetSchedulerState() == ( ( BaseType_t ) 0 ) ) && ( xTicksToWait != 0 ) )
+0x00010e66	0x3c0d0e66	0	23	uxTaskPriority < ( 25 )
+0x00010e7e	0x3c0d0e7e	0	49	//IDF/components/freertos/FreeRTOS-Kernel/tasks.c
+0x00010efc	0x3c0d0efc	0	21	xPortGetCoreID() == 0
+0x00010f12	0x3c0d0f12	0	117	( ( ( ( pxDelayedTaskList )->uxNumberOfItems == ( UBaseType_t ) 0 ) ? ( ( BaseType_t ) 1 ) : ( ( BaseType_t ) 0 ) ) )
+0x00010f88	0x3c0d0f88	0	38	xTaskScheduled == ( ( BaseType_t ) 1 )
+0x00010fca	0x3c0d0fca	0	56	uxSchedulerSuspended[ uxPendCore ] != ( UBaseType_t ) 0U
+0x00011003	0x3c0d1003	0	62	uxSchedulerSuspended[ xPendingListCore ] != ( UBaseType_t ) 0U
+0x00011042	0x3c0d1042	0	9	pxTimeOut
+0x00011071	0x3c0d1071	0	39	uxSchedulerSuspended[ xCurCoreID ] == 0
+0x000110b8	0x3c0d10b8	0	28	ppxTaskBuffer != ((void *)0)
+0x000110d5	0x3c0d10d5	0	126	( ( xTaskGetSchedulerState() == ( ( BaseType_t ) 0 ) ) ? ( ( BaseType_t ) 1 ) : ( ( BaseType_t ) 0 ) ) == ( ( BaseType_t ) 0 )
+0x00011154	0x3c0d1154	0	126	( ( xTaskGetSchedulerState() == ( ( BaseType_t ) 0 ) ) ? ( ( BaseType_t ) 1 ) : ( ( BaseType_t ) 0 ) ) == ( ( BaseType_t ) 1 )
+0x000111d3	0x3c0d11d3	0	42	pxTCB == pxCurrentTCBs[ xPortGetCoreID() ]
+0x00011213	0x3c0d1213	0	42	pxTCB != pxCurrentTCBs[ xPortGetCoreID() ]
+0x00011264	0x3c0d1264	0	13	xTaskToNotify
+0x000112d0	0x3c0d12d0	0	12	xCoreID != 0
+0x000112dd	0x3c0d12dd	0	68	//IDF/components/freertos/esp_additions/freertos_tasks_c_additions.h
+0x00011322	0x3c0d1322	0	187	( ( ( ( BaseType_t ) xCoreID ) >= 0 && ( ( BaseType_t ) xCoreID ) < 2 ) ? ( ( BaseType_t ) 1 ) : ( ( BaseType_t ) 0 ) ) == ( ( BaseType_t ) 1 ) || xCoreID == ( ( BaseType_t ) 0x7FFFFFFF )
+0x00011406	0x3c0d1406	0	35	xPortCheckValidTCBMem(pxTaskBuffer)
+0x0001145a	0x3c0d145a	0	143	( ( ( ( BaseType_t ) xCoreID ) >= 0 && ( ( BaseType_t ) xCoreID ) < 2 ) ? ( ( BaseType_t ) 1 ) : ( ( BaseType_t ) 0 ) ) == ( ( BaseType_t ) 1 )
+0x000114ea	0x3c0d14ea	0	45	( xIdleTaskHandle[ xCoreID ] != ((void *)0) )
+0x00011623	0x3c0d1623	0	101	pxTasksWaitingForBits->xListEnd.pxNext != ( const ListItem_t * ) &( pxTasksWaitingForBits->xListEnd )
+0x00011692	0x3c0d1692	0	63	E (%lu) %s: FreeRTOS Task "%s" should not return, Aborting now!
+0x00011750	0x3c0d1750	0	37	***ERROR*** A stack overflow in task 
+0x000117f1	0x3c0d17f1	0	42	eRunning != eTaskGetState( xTaskToDelete )
+0x00011874	0x3c0d1874	0	33	xCurrentTaskHandle != ((void *)0)
+0x00011896	0x3c0d1896	0	25	prvTaskDeleteWithCapsTask
+0x000118c3	0x3c0d18c3	0	56	E (%lu) %s: %s: Failed to suspend the task to be deleted
+0x000118fd	0x3c0d18fd	0	68	E (%lu) %s: %s: Failed to create the task to delete the current task
+0x00011c03	0x3c0d1c03	0	51	false && "Failed to find pthread for current task!"
+0x00012aca	0x3c0d2aca	0	39	E (%lu) %s: create task for loop failed
+0x00012c1b	0x3c0d2c1b	0	65	nvs::Page::SEC_SIZE == esp_partition_get_main_flash_sector_size()
+0x00012c5d	0x3c0d2c5d	0	47	esp_err_t nvs_flash_init_partition(const char*)
+0x00012c8d	0x3c0d2c8d	0	42	//IDF/components/nvs_flash/src/nvs_api.cpp
+0x00012ddc	0x3c0d2ddc	0	90	E (%lu) %s: %s: NVS has not been initialized. Call nvs_flash_init before starting WiFi/BT.
+0x00012e38	0x3c0d2e38	0	11	cal_version
+0x00012f8f	0x3c0d2f8f	0	54	E (%lu) %s: %s: store calibration version failed(0x%x)
+0x00012fc7	0x3c0d2fc7	0	57	E (%lu) %s: %s: store calibration nvs commit failed(0x%x)
+0x00013369	0x3c0d3369	0	42	Required to lock TCPIP core functionality!
+0x00013496	0x3c0d3496	0	32	failed to create lock_tcpip_core
+0x000134df	0x3c0d34df	0	40	/IDF/components/lwip/lwip/src/core/mem.c
+0x0001352d	0x3c0d352d	0	34	memp_malloc: memp properly aligned
+0x00013550	0x3c0d3550	0	41	/IDF/components/lwip/lwip/src/core/memp.c
+0x0001357a	0x3c0d357a	0	31	memp_free: mem properly aligned
+0x000135c6	0x3c0d35c6	0	42	/IDF/components/lwip/lwip/src/core/netif.c
+0x000138f8	0x3c0d38f8	0	41	/IDF/components/lwip/lwip/src/core/pbuf.c
+0x00013afc	0x3c0d3afc	0	40	/IDF/components/lwip/lwip/src/core/raw.c
+0x00013b7e	0x3c0d3b7e	0	40	/IDF/components/lwip/lwip/src/core/tcp.c
+0x00014048	0x3c0d4048	0	43	/IDF/components/lwip/lwip/src/core/tcp_in.c
+0x0001437c	0x3c0d437c	0	44	/IDF/components/lwip/lwip/src/core/tcp_out.c
+0x00014411	0x3c0d4411	0	48	tcp_output_control_segment_netif: no netif given
+0x0001488a	0x3c0d488a	0	60	sys_timeout: timeout != NULL, pool MEMP_SYS_TIMEOUT is empty
+0x000148c7	0x3c0d48c7	0	45	/IDF/components/lwip/lwip/src/core/timeouts.c
+0x000148f5	0x3c0d48f5	0	53	Timeout time too long, max is LWIP_UINT32_MAX/4 msecs
+0x00014950	0x3c0d4950	0	40	/IDF/components/lwip/lwip/src/core/udp.c
+0x00014a17	0x3c0d4a17	0	46	/IDF/components/lwip/lwip/src/core/ipv4/dhcp.c
+0x00014c59	0x3c0d4c59	0	48	/IDF/components/lwip/lwip/src/core/ipv4/etharp.c
+0x00014e02	0x3c0d4e02	0	46	/IDF/components/lwip/lwip/src/core/ipv4/icmp.c
+0x00014ed0	0x3c0d4ed0	0	46	/IDF/components/lwip/lwip/src/core/ipv4/igmp.c
+0x00014f72	0x3c0d4f72	0	45	/IDF/components/lwip/lwip/src/core/ipv4/ip4.c
+0x00014fe9	0x3c0d4fe9	0	51	//IDF/components/lwip/lwip/src/core/ipv4/ip4_napt.c
+0x0001501d	0x3c0d501d	0	50	/IDF/components/lwip/lwip/src/core/ipv4/ip4_addr.c
+0x00015070	0x3c0d5070	0	50	/IDF/components/lwip/lwip/src/core/ipv4/ip4_frag.c
+0x000150e5	0x3c0d50e5	0	47	/IDF/components/lwip/lwip/src/core/ipv6/dhcp6.c
+0x000151b0	0x3c0d51b0	0	47	/IDF/components/lwip/lwip/src/core/ipv6/icmp6.c
+0x00015230	0x3c0d5230	0	45	/IDF/components/lwip/lwip/src/core/ipv6/ip6.c
+0x000152a3	0x3c0d52a3	0	50	/IDF/components/lwip/lwip/src/core/ipv6/ip6_frag.c
+0x000152d6	0x3c0d52d6	0	46	/IDF/components/lwip/lwip/src/core/ipv6/mld6.c
+0x00015320	0x3c0d5320	0	45	/IDF/components/lwip/lwip/src/core/ipv6/nd6.c
+0x00015713	0x3c0d5713	0	44	LWIP_CORE_MARK_TCPIP_TASK: lwip_task == NULL
+0x00016694	0x3c0d6694	0	34	E (%lu) %s: %s: Connection timeout
+0x000166b8	0x3c0d66b8	0	28	E (%lu) %s: %s: Idle Timeout
+0x00016832	0x3c0d6832	0	20	esp_wpa3_hostap_task
+0x00016a2d	0x3c0d6a2d	0	9	wifi_init
+0x00016aea	0x3c0d6aea	0	10	WIFI_EVENT
+0x00016af5	0x3c0d6af5	0	17	wifi_init_default
+0x00016b07	0x3c0d6b07	0	43	E (%lu) %s: esp_wifi_get_mac failed with %d
+0x00016b34	0x3c0d6b34	0	62	E (%lu) %s: esp_wifi_register_if_rxcb for if=%p failed with %d
+0x00016ba0	0x3c0d6ba0	0	50	E (%lu) %s: Failed to create wifi interface handle
+0x00016bd4	0x3c0d6bd4	0	44	//IDF/components/esp_wifi/src/wifi_default.c
+0x00016c01	0x3c0d6c01	0	31	esp_netif_attach_wifi_ap(netif)
+0x00016c21	0x3c0d6c21	0	39	esp_wifi_set_default_wifi_ap_handlers()
+0x00016c49	0x3c0d6c49	0	36	esp_netif_attach_wifi_station(netif)
+0x00016c6e	0x3c0d6c6e	0	40	esp_wifi_set_default_wifi_sta_handlers()
+0x00016c97	0x3c0d6c97	0	10	wifi_netif
+0x00016ca2	0x3c0d6ca2	0	55	E (%lu) %s: No memory to create a wifi interface handle
+0x00016d31	0x3c0d6d31	0	43	E (%lu) %s: Unknown wifi interface id if=%d
+0x00016d5e	0x3c0d6d5e	0	63	E (%lu) %s: esp_wifi_internal_reg_rxcb for if=%d failed with %d
+0x00016d9f	0x3c0d6d9f	0	12	WIFI_STA_DEF
+0x00016e9a	0x3c0d6e9a	0	16	sc_ack_send_task
+0x00016eab	0x3c0d6eab	0	52	E (%lu) %s: Create sending smartconfig ACK task fail
+0x00016f2b	0x3c0d6f2b	0	17	BT Controller BSS
+0x00016f3d	0x3c0d6f3d	0	18	BT Controller Data
+0x000173a9	0x3c0d73a9	0	42	E (%lu) %s: %s(%d): invalid GPIO number %d
+0x00017b17	0x3c0d7b17	0	96	E (%lu) %s: %s(%d): no free transaction descriptor, please consider increasing trans_queue_depth
+0x00017eab	0x3c0d7eab	0	48	E (%lu) %s: %s(%d): gpio_num argument is invalid
+0x0001882b	0x3c0d882b	0	25	505 Version Not Supported
+0x00018845	0x3c0d8845	0	36	HTTP version not supported by server
+0x00018958	0x3c0d8958	0	19	408 Request Timeout
+0x00018aa6	0x3c0d8aa6	0	21	Sec-WebSocket-Version
+0x00018d16	0x3c0d8d16	0	48	E (%lu) %s: Core dump write failed with error=%d
+0x00018d5d	0x3c0d8d5d	0	51	//IDF/components/espcoredump/src/core_dump_common.c
+0x00018d91	0x3c0d8d91	0	73	E (%lu) %s: Core dump flash config is corrupted! CRC=0x%x instead of 0x%x
+0x00018e41	0x3c0d8e41	0	47	E (%lu) %s: Not enough space to save core dump!
+0x00018ed3	0x3c0d8ed3	0	41	E (%lu) %s: No core dump partition found!
+0x00018efe	0x3c0d8efe	0	42	E (%lu) %s: Too small core dump partition!
+0x00018f2a	0x3c0d8f2a	0	53	E (%lu) %s: Failed to erase core dump partition (%d)!
+0x00018f61	0x3c0d8f61	0	58	E (%lu) %s: Failed to write core dump partition size (%d)!
+0x00018f9d	0x3c0d8f9d	0	52	E (%lu) %s: Failed to read core dump data size (%d)!
+0x00018fd3	0x3c0d8fd3	0	49	E (%lu) %s: Incorrect size of core dump image: %d
+0x0001901a	0x3c0d901a	0	50	//IDF/components/espcoredump/src/core_dump_flash.c
+0x0001904d	0x3c0d904d	0	52	E (%lu) %s: Failed to read data from core dump (%d)!
+0x00019083	0x3c0d9083	0	56	E (%lu) %s: Failed to read checksum from core dump (%d)!
+0x000190bd	0x3c0d90bd	0	40	E (%lu) %s: Core dump data check failed:
+0x0001925b	0x3c0d925b	0	50	E (%lu) %s: Zero size register dump for task 0x%x!
+0x0001935b	0x3c0d935b	0	49	E (%lu) %s: Task (TCB:%x) processing failure = %d
+0x0001938e	0x3c0d938e	0	59	E (%lu) %s: %s(%u): Task %x, TCB write failed, return (%d).
+0x000193cb	0x3c0d93cb	0	69	E (%lu) %s: Task (TCB:%x), (Stack:%x), stack processing failure = %d.
+0x00019412	0x3c0d9412	0	61	E (%lu) %s: %s(%u): Task %x, stack write failed, return (%d).
+0x00019509	0x3c0d9509	0	65	E (%lu) %s: %s(%u): Task %x, PR_STATUS write failed, return (%d).
+0x0001959a	0x3c0d959a	0	60	E (%lu) %s: %s(%u): Tasks regs addition failed, return (%d).
+0x000195d8	0x3c0d95d8	0	69	E (%lu) %s: %s(%u): Interrupted task stack write failed, return (%d).
+0x00019708	0x3c0d9708	0	18	ESP_CORE_DUMP_INFO
+0x0001971b	0x3c0d971b	0	66	E (%lu) %s: %s(%u): Version info note write failed. Returned (%d).
+0x000198e6	0x3c0d98e6	0	63	E (%lu) %s: %s(%u): Version info writing failed. Returned (%d).
+0x0001994b	0x3c0d994b	0	53	E (%lu) %s: Failed to prepare core dump storage (%d)!
+0x00019982	0x3c0d9982	0	43	E (%lu) %s: Failed to start core dump (%d)!
+0x000199af	0x3c0d99af	0	50	E (%lu) %s: Failed to write core dump header (%d)!
+0x000199e3	0x3c0d99e3	0	41	E (%lu) %s: Failed to end core dump (%d)!
+0x00019a26	0x3c0d9a26	0	48	//IDF/components/espcoredump/src/core_dump_crc.c
+0x00019ad2	0x3c0d9ad2	0	61	//IDF/components/espcoredump/src/port/xtensa/core_dump_port.c
+0x00019b10	0x3c0d9b10	0	46	task != ((void *)0) && reg_dump != ((void *)0)
+0x00019d03	0x3c0d9d03	0	6	camera
+0x00019d0a	0x3c0d9d0a	0	46	E (%lu) %s: Camera init failed with error 0x%x
+0x00019d55	0x3c0d9d55	0	51	E (%lu) %s: Camera probe failed with error 0x%x(%s)
+0x00019dc3	0x3c0d9dc3	0	48	E (%lu) %s: Camera config failed with error 0x%x
+0x00019e1b	0x3c0d9e1b	0	42	E (%lu) %s: Detected camera not supported.
+0x00019fc9	0x3c0d9fc9	0	8	cam_task
+0x0001a2e5	0x3c0da2e5	0	53	E (%lu) %s: DMA interrupt allocation of camera failed
+0x0001a31c	0x3c0da31c	0	57	E (%lu) %s: LCD_CAM interrupt allocation of camera failed
+0x0001af8b	0x3c0daf8b	0	8	WIFI_NMI
+0x0001af94	0x3c0daf94	0	8	WIFI_PWR
+0x0001af9d	0x3c0daf9d	0	7	WIFI_BB
+0x0001affb	0x3c0daffb	0	8	GPIO_NMI
+0x0001b004	0x3c0db004	0	11	GPIO_INTR_2
+0x0001b010	0x3c0db010	0	10	GPIO_NMI_2
+0x0001b06b	0x3c0db06b	0	8	RTC_CORE
+0x0001b26e	0x3c0db26e	0	15	CORE0_IRAM0_PMS
+0x0001b27e	0x3c0db27e	0	15	CORE0_DRAM0_PMS
+0x0001b28e	0x3c0db28e	0	13	CORE0_PIF_PMS
+0x0001b29c	0x3c0db29c	0	18	CORE0_PIF_PMS_SIZE
+0x0001b2af	0x3c0db2af	0	15	CORE1_IRAM0_PMS
+0x0001b2bf	0x3c0db2bf	0	15	CORE1_DRAM0_PMS
+0x0001b2cf	0x3c0db2cf	0	13	CORE1_PIF_PMS
+0x0001b2dd	0x3c0db2dd	0	18	CORE1_PIF_PMS_SIZE
+0x0001b303	0x3c0db303	0	15	CACHE_CORE0_ACS
+0x0001b313	0x3c0db313	0	15	CACHE_CORE1_ACS
+0x0001b97b	0x3c0db97b	0	48	E (%lu) %s: %s(%d): channel is controlled by ETM
+0x0001b9b7	0x3c0db9b7	0	39	E (%lu) %s: Task is already initialized
+0x0001b9e0	0x3c0db9e0	0	50	E (%lu) %s: Not enough memory to create timer task
+0x0001bcae	0x3c0dbcae	0	11	WIFI_AP_DEF
+0x0001bd58	0x3c0dbd58	0	32	E (%lu) %s: I2C software timeout
+0x0001bd7a	0x3c0dbd7a	0	41	E (%lu) %s: I2C hardware timeout detected
+0x0001bda5	0x3c0dbda5	0	63	E (%lu) %s: I2C bus is still busy but software timeout detected
+0x0001bde6	0x3c0dbde6	0	44	E (%lu) %s: I2C transaction timeout detected
+0x0001c57c	0x3c0dc57c	0	99	E (%lu) %s: probe device timeout. Please check if xfer_timeout_ms and pull-ups are correctly set up
+0x0001c69b	0x3c0dc69b	0	47	E (%lu) %s: %s(%d): I2C empty controller handle
+0x0001cbec	0x3c0dcbec	0	34	stream ended at an unexpected time
+0x0001cc9f	0x3c0dcc9f	0	19	HPE_INVALID_VERSION
+0x0001ccb3	0x3c0dccb3	0	20	invalid HTTP version
+0x0001d00d	0x3c0dd00d	0	8	PROPFIND
+0x0001d016	0x3c0dd016	0	9	PROPPATCH
+0x0001e16c	0x3c0de16c	0	30	E (%lu) %s: No stream supplied
+0x0001e22d	0x3c0de22d	0	44	//IDF/components/mbedtls/port/sha/core/sha.c
+0x0001e52f	0x3c0de52f	0	56	//IDF/components/mbedtls/port/aes/dma/esp_aes_dma_core.c
+0x0001e568	0x3c0de568	0	39	stream_bytes == 0 || stream_out != NULL
+0x0001e844	0x3c0de844	0	76	coexist adapter function version error! Version %x is expected, but it is %x
+0x0001e8dc	0x3c0de8dc	0	25	coex firmware version: %s
+0x0001e926	0x3c0de926	0	22	coexist rom version %s
+0x0001eaa2	0x3c0deaa2	0	8	sta.ssid
+0x0001eadc	0x3c0deadc	0	9	bssid.set
+0x0001eae6	0x3c0deae6	0	9	sta.bssid
+0x0001ebb3	0x3c0debb3	0	7	ap.ssid
+0x0001ee79	0x3c0dee79	0	12	nvs.net80211
+0x0001eeed	0x3c0deeed	0	71	OS adapter function version error! Version %d is expected, but it is %x
+0x0001ef7b	0x3c0def7b	0	24	net80211 rom version: %s
+0x0001efa4	0x3c0defa4	0	15	WIFI_MESH_EVENT
+0x0001f18d	0x3c0df18d	0	18	pp rom version: %s
+0x0001f288	0x3c0df288	0	48	/IDF/components/lwip/lwip/src/core/ipv6/ethip6.c
+0x0001f747	0x3c0df747	0	37	  <title>RoboFish Partner Lab</title>
+0x0001fe27	0x3c0dfe27	0	123	    ul{padding-left:20px;color:var(--muted)}@media(max-width:760px){.grid{grid-template-columns:1fr}textarea{height:390px}}
+0x0001fec3	0x3c0dfec3	0	70	  <div class="top"><div><h1>RoboFish Partner Lab</h1><div class="sub">
+0x0001ff1e	0x3c0dff1e	0	59	 Firmware 4.0.0 Partner Edition</div></div><a href="/gpio">
+0x000200a1	0x3c0e00a1	0	91	      <textarea id="script" spellcheck="false" aria-label="Partner JSON script"></textarea>
+0x000200fd	0x3c0e00fd	0	71	      <div class="buttons"><button class="save" onclick="saveScript()">
+0x00020153	0x3c0e0153	0	51	</button><button class="run" onclick="runScript()">
+0x0002018c	0x3c0e018c	0	53	</button><button class="stop" onclick="stopScript()">
+0x00020293	0x3c0e0293	0	142	        <div class="chip">mode_bionic</div><div class="chip">mode_prop</div><div class="chip">mode_hybrid</div><div class="chip">forward</div>
+0x00020322	0x3c0e0322	0	125	        <div class="chip">backward</div><div class="chip">left</div><div class="chip">right</div><div class="chip">stop</div>
+0x000203a0	0x3c0e03a0	0	100	        <div class="chip">pitch</div><div class="chip">pump_on</div><div class="chip">pump_off</div>
+0x0002057f	0x3c0e057f	0	7	 pitch 
+0x000205d9	0x3c0e05d9	0	8	<script>
+0x000205e2	0x3c0e05e2	0	91	const editor=document.getElementById('script'),statusBox=document.getElementById('status');
+0x0002063e	0x3c0e063e	0	133	async function loadScript(){try{const r=await fetch('/partner_script',{cache:'no-store'});editor.value=await r.text()}catch(e){show('
+0x00020843	0x3c0e0843	0	189	async function saveScript(){try{JSON.parse(editor.value);const d=await api('/partner_script',{method:'POST',headers:{'Content-Type':'application/json'},body:editor.value});show(d.message||'
+0x0002093e	0x3c0e093e	0	82	async function runScript(){try{const d=await api('/partner_run');show(d.message||'
+0x000209ce	0x3c0e09ce	0	84	async function stopScript(){try{const d=await api('/partner_stop');show(d.message||'
+0x00020a66	0x3c0e0a66	0	174	async function poll(){try{const r=await fetch('/partner_status',{cache:'no-store'}),s=await r.json();statusBox.className='status '+(s.running?'ok':'');statusBox.textContent='
+0x00020bfc	0x3c0e0bfc	0	43	loadScript();poll();setInterval(poll,1000);
+0x00020c28	0x3c0e0c28	0	23	</script></body></html>
+0x00026d2e	0x3c0e6d2e	0	25	  "name": "Partner demo",
+0x00026d64	0x3c0e6d64	0	30	    {"action": "mode_bionic"},
+0x00026d83	0x3c0e6d83	0	60	    {"action": "forward", "power": 55, "duration_ms": 3000},
+0x00026dec	0x3c0e6dec	0	73	    {"action": "left", "power": 45, "strength": 40, "duration_ms": 1200},
+0x00026e36	0x3c0e6e36	0	59	    {"action": "pitch", "angle": 110, "duration_ms": 1200},
+0x00026fcb	0x3c0e6fcb	0	14	Bgpio_func_sel
+0x00026fda	0x3c0e6fda	0	18	gpio_sleep_sel_dis
+0x00026fed	0x3c0e6fed	0	17	gpio_iomux_output
+0x00026fff	0x3c0e6fff	0	16	gpio_iomux_input
+0x00027010	0x3c0e7010	0	18	gpio_input_disable
+0x00027023	0x3c0e7023	0	18	gpio_set_direction
+0x00027036	0x3c0e7036	0	18	gpio_set_pull_mode
+0x00027049	0x3c0e7049	0	14	gpio_set_level
+0x00027058	0x3c0e7058	0	14	gpio_od_enable
+0x00027067	0x3c0e7067	0	15	gpio_od_disable
+0x00027077	0x3c0e7077	0	18	gpio_output_enable
+0x0002708a	0x3c0e708a	0	19	gpio_output_disable
+0x0002709e	0x3c0e709e	0	17	gpio_input_enable
+0x000270b0	0x3c0e70b0	0	17	gpio_intr_disable
+0x000270c2	0x3c0e70c2	0	16	gpio_intr_enable
+0x000270d3	0x3c0e70d3	0	18	gpio_set_intr_type
+0x000270e6	0x3c0e70e6	0	17	gpio_pulldown_dis
+0x000270f8	0x3c0e70f8	0	16	gpio_pulldown_en
+0x00027109	0x3c0e7109	0	15	gpio_pullup_dis
+0x00027119	0x3c0e7119	0	14	gpio_pullup_en
+0x00027128	0x3c0e7128	0	15	rtc_gpio_deinit
+0x00027138	0x3c0e7138	0	33	esp_ota_get_next_update_partition
+0x0002715a	0x3c0e715a	0	29	esp_ota_get_running_partition
+0x00027178	0x3c0e7178	0	31	esp_ota_get_app_partition_count
+0x000275bc	0x3c0e75bc	0	13	%!"#$ipc_task
+0x00027608	0x3c0e7608	0	18	esp_task_wdt_reset
+0x00027625	0x3c0e7625	0	16	esp_task_wdt_add
+0x00027645	0x3c0e7645	0	12	task_wdt_isr
+0x00027652	0x3c0e7652	0	17	esp_task_wdt_init
+0x00027664	0x3c0e7664	0	22	task_wdt_timeout_abort
+0x00027830	0x3c0e7830	0	22	esp_crosscore_int_send
+0x00027847	0x3c0e7847	0	22	esp_crosscore_int_init
+0x00028c10	0x3c0e8c10	0	9	main_task
+0x00028dd6	0x3c0e8dd6	0	32	xTaskGetCurrentTaskHandleForCore
+0x00028df7	0x3c0e8df7	0	29	xTaskGetIdleTaskHandleForCore
+0x00028e15	0x3c0e8e15	0	29	xTaskCreateStaticPinnedToCore
+0x00028e33	0x3c0e8e33	0	20	prvInitialiseNewTask
+0x00028e48	0x3c0e8e48	0	23	xTaskCreatePinnedToCore
+0x00028e60	0x3c0e8e60	0	28	xTaskIncrementTickOtherCores
+0x00028e7d	0x3c0e8e7d	0	29	vTaskGenericNotifyGiveFromISR
+0x00028e9b	0x3c0e8e9b	0	18	xTaskGenericNotify
+0x00028eae	0x3c0e8eae	0	23	ulTaskGenericNotifyTake
+0x00028ec6	0x3c0e8ec6	0	35	vTaskPriorityDisinheritAfterTimeout
+0x00028eea	0x3c0e8eea	0	23	xTaskPriorityDisinherit
+0x00028f02	0x3c0e8f02	0	20	xTaskCheckForTimeOut
+0x00028f17	0x3c0e8f17	0	33	vTaskRemoveFromUnorderedEventList
+0x00028f39	0x3c0e8f39	0	24	xTaskRemoveFromEventList
+0x00028f52	0x3c0e8f52	0	31	vTaskPlaceOnEventListRestricted
+0x00028f72	0x3c0e8f72	0	30	vTaskPlaceOnUnorderedEventList
+0x00028f91	0x3c0e8f91	0	21	vTaskPlaceOnEventList
+0x00028fa7	0x3c0e8fa7	0	31	prvSelectHighestPriorityTaskSMP
+0x00028fc7	0x3c0e8fc7	0	18	xTaskIncrementTick
+0x00028fda	0x3c0e8fda	0	21	xTaskGetStaticBuffers
+0x00028ff0	0x3c0e8ff0	0	13	pcTaskGetName
+0x00028ffe	0x3c0e8ffe	0	14	xTaskResumeAll
+0x0002900d	0x3c0e900d	0	19	vTaskStartScheduler
+0x00029021	0x3c0e9021	0	12	vTaskSuspend
+0x00029044	0x3c0e9044	0	16	vTaskPrioritySet
+0x00029055	0x3c0e9055	0	13	eTaskGetState
+0x00029063	0x3c0e9063	0	10	vTaskDelay
+0x0002907b	0x3c0e907b	0	11	vTaskDelete
+0x00029158	0x3c0e9158	0	28	lock->owner == core_owner_id
+0x0002918c	0x3c0e918c	0	66	lock->owner == SPINLOCK_FREE || lock->owner == other_core_owner_id
+0x000291e4	0x3c0e91e4	0	28	core_owner_id == lock->owner
+0x000292af	0x3c0e92af	0	21	prvTaskDeleteWithCaps
+0x000292c5	0x3c0e92c5	0	19	vTaskDeleteWithCaps
+0x000292d9	0x3c0e92d9	0	30	vApplicationGetTimerTaskMemory
+0x000292f8	0x3c0e92f8	0	29	vApplicationGetIdleTaskMemory
+0x0002934a	0x3c0e934a	0	21	xTimerCreateTimerTask
+0x00029aa6	0x3c0e9aa6	0	28	store_cal_data_to_nvs_handle
+0x00029ac3	0x3c0e9ac3	0	29	load_cal_data_from_nvs_handle
+0x00029ae1	0x3c0e9ae1	0	30	esp_phy_load_cal_data_from_nvs
+0x00029e94	0x3c0e9e94	0	25	tcpip_timeouts_mbox_fetch
+0x0002a4c9	0x3c0ea4c9	0	32	tcp_output_control_segment_netif
+0x0002a601	0x3c0ea601	0	22	sys_timeouts_sleeptime
+0x0002a618	0x3c0ea618	0	18	sys_check_timeouts
+0x0002a62b	0x3c0ea62b	0	13	sys_untimeout
+0x0002a639	0x3c0ea639	0	11	sys_timeout
+0x0002a645	0x3c0ea645	0	15	sys_timeout_abs
+0x0002b8f7	0x3c0eb8f7	0	34	<esp_netif_create_default_wifi_sta
+0x0002b91a	0x3c0eb91a	0	32	esp_netif_create_default_wifi_ap
+0x0002bd35	0x3c0ebd35	0	31	esp_core_dump_get_user_ram_info
+0x0002bd77	0x3c0ebd77	0	21	`esp_core_dump_common
+0x0002bd8d	0x3c0ebd8d	0	25	esp_core_dump_image_check
+0x0002bda7	0x3c0ebda7	0	19	esp_core_dump_flash
+0x0002bdd5	0x3c0ebdd5	0	24	elf_write_core_dump_info
+0x0002bdee	0x3c0ebdee	0	29	elf_write_core_dump_user_data
+0x0002be0c	0x3c0ebe0c	0	20	elf_process_task_tcb
+0x0002be21	0x3c0ebe21	0	13	elf_save_task
+0x0002be5a	0x3c0ebe5a	0	21	elf_process_task_data
+0x0002bed4	0x3c0ebed4	0	22	elf_process_tasks_regs
+0x0002beeb	0x3c0ebeeb	0	20	elf_write_tasks_data
+0x0002bf16	0x3c0ebf16	0	31	esp_core_dump_do_write_elf_pass
+0x0002bf36	0x3c0ebf36	0	17	esp_core_dump_elf
+0x0002bf48	0x3c0ebf48	0	19	core_dump_crc_print
+0x0002bf5c	0x3c0ebf5c	0	17	esp_core_dump_crc
+0x0002bf6e	0x3c0ebf6e	0	32	esp_core_dump_get_task_regs_dump
+0x0002bf8f	0x3c0ebf8f	0	23	esp_core_dump_get_stack
+0x0002bfa7	0x3c0ebfa7	0	18	esp_core_dump_port
+0x00030853	0x3c0f0853	0	28	@esp_sha_block_mode_fallback
+0x00031d40	0x3c0f1d40	0	30	ieee80211_sta_sa_query_timeout
+0x00031db0	0x3c0f1db0	0	29	ieee80211_ap_sa_query_timeout
+0x00032050	0x3c0f2050	0	21	lmacProcessAckTimeout
+0x00032066	0x3c0f2066	0	21	lmacProcessCtsTimeout
+0x00033966	0x3c0f3966	0	99	addba response cb: bssid change from %02x:%02x:%02x:%02x:%02x:%02x to %02x:%02x:%02x:%02x:%02x:%02x
+0x00033a43	0x3c0f3a43	0	24	init nvs: failed, ret=%x
+0x00033a5c	0x3c0f3a5c	0	32	wifi nvs cfg alloc out of memory
+0x00033a7d	0x3c0f3a7d	0	25	nvs invalid min %d max %d
+0x00033a97	0x3c0f3a97	0	29	invalid wifi nvs key index %d
+0x00033b8c	0x3c0f3b8c	0	31	wifi stop stage error, stage=%d
+0x00033bda	0x3c0f3bda	0	18	invalid core id %d
+0x00033ce9	0x3c0f3ce9	0	71	wpa crypto funcs expected size=%d version=%d, actual size=%d version=%d
+0x00033d31	0x3c0f3d31	0	69	invalid magic number %x, call WIFI_INIT_CONFIG_DEFAULT to init config
+0x00033fe6	0x3c0f3fe6	0	34	timeout when WiFi un-init, type=%d
+0x00034009	0x3c0f4009	0	37	timeout but fail to get lock, type=%d
+0x00034223	0x3c0f4223	0	34	wifi ipc: failed to post wifi task
+0x00034265	0x3c0f4265	0	35	failed to post WiFi event=%d ret=%d
+0x00034289	0x3c0f4289	0	109	can not get wifi protocol under WiFi band mode WIFI_BAND_MODE_AUTO, please use esp_wifi_get_protocols instead
+0x00034358	0x3c0f4358	0	32	wifi stop stage3: out of memory!
+0x00034379	0x3c0f4379	0	32	wifi stop stage2: out of memory!
+0x0003439a	0x3c0f439a	0	25	wifi stop: out of memory!
+0x000343b4	0x3c0f43b4	0	35	wifi deinit internal: wifi not stop
+0x0003441f	0x3c0f441f	0	57	failed to get bss for bssid=%02x:%02x:%02x:%02x:%02x:%02x
+0x000349e8	0x3c0f49e8	0	39	create wifi task: failed to create task
+0x00034a10	0x3c0f4a10	0	38	create wifi task: failed to create sem
+0x00034a37	0x3c0f4a37	0	40	create wifi task: failed to create queue
+0x00034a60	0x3c0f4a60	0	40	create wifi task: failed to create queue
+0x00034ab6	0x3c0f4ab6	0	15	wifi assert: %d
+0x000350e4	0x3c0f50e4	0	17	control_construct
+0x0003fcf4	0x3fc9933c	1	24	Tasks currently running:
+0x000fb54c	0x3fc9db68	3	115	block_to_ptr(remaining) == align_ptr(block_to_ptr(remaining), ALIGN_SIZE) && "remaining block not aligned properly"
+0x000fb831	0x3fc9de4d	3	43	core_id >= 0 && core_id < SOC_CPU_CORES_NUM
+0x000fb99b	0x3fc9dfb7	3	9	 on core 
+0x000fba74	0x3fc9e090	3	51	E (%lu) %s: %s(%d): wrong size, total size overflow
+0x000fbca2	0x3fc9e2be	3	40	s_task_stack_is_sane_when_cache_frozen()
+0x000fbe45	0x3fc9e461	3	27	phy_version: %d, %s, %s, %s
+0x000fc03a	0x3fc9e656	3	16	wifi_init_power:
+0x000fc050	0x3fc9e66c	3	12	wifi_pagain:
+0x000fc064	0x3fc9e680	3	12	wifi_bbgain:
+0x000fc072	0x3fc9e68e	3	13	wifi_diggain:
+0x000fc081	0x3fc9e69d	3	21	wifi_correct_power:%d
+0x000fc10e	0x3fc9e72a	3	53	rc_dout, %d; wifi: %d, %d, %d, %d, bt: %d, %d, %d, %d
+0x000fc175	0x3fc9e791	3	18	wifi_cal_power, %d
+0x000fc189	0x3fc9e7a5	3	16	wifi_cal_atten, 
+0x000fc19a	0x3fc9e7b6	3	19	wifi_pwctrl_atten, 
+0x000fc226	0x3fc9e842	3	16	RXDC_RFRX_WIFI, 
+0x000fc237	0x3fc9e853	3	16	RXDC_RXBB_WIFI, 
+0x000fc248	0x3fc9e864	3	16	RXDC_CHAN_WIFI, 
+0x000fc419	0x3fc9ea35	3	77	total_pwr=%ld, min=%ld, max=%ld, rftx=0x%x, bb=0x%x, att=%d, dc_i=%d, dc_q=%d

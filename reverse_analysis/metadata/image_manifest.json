@@ -1,0 +1,132 @@
+{
+  "source": "CameraTest.ino.bin",
+  "size": 1111664,
+  "sha256": "bc55582a37e8cc3abce227b09bf2bc9f66d6d93fda4782f00bc25daecdb79009",
+  "header": {
+    "magic": "0xe9",
+    "segment_count": 6,
+    "flash_mode": "DIO",
+    "flash_size": "8 MB",
+    "flash_frequency": "80 MHz",
+    "entry_point": "0x40375c70",
+    "chip_id": 9
+  },
+  "segments": [
+    {
+      "index": 0,
+      "header_file_offset": 24,
+      "data_file_offset": 32,
+      "data_file_end": 252592,
+      "load_address": 1007419424,
+      "length": 252560,
+      "memory_type": "DROM",
+      "filename": "segment_00_DROM_0x3c0c0020_0x3da90.bin",
+      "sha256": "55d5bb66ef6de65640452c24f9f726b79dc929dfd356e07ebab006f75c813cb8"
+    },
+    {
+      "index": 1,
+      "header_file_offset": 252592,
+      "data_file_offset": 252600,
+      "data_file_end": 262168,
+      "load_address": 1070166272,
+      "length": 9568,
+      "memory_type": "DRAM",
+      "filename": "segment_01_DRAM_0x3fc97100_0x2560.bin",
+      "sha256": "0b03cdd512904110762d78b9f8b44dc5c92b187d65d406b968815188b71b0557"
+    },
+    {
+      "index": 2,
+      "header_file_offset": 262168,
+      "data_file_offset": 262176,
+      "data_file_end": 1011772,
+      "load_address": 1107296288,
+      "length": 749596,
+      "memory_type": "IROM",
+      "filename": "segment_02_IROM_0x42000020_0xb701c.bin",
+      "sha256": "5844709ec494a6a225692ee03b185a59b4a56ec9a0dfa1faa01547f822ef41f1"
+    },
+    {
+      "index": 3,
+      "header_file_offset": 1011772,
+      "data_file_offset": 1011780,
+      "data_file_end": 1033624,
+      "load_address": 1070175840,
+      "length": 21844,
+      "memory_type": "DRAM",
+      "filename": "segment_03_DRAM_0x3fc99660_0x5554.bin",
+      "sha256": "9189847bfd625fbc91755bfab0575e10b52e8872404c2847e43e071d2b381fac"
+    },
+    {
+      "index": 4,
+      "header_file_offset": 1033624,
+      "data_file_offset": 1033632,
+      "data_file_end": 1111588,
+      "load_address": 1077362688,
+      "length": 77956,
+      "memory_type": "IRAM",
+      "filename": "segment_04_IRAM_0x40374000_0x13084.bin",
+      "sha256": "c4051ea91622e195107415d0be53535b19cf330fe98ca8581179bd36529afae0"
+    },
+    {
+      "index": 5,
+      "header_file_offset": 1111588,
+      "data_file_offset": 1111596,
+      "data_file_end": 1111628,
+      "load_address": 1342177792,
+      "length": 32,
+      "memory_type": "RTC_DATA",
+      "filename": "segment_05_RTC_DATA_0x50000200_0x20.bin",
+      "sha256": "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"
+    }
+  ],
+  "footer": {
+    "segment_data_end": 1111628,
+    "checksum_offset": 1111631,
+    "checksum": "0x93",
+    "calculated_checksum": "0x93",
+    "checksum_valid": true,
+    "validation_hash_offset": 1111632,
+    "validation_hash": "cd9b3a745232cd85590a6b25e661bbabfdce1b6583988b100b732dab21a191bb",
+    "calculated_validation_hash": "cd9b3a745232cd85590a6b25e661bbabfdce1b6583988b100b732dab21a191bb",
+    "validation_hash_valid": true
+  },
+  "application": {
+    "magic": "0xabcd5432",
+    "secure_version": 0,
+    "app_version": "8cabf2c",
+    "project_name": "arduino-lib-builder",
+    "compile_time": "19:50:46",
+    "compile_date": "Feb 11 2026",
+    "esp_idf": "v5.5.2-729-g87912cd291",
+    "elf_sha256": "9016d45f936c080d9d7334478071723ae773ff1867b22b481fbc17134a91f236"
+  },
+  "string_count": 9737,
+  "utf8_c_string_count": 4240,
+  "notable_string_count": 799,
+  "web_assets": [
+    {
+      "name": "service_worker_01_0x00000bc5.js",
+      "file_offset": 3013,
+      "length": 375,
+      "sha256": "6d85b8f60a3ae9b72e5d1a6db5181f180f1da50a0092a7b9aac9eba931616e14"
+    },
+    {
+      "name": "manifest_01_0x00000d57.json",
+      "file_offset": 3415,
+      "length": 610,
+      "sha256": "dfd05da3193690eca35cf9f84f070c5ef8391cb950b1497ddd4ed4feb040a606"
+    },
+    {
+      "name": "html_01_0x0000100b.html",
+      "file_offset": 4107,
+      "length": 38523,
+      "sha256": "3fa856b265ea2a1dbd6f5684c578ecfae6ebc044e2b679076e9a027ef779094d"
+    },
+    {
+      "name": "html_02_0x0001f6ad.html",
+      "file_offset": 128685,
+      "length": 5523,
+      "sha256": "435abf7e544a97bc96fef95eca073828a85a2002ad73b0f3662995c10fd806ca"
+    }
+  ]
+}

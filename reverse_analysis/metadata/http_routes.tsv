@@ -1,0 +1,30 @@
+server	method	uri	handler	evidence	purpose
+control	GET	/	0x42004fe4	DROM httpd_uri_t	ESP32 Camera 根页面
+control	GET	/gpio	0x420049ec	DROM httpd_uri_t	RoboFish FPV 驾驶页
+control	GET	/status	0x42005154	DROM httpd_uri_t	相机传感器状态 JSON
+control	GET	/control	0x42005fac	DROM httpd_uri_t	相机参数与机器鱼动作控制
+control	GET	/capture	0x42005edc	DROM httpd_uri_t	JPEG 单帧抓拍
+stream	GET	/stream	0x42005dc0	DROM httpd_uri_t	MJPEG 流
+control	GET	/bmp	0x4200504c	DROM httpd_uri_t	BMP 单帧抓拍
+control	GET	/xclk	0x42005c1c	DROM httpd_uri_t	相机 XCLK 配置
+control	GET	/reg	0x42005cc0	DROM httpd_uri_t	相机寄存器写入
+control	GET	/greg	0x42005b40	DROM httpd_uri_t	相机寄存器读取
+control	GET	/pll	0x42005990	DROM httpd_uri_t	相机 PLL 配置
+control	GET	/resolution	0x42005a40	DROM httpd_uri_t	相机窗口/缩放配置
+control	GET	/save_wifi		URI 与 handler 指令	保存 STA SSID/密码并重启
+control	GET	/manifest.json		URI 与 DROM 资源	PWA manifest
+control	GET	/sw.js		URI 与 DROM 资源	service worker
+control	GET	/get_ip		URI 与 JSON 格式串	AP/STA 地址和版本
+control	POST	/ota_upload	0x420054b0	URI 与 handler 指令	认证 Web OTA
+control	GET	/partner	0x42004968	handler 指令	Partner Lab 页面
+control	GET	/partner_script	0x42004c48	handler 指令	读取 Partner JSON
+control	POST	/partner_script	0x42004b6c	handler 指令	校验并保存 Partner JSON
+control	POST	/partner_run	0x42004abc	handler 指令	启动 Partner 脚本
+control	POST	/partner_stop	0x42004a38	handler 指令	安全停止 Partner 脚本
+control	GET	/partner_status	0x42004910	handler 指令	Partner 运行状态 JSON
+control	GET	/generate_204		URI 字符串	captive portal 引导
+control	GET	/gen_204		URI 字符串	captive portal 引导
+control	GET	/hotspot-detect.html		URI 字符串	captive portal 引导
+control	GET	/ncsi.txt		URI 字符串	captive portal 引导
+control	GET	/connecttest.txt		URI 字符串	captive portal 引导
+control	GET	/fwlink		URI 字符串	captive portal 引导

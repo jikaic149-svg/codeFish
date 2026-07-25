@@ -10,3 +10,9 @@ __MACOSX/
 # Temporary files
 *.tmp
 *.log
+
+# Local reverse-engineering tool environment
+reverse_analysis/.tools/
+
+# Rizin project databases embed workstation-specific absolute paths
+reverse_analysis/disassembly/*.rzdb

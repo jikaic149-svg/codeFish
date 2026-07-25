@@ -1,0 +1,329 @@
+source_address	source_segment	source_type	target_address	target_segment	target_type	target_string
+0x3c0df5a4	0	DROM	0x3c0cb1be	0	DROM	/status
+0x3c0df5bc	0	DROM	0x3c0cb1c6	0	DROM	/control
+0x3c0df5d4	0	DROM	0x3c0cb1cf	0	DROM	/capture
+0x3c0df5ec	0	DROM	0x3c0cb1d8	0	DROM	/stream
+0x3c0df694	0	DROM	0x3c0ca710	0	DROM	/gpio
+0x3c0e76f0	0	DROM	0x3c0cde5e	0	DROM	Interrupt wdt timeout on CPU0
+0x3c0e76f4	0	DROM	0x3c0cde7c	0	DROM	Interrupt wdt timeout on CPU1
+0x3c0e78b4	0	DROM	0x3c0ce3ec	0	DROM	ESP_ERR_TIMEOUT
+0x3c0e79ec	0	DROM	0x3c0ce7d5	0	DROM	ESP_ERR_OTA_BASE
+0x3c0e79f4	0	DROM	0x3c0ce7e6	0	DROM	ESP_ERR_OTA_PARTITION_CONFLICT
+0x3c0e79fc	0	DROM	0x3c0ce805	0	DROM	ESP_ERR_OTA_SELECT_INFO_INVALID
+0x3c0e7a04	0	DROM	0x3c0ce825	0	DROM	ESP_ERR_OTA_VALIDATE_FAILED
+0x3c0e7a0c	0	DROM	0x3c0ce841	0	DROM	ESP_ERR_OTA_SMALL_SEC_VER
+0x3c0e7a14	0	DROM	0x3c0ce85b	0	DROM	ESP_ERR_OTA_ROLLBACK_FAILED
+0x3c0e7a1c	0	DROM	0x3c0ce877	0	DROM	ESP_ERR_OTA_ROLLBACK_INVALID_STATE
+0x3c0e7a3c	0	DROM	0x3c0ce8d3	0	DROM	ESP_ERR_EFUSE_REPEATED_PROG
+0x3c0e7a74	0	DROM	0x3c0ce97d	0	DROM	ESP_ERR_WIFI_BASE
+0x3c0e7a7c	0	DROM	0x3c0ce98f	0	DROM	ESP_ERR_WIFI_NOT_INIT
+0x3c0e7a84	0	DROM	0x3c0ce9a5	0	DROM	ESP_ERR_WIFI_NOT_STARTED
+0x3c0e7a8c	0	DROM	0x3c0ce9be	0	DROM	ESP_ERR_WIFI_NOT_STOPPED
+0x3c0e7a94	0	DROM	0x3c0ce9d7	0	DROM	ESP_ERR_WIFI_IF
+0x3c0e7a9c	0	DROM	0x3c0ce9e7	0	DROM	ESP_ERR_WIFI_MODE
+0x3c0e7aa4	0	DROM	0x3c0ce9f9	0	DROM	ESP_ERR_WIFI_STATE
+0x3c0e7aac	0	DROM	0x3c0cea0c	0	DROM	ESP_ERR_WIFI_CONN
+0x3c0e7ab4	0	DROM	0x3c0cea1e	0	DROM	ESP_ERR_WIFI_NVS
+0x3c0e7abc	0	DROM	0x3c0cea2f	0	DROM	ESP_ERR_WIFI_MAC
+0x3c0e7ac4	0	DROM	0x3c0cea40	0	DROM	ESP_ERR_WIFI_SSID
+0x3c0e7acc	0	DROM	0x3c0cea52	0	DROM	ESP_ERR_WIFI_PASSWORD
+0x3c0e7ad4	0	DROM	0x3c0cea68	0	DROM	ESP_ERR_WIFI_TIMEOUT
+0x3c0e7adc	0	DROM	0x3c0cea7d	0	DROM	ESP_ERR_WIFI_WAKE_FAIL
+0x3c0e7ae4	0	DROM	0x3c0cea94	0	DROM	ESP_ERR_WIFI_WOULD_BLOCK
+0x3c0e7aec	0	DROM	0x3c0ceaad	0	DROM	ESP_ERR_WIFI_NOT_CONNECT
+0x3c0e7af4	0	DROM	0x3c0ceac6	0	DROM	ESP_ERR_WIFI_POST
+0x3c0e7afc	0	DROM	0x3c0cead8	0	DROM	ESP_ERR_WIFI_INIT_STATE
+0x3c0e7b04	0	DROM	0x3c0ceaf0	0	DROM	ESP_ERR_WIFI_STOP_STATE
+0x3c0e7b0c	0	DROM	0x3c0ceb08	0	DROM	ESP_ERR_WIFI_NOT_ASSOC
+0x3c0e7b14	0	DROM	0x3c0ceb1f	0	DROM	ESP_ERR_WIFI_TX_DISALLOW
+0x3c0e7b1c	0	DROM	0x3c0ceb38	0	DROM	ESP_ERR_WIFI_TWT_FULL
+0x3c0e7b24	0	DROM	0x3c0ceb4e	0	DROM	ESP_ERR_WIFI_TWT_SETUP_TIMEOUT
+0x3c0e7b2c	0	DROM	0x3c0ceb6d	0	DROM	ESP_ERR_WIFI_TWT_SETUP_TXFAIL
+0x3c0e7b34	0	DROM	0x3c0ceb8b	0	DROM	ESP_ERR_WIFI_TWT_SETUP_REJECT
+0x3c0e7b3c	0	DROM	0x3c0ceba9	0	DROM	ESP_ERR_WIFI_DISCARD
+0x3c0e7b44	0	DROM	0x3c0cebbe	0	DROM	ESP_ERR_WIFI_ROC_IN_PROGRESS
+0x3c0e7b4c	0	DROM	0x3c0cebdb	0	DROM	ESP_ERR_WIFI_REGISTRAR
+0x3c0e7b54	0	DROM	0x3c0cebf2	0	DROM	ESP_ERR_WIFI_WPS_TYPE
+0x3c0e7b5c	0	DROM	0x3c0cec08	0	DROM	ESP_ERR_WIFI_WPS_SM
+0x3c0e7bcc	0	DROM	0x3c0ced35	0	DROM	ESP_ERR_DPP_AUTH_TIMEOUT
+0x3c0e7bdc	0	DROM	0x3c0ced67	0	DROM	ESP_ERR_DPP_CONF_TIMEOUT
+0x3c0e7bec	0	DROM	0x3c0ced92	0	DROM	ESP_ERR_MESH_WIFI_NOT_START
+0x3c0e7c34	0	DROM	0x3c0cee6a	0	DROM	ESP_ERR_MESH_TIMEOUT
+0x3c0e7d44	0	DROM	0x3c0cf21f	0	DROM	ESP_ERR_FLASH_OP_TIMEOUT
+0x3c0e7dc4	0	DROM	0x3c0cf3c6	0	DROM	ESP_ERR_HTTP_READ_TIMEOUT
+0x3c0e7e04	0	DROM	0x3c0cf4d7	0	DROM	ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT
+0x3c0e7e1c	0	DROM	0x3c0cf533	0	DROM	ESP_ERR_ESP_TLS_SERVER_HANDSHAKE_TIMEOUT
+0x3c0e7ed4	0	DROM	0x3c0cf898	0	DROM	ESP_ERR_HTTPS_OTA_BASE
+0x3c0e7edc	0	DROM	0x3c0cf8af	0	DROM	ESP_ERR_HTTPS_OTA_IN_PROGRESS
+0x3c0e89ac	0	DROM	0x3c0d0991	0	DROM	ESP_SLEEP_VBAT_POWER_DEEPSLEEP_MODE
+0x3c0eb8f4	0	DROM	0x3c0d6aea	0	DROM	WIFI_EVENT
+0x3c0eb958	0	DROM	0x3c0d6f2b	0	DROM	BT Controller BSS
+0x3c0eb964	0	DROM	0x3c0d6f3d	0	DROM	BT Controller Data
+0x3c0eeaf4	0	DROM	0x3c0daf8b	0	DROM	WIFI_NMI
+0x3c0eeaf8	0	DROM	0x3c0daf94	0	DROM	WIFI_PWR
+0x3c0eeafc	0	DROM	0x3c0daf9d	0	DROM	WIFI_BB
+0x3c0eeb30	0	DROM	0x3c0cb990	0	DROM	GPIO
+0x3c0eeb34	0	DROM	0x3c0daffb	0	DROM	GPIO_NMI
+0x3c0eeb38	0	DROM	0x3c0db004	0	DROM	GPIO_INTR_2
+0x3c0eeb3c	0	DROM	0x3c0db010	0	DROM	GPIO_NMI_2
+0x3c0eefd0	0	DROM	0x3c0dbcae	0	DROM	WIFI_AP_DEF
+0x3c0ef004	0	DROM	0x3c0d6d9f	0	DROM	WIFI_STA_DEF
+0x3fc98104	1	DRAM	0x3c0defa4	0	DROM	WIFI_MESH_EVENT
+0x420000d0	2	IROM	0x3c0c0219	0	DROM	[FAILSAFE] 
+0x42000154	2	IROM	0x3c0c02b1	0	DROM	  Tail Servo 1 (
+0x42000158	2	IROM	0x3c0c02df	0	DROM	  Tail Servo 2 (
+0x4200015c	2	IROM	0x3c0c030d	0	DROM	  Pitch Servo  (
+0x42000160	2	IROM	0x3c0c033b	0	DROM	  Pump Relay   (
+0x42000180	2	IROM	0x3c0c0422	0	DROM	   Pitch (D3): %s
+0x420001b4	2	IROM	0x3c0c04d7	0	DROM	[FAILSAFE] 
+0x420001cc	2	IROM	0x3c0c051b	0	DROM	WiFi
+0x420001dc	2	IROM	0x3c0c052f	0	DROM	[DEMO] 
+0x420001e0	2	IROM	0x3c0c0546	0	DROM	[PARTNER] Drive mode set to %u
+0x420001e4	2	IROM	0x3c0c0566	0	DROM	DEMO_CANCELLED
+0x420001e8	2	IROM	0x3c0c0575	0	DROM	DEMO_BLOCKED_FAILSAFE
+0x420001ec	2	IROM	0x3c0c058b	0	DROM	DEMO_STARTED
+0x420001f0	2	IROM	0x3c0c0598	0	DROM	[DEMO] 
+0x420001f4	2	IROM	0x3c0c05d3	0	DROM	[DEMO] 
+0x420001fc	2	IROM	0x3c0c0604	0	DROM	[DEMO] 
+0x42000204	2	IROM	0x3c0c063f	0	DROM	[DEMO] -> DIVE
+0x42000208	2	IROM	0x3c0c064e	0	DROM	[DEMO] -> SURFACE
+0x4200020c	2	IROM	0x3c0c0660	0	DROM	[DEMO] -> STOP
+0x42000210	2	IROM	0x3c0c066f	0	DROM	[DEMO] 
+0x42000218	2	IROM	0x3c0c0683	0	DROM	wifi_config
+0x42000228	2	IROM	0x3c0c068f	0	DROM	Connecting to saved WiFi: %s
+0x4200023c	2	IROM	0x3c0c06f1	0	DROM	No saved WiFi credentials.
+0x42000248	2	IROM	0x3c0c072b	0	DROM	RoboFish-ND1
+0x420002a8	2	IROM	0x3c0c096b	0	DROM	Legacy ArduinoOTA disabled (Partner Edition). Owner web OTA remains available.
+0x420002ac	2	IROM	0x3c0c09ba	0	DROM	Camera Ready!
+0x420002cc	2	IROM	0x3c0c0aa6	0	DROM	 (SSID: RoboFish-GLS1)
+0x420002dc	2	IROM	0x3c0c0aef	0	DROM	[FAILSAFE] 
+0x42000304	2	IROM	0x3c0c0b66	0	DROM	Cache-Control
+0x42000314	2	IROM	0x3c0c0b8d	0	DROM	application/javascript
+0x4200031c	2	IROM	0x3c0c0ba4	0	DROM	Access-Control-Allow-Origin
+0x42000324	2	IROM	0x3c0c0d3d	0	DROM	application/manifest+json
+0x4200034c	2	IROM	0x3c0ca687	0	DROM	"{""success"":true,""message"":""Script safely stopped""}"
+0x4200036c	2	IROM	0x3c0ca710	0	DROM	/gpio
+0x42000374	2	IROM	0x3c0ca71f	0	DROM	Script must be 1..3500 bytes
+0x4200038c	2	IROM	0x3c0ca7a2	0	DROM	"{""success"":true,""message"":""Script validated and saved""}"
+0x420003a8	2	IROM	0x3c0ca806	0	DROM	"{""sta_connected"":%d,""sta_ip"":""%s"",""sta_ssid"":""%s"",""ap_ip"":""%s"",""version"":""4.0.0-partner""}"
+0x420003c0	2	IROM	0x3c0ca860	0	DROM	Saving WiFi Credentials: SSID=%s
+0x420003c4	2	IROM	0x3c0c0683	0	DROM	wifi_config
+0x420003cc	2	IROM	0x3c0ca88d	0	DROM	WiFi Saved. Rebooting...
+0x420003f0	2	IROM	0x3c0ca8d0	0	DROM	inline; filename=capture.bmp
+0x42000428	2	IROM	0x3c0ca95c	0	DROM	brightness:%d,
+0x42000488	2	IROM	0x3c0caa9f	0	DROM	X-OTA-Password
+0x42000494	2	IROM	0x3c0caae6	0	DROM	"{""error"":""OTA password required""}"
+0x420004a0	2	IROM	0x3c0cab6d	0	DROM	"{""error"":""Invalid OTA password""}"
+0x420004b4	2	IROM	0x3c0cac33	0	DROM	"{""error"":""OTA partition not found""}"
+0x420004c0	2	IROM	0x3c0cac91	0	DROM	"{""error"":""OTA begin failed""}"
+0x420004f8	2	IROM	0x3c0cad83	0	DROM	"{""error"":""OTA validation failed""}"
+0x42000504	2	IROM	0x3c0cadeb	0	DROM	========== OTA
+0x4200050c	2	IROM	0x3c0cae27	0	DROM	"{""success"":true,""message"":""OTA update successful, rebooting...""}"
+0x420005a8	2	IROM	0x3c0caf7a	0	DROM	inline; filename=capture.jpg
+0x420005c8	2	IROM	0x3c0cafd0	0	DROM	brightness
+0x42000620	2	IROM	0x3c0cb07d	0	DROM	servo_forward
+0x4200062c	2	IROM	0x3c0cb0a1	0	DROM	servo_backward
+0x42000630	2	IROM	0x3c0cb0b0	0	DROM	servo_left
+0x42000634	2	IROM	0x3c0cb0bb	0	DROM	servo_right
+0x42000638	2	IROM	0x3c0cb0c7	0	DROM	servo_stop
+0x4200063c	2	IROM	0x3c0cb0d2	0	DROM	pitch
+0x42000640	2	IROM	0x3c0cb0d8	0	DROM	pump
+0x42000644	2	IROM	0x3c0cb0dd	0	DROM	demo
+0x42000688	2	IROM	0x3c0cb0ef	0	DROM	/gpio/
+0x420006ac	2	IROM	0x3c0cb145	0	DROM	/save_wifi
+0x420006b4	2	IROM	0x3c0cb150	0	DROM	/manifest.json
+0x420006c4	2	IROM	0x3c0cb166	0	DROM	/get_ip
+0x420006cc	2	IROM	0x3c0cb16e	0	DROM	/ota_upload
+0x420006d4	2	IROM	0x3c0cb17a	0	DROM	/partner
+0x420006dc	2	IROM	0x3c0cb183	0	DROM	/partner_script
+0x420006e8	2	IROM	0x3c0cb193	0	DROM	/partner_run
+0x420006f0	2	IROM	0x3c0cb1a0	0	DROM	/partner_stop
+0x420006f8	2	IROM	0x3c0cb1ae	0	DROM	/partner_status
+0x42000718	2	IROM	0x3c0cb207	0	DROM	Script size must be 1..3500 bytes
+0x4200071c	2	IROM	0x3c0cb229	0	DROM	Partner script
+0x42000738	2	IROM	0x3c0cb2c8	0	DROM	repeat
+0x4200073c	2	IROM	0x3c0cb2cf	0	DROM	repeat must be 1..10
+0x42000768	2	IROM	0x3c0cb394	0	DROM	mode_bionic
+0x4200076c	2	IROM	0x3c0cb3a0	0	DROM	mode_prop
+0x42000770	2	IROM	0x3c0cb3aa	0	DROM	mode_hybrid
+0x42000788	2	IROM	0x3c0cb0d2	0	DROM	pitch
+0x4200078c	2	IROM	0x3c0cb3b6	0	DROM	pump_on
+0x42000790	2	IROM	0x3c0cb3be	0	DROM	pump_off
+0x42000798	2	IROM	0x3c0cb3e8	0	DROM	duration_ms
+0x4200079c	2	IROM	0x3c0cb3f4	0	DROM	duration_ms must be 0..30000
+0x420007a0	2	IROM	0x3c0cb411	0	DROM	angle
+0x420007a4	2	IROM	0x3c0cb417	0	DROM	pitch angle must be 45..135
+0x420007a8	2	IROM	0x3c0cb433	0	DROM	power
+0x420007ac	2	IROM	0x3c0cb439	0	DROM	power must be 20..70
+0x420007b0	2	IROM	0x3c0cb44e	0	DROM	strength
+0x420007b4	2	IROM	0x3c0cb457	0	DROM	strength must be 10..70
+0x420007c0	2	IROM	0x3c0cb49c	0	DROM	Motion duration_ms must be at least 100
+0x420007c4	2	IROM	0x3c0cb4c4	0	DROM	pump_on duration_ms must be 100..10000
+0x420007c8	2	IROM	0x3c0cb4eb	0	DROM	pitch duration_ms must be at least 100
+0x420007e0	2	IROM	0x3c0cb579	0	DROM	Total duration must be 1..300000 ms
+0x420007e8	2	IROM	0x3c0cb59d	0	DROM	partner_cfg
+0x420007f4	2	IROM	0x3c0cb5a9	0	DROM	Stored script is too large
+0x420007f8	2	IROM	0x3c0cb5c4	0	DROM	[PARTNER] Stored script invalid (%s); loading default
+0x420007fc	2	IROM	0x3c0cb5fb	0	DROM	[PARTNER] Internal default script invalid: %s
+0x42000808	2	IROM	0x3c0cb62a	0	DROM	[PARTNER] Loaded '%s' (%u steps, repeat %u)
+0x42000810	2	IROM	0x3c0cb657	0	DROM	[PARTNER] Script stopped
+0x42000818	2	IROM	0x3c0cb68f	0	DROM	Cannot save script to persistent storage
+0x4200081c	2	IROM	0x3c0cb6b8	0	DROM	[PARTNER] Saved '%s' (%u steps)
+0x42000820	2	IROM	0x3c0cb6d9	0	DROM	No valid script loaded
+0x42000824	2	IROM	0x3c0cb6f0	0	DROM	Blocked by failsafe
+0x4200083c	2	IROM	0x3c0cb710	0	DROM	[PARTNER] Started '%s'
+0x42000840	2	IROM	0x3c0cb728	0	DROM	[PARTNER] Completed '%s'
+0x4200084c	2	IROM	0x3c0cb74d	0	DROM	"{""version"":""4.0.0-partner"",""running"":%s,""name"":""%s"",""step"":%u,""steps"":%u,""pass"":%u,""repeat"":%u,""remaining_ms"":%lu}"
+0x42000c78	2	IROM	0x3c0cb990	0	DROM	GPIO
+0x42000e58	2	IROM	0x3c0cbd64	0	DROM	  Total Size        : %8u B (%6.1f KB)
+0x42000ee0	2	IROM	0x3c0cbfd7	0	DROM	  2.4GHz WiFi       : %s
+0x42000f34	2	IROM	0x3c0cc1cc	0	DROM	, subtype: OTA_%lu
+0x42000fc8	2	IROM	0x3c0cc4e2	0	DROM	GPIO Info:
+0x42000fcc	2	IROM	0x3c0cc4ee	0	DROM	  GPIO : BUS_TYPE[bus/unit][chan]
+0x42001000	2	IROM	0x3c0e7010	0	DROM	gpio_input_disable
+0x4200100c	2	IROM	0x3c0cc58f	0	DROM	GPIO number error
+0x4200101c	2	IROM	0x3c0e7119	0	DROM	gpio_pullup_en
+0x42001020	2	IROM	0x3c0cc5a1	0	DROM	GPIO number error (input-only pad has no internal PU)
+0x42001034	2	IROM	0x3c0e7109	0	DROM	gpio_pullup_dis
+0x4200103c	2	IROM	0x3c0e70f8	0	DROM	gpio_pulldown_en
+0x42001040	2	IROM	0x3c0cc5d7	0	DROM	GPIO number error (input-only pad has no internal PD)
+0x42001044	2	IROM	0x3c0e70e6	0	DROM	gpio_pulldown_dis
+0x42001048	2	IROM	0x3c0e70d3	0	DROM	gpio_set_intr_type
+0x4200104c	2	IROM	0x3c0cc60d	0	DROM	GPIO interrupt type error
+0x42001054	2	IROM	0x3c0e70c2	0	DROM	gpio_intr_enable
+0x4200105c	2	IROM	0x3c0e70b0	0	DROM	gpio_intr_disable
+0x42001064	2	IROM	0x3c0e709e	0	DROM	gpio_input_enable
+0x42001068	2	IROM	0x3c0e708a	0	DROM	gpio_output_disable
+0x4200106c	2	IROM	0x3c0e7077	0	DROM	gpio_output_enable
+0x42001070	2	IROM	0x3c0cc627	0	DROM	GPIO output gpio_num error
+0x42001078	2	IROM	0x3c0e7067	0	DROM	gpio_od_disable
+0x4200107c	2	IROM	0x3c0e7058	0	DROM	gpio_od_enable
+0x42001080	2	IROM	0x3c0e7049	0	DROM	gpio_set_level
+0x42001084	2	IROM	0x3c0e7036	0	DROM	gpio_set_pull_mode
+0x42001088	2	IROM	0x3c0cc642	0	DROM	GPIO pull mode error
+0x4200108c	2	IROM	0x3c0e7023	0	DROM	gpio_set_direction
+0x42001090	2	IROM	0x3c0cc657	0	DROM	E (%lu) %s: GPIO_PIN mask error 
+0x42001094	2	IROM	0x3c0e6fff	0	DROM	gpio_iomux_input
+0x4200109c	2	IROM	0x3c0e6fed	0	DROM	gpio_iomux_output
+0x420010a4	2	IROM	0x3c0e6fda	0	DROM	gpio_sleep_sel_dis
+0x420010b0	2	IROM	0x3c0e7128	0	DROM	rtc_gpio_deinit
+0x420010d4	2	IROM	0x3c0cc6a7	0	DROM	esp_ota_ops
+0x420010d8	2	IROM	0x3c0cc6b3	0	DROM	E (%lu) %s: not found otadata
+0x420010dc	2	IROM	0x3c0cc6d2	0	DROM	E (%lu) %s: mmap otadata filed. Err=0x%8x
+0x420010ec	2	IROM	0x3c0e715a	0	DROM	esp_ota_get_running_partition
+0x42001100	2	IROM	0x3c0cc77c	0	DROM	E (%lu) %s: OTA image has invalid magic byte (expected 0xE9, saw 0x%02x)
+0x42001114	2	IROM	0x3c0cc86b	0	DROM	"ota_app_count < 16 && ""must erase the partition before writing to it"""
+0x42001118	2	IROM	0x3c0e7178	0	DROM	esp_ota_get_app_partition_count
+0x42001120	2	IROM	0x3c0e7138	0	DROM	esp_ota_get_next_update_partition
+0x42001134	2	IROM	0x3c0cc93b	0	DROM	E (%lu) %s: Running app has not confirmed state (ESP_OTA_IMG_PENDING_VERIFY)
+0x42001438	2	IROM	0x3c0e7664	0	DROM	task_wdt_timeout_abort
+0x4200197c	2	IROM	0x3c0d06c6	0	DROM	gpio_num != GPIO_NUM_NC
+0x420019ec	2	IROM	0x3c0e89d8	0	DROM	s_sar_power_release
+0x420019f4	2	IROM	0x3c0d0a32	0	DROM	E (%lu) %s: %s called, but s_sar_power_on_cnt == 0
+0x42001e14	2	IROM	0x3c0d2ddc	0	DROM	E (%lu) %s: %s: NVS has not been initialized. Call nvs_flash_init before starting WiFi/BT.
+0x42002050	2	IROM	0x3c0e9e94	0	DROM	tcpip_timeouts_mbox_fetch
+0x42002158	2	IROM	0x3c0ea054	0	DROM	netif_get_ip6_addr_match
+0x4200215c	2	IROM	0x3c0d3790	0	DROM	netif_get_ip6_addr_match: invalid netif
+0x42002160	2	IROM	0x3c0d37b8	0	DROM	netif_get_ip6_addr_match: invalid ip6addr
+0x420024e8	2	IROM	0x3c0d4411	0	DROM	tcp_output_control_segment_netif: no netif given
+0x420024ec	2	IROM	0x3c0ea4c9	0	DROM	tcp_output_control_segment_netif
+0x420025c8	2	IROM	0x3c0d488a	0	DROM	sys_timeout: timeout != NULL, pool MEMP_SYS_TIMEOUT is empty
+0x420025cc	2	IROM	0x3c0ea645	0	DROM	sys_timeout_abs
+0x420025d0	2	IROM	0x3c0d48c7	0	DROM	/IDF/components/lwip/lwip/src/core/timeouts.c
+0x420025e4	2	IROM	0x3c0ea639	0	DROM	sys_timeout
+0x420025e8	2	IROM	0x3c0d48f5	0	DROM	Timeout time too long, max is LWIP_UINT32_MAX/4 msecs
+0x420025fc	2	IROM	0x3c0ea62b	0	DROM	sys_untimeout
+0x42002600	2	IROM	0x3c0ea618	0	DROM	sys_check_timeouts
+0x42002604	2	IROM	0x3c0ea601	0	DROM	sys_timeouts_sleeptime
+0x42002e44	2	IROM	0x3c0d6539	0	DROM	NETIF_PPP_STATUS
+0x42002e50	2	IROM	0x3c0eb26e	0	DROM	on_ppp_status_changed
+0x42002e6c	2	IROM	0x3c0d6694	0	DROM	E (%lu) %s: %s: Connection timeout
+0x42002e70	2	IROM	0x3c0d66b8	0	DROM	E (%lu) %s: %s: Idle Timeout
+0x4203ff8c	2	IROM	0x3c0d6a2d	0	DROM	wifi_init
+0x4203ffc4	2	IROM	0x3c0d6af5	0	DROM	wifi_init_default
+0x4203ffc8	2	IROM	0x3c0d6b07	0	DROM	E (%lu) %s: esp_wifi_get_mac failed with %d
+0x4203ffd0	2	IROM	0x3c0d6b34	0	DROM	E (%lu) %s: esp_wifi_register_if_rxcb for if=%p failed with %d
+0x4203ffe0	2	IROM	0x3c0d6ba0	0	DROM	E (%lu) %s: Failed to create wifi interface handle
+0x4204001c	2	IROM	0x3c0eb91a	0	DROM	esp_netif_create_default_wifi_ap
+0x42040024	2	IROM	0x3c0d6c01	0	DROM	esp_netif_attach_wifi_ap(netif)
+0x4204002c	2	IROM	0x3c0d6c21	0	DROM	esp_wifi_set_default_wifi_ap_handlers()
+0x42040040	2	IROM	0x3c0d6c49	0	DROM	esp_netif_attach_wifi_station(netif)
+0x42040044	2	IROM	0x3c0d6c6e	0	DROM	esp_wifi_set_default_wifi_sta_handlers()
+0x4204005c	2	IROM	0x3c0d6c97	0	DROM	wifi_netif
+0x42040060	2	IROM	0x3c0d6ca2	0	DROM	E (%lu) %s: No memory to create a wifi interface handle
+0x42040074	2	IROM	0x3c0d6d31	0	DROM	E (%lu) %s: Unknown wifi interface id if=%d
+0x42040078	2	IROM	0x3c0d6d5e	0	DROM	E (%lu) %s: esp_wifi_internal_reg_rxcb for if=%d failed with %d
+0x420400c8	2	IROM	0x3c0d6d9f	0	DROM	WIFI_STA_DEF
+0x42040274	2	IROM	0x3c0d7eab	0	DROM	E (%lu) %s: %s(%d): gpio_num argument is invalid
+0x42040450	2	IROM	0x3c0d8958	0	DROM	408 Request Timeout
+0x42040624	2	IROM	0x3c0d9509	0	DROM	E (%lu) %s: %s(%u): Task %x, PR_STATUS write failed, return (%d).
+0x42040628	2	IROM	0x3c0d954c	0	DROM	E (%lu) %s: %s(%u): PR_STATUS note segment processing failure, returned(%d).
+0x42040874	2	IROM	0x3c0d9d03	0	DROM	camera
+0x42040878	2	IROM	0x3c0d9d0a	0	DROM	E (%lu) %s: Camera init failed with error 0x%x
+0x42040888	2	IROM	0x3c0d9d55	0	DROM	E (%lu) %s: Camera probe failed with error 0x%x(%s)
+0x42040890	2	IROM	0x3c0d9dc3	0	DROM	E (%lu) %s: Camera config failed with error 0x%x
+0x42040898	2	IROM	0x3c0d9e1b	0	DROM	E (%lu) %s: Detected camera not supported.
+0x42041150	2	IROM	0x3c0da2e5	0	DROM	E (%lu) %s: DMA interrupt allocation of camera failed
+0x4204115c	2	IROM	0x3c0da31c	0	DROM	E (%lu) %s: LCD_CAM interrupt allocation of camera failed
+0x4204143c	2	IROM	0x3c0eed85	0	DROM	temperature_sensor_power_release
+0x42041444	2	IROM	0x3c0db3aa	0	DROM	E (%lu) %s: %s called, but s_temperature_sensor_power_cnt == 0
+0x4204153c	2	IROM	0x3c0dc69b	0	DROM	E (%lu) %s: %s(%d): I2C empty controller handle
+0x4204169c	2	IROM	0x3c0dc8b9	0	DROM	((header_field_mark ? 1 : 0) + (header_value_mark ? 1 : 0) + (url_mark ? 1 : 0) + (body_mark ? 1 : 0) + (status_mark ? 1 : 0)) <= 1
+0x420418ec	2	IROM	0x3c0de16c	0	DROM	E (%lu) %s: No stream supplied
+0x42041a28	2	IROM	0x3c0de568	0	DROM	stream_bytes == 0 || stream_out != NULL
+0x42071bf4	2	IROM	0x3c0f3966	0	DROM	addba response cb: bssid change from %02x:%02x:%02x:%02x:%02x:%02x to %02x:%02x:%02x:%02x:%02x:%02x
+0x42071c00	2	IROM	0x3c0f38d9	0	DROM	addba response cb: status %d not success, no need to configure hardware
+0x42073c28	2	IROM	0x3c0f3a97	0	DROM	invalid wifi nvs key index %d
+0x42073cb4	2	IROM	0x3c0f3a5c	0	DROM	wifi nvs cfg alloc out of memory
+0x42073cc0	2	IROM	0x3c0deaa2	0	DROM	sta.ssid
+0x42073cf0	2	IROM	0x3c0deadc	0	DROM	bssid.set
+0x42073cf8	2	IROM	0x3c0deae6	0	DROM	sta.bssid
+0x42073d88	2	IROM	0x3c0debb3	0	DROM	ap.ssid
+0x42077ed4	2	IROM	0x3c0f3d31	0	DROM	invalid magic number %x, call WIFI_INIT_CONFIG_DEFAULT to init config
+0x42078368	2	IROM	0x3c0f3b8c	0	DROM	wifi stop stage error, stage=%d
+0x420799a8	2	IROM	0x3c0f1db0	0	DROM	ieee80211_ap_sa_query_timeout
+0x42079a8c	2	IROM	0x3c0f1d40	0	DROM	ieee80211_sta_sa_query_timeout
+0x42079ef8	2	IROM	0x3c0f4009	0	DROM	timeout but fail to get lock, type=%d
+0x42079efc	2	IROM	0x3c0f3fe6	0	DROM	timeout when WiFi un-init, type=%d
+0x4207b714	2	IROM	0x3c0f40a2	0	DROM	Invalid Burst Period(%d), Burst Duration(%d) configuration!
+0x4207c864	2	IROM	0x3c0f43b4	0	DROM	wifi deinit internal: wifi not stop
+0x4207c9d8	2	IROM	0x3c0f439a	0	DROM	wifi stop: out of memory!
+0x4207c9e0	2	IROM	0x3c0f4379	0	DROM	wifi stop stage2: out of memory!
+0x4207c9f8	2	IROM	0x3c0f4358	0	DROM	wifi stop stage3: out of memory!
+0x4207d1c4	2	IROM	0x3c0f4289	0	DROM	can not get wifi protocol under WiFi band mode WIFI_BAND_MODE_AUTO, please use esp_wifi_get_protocols instead
+0x4207d408	2	IROM	0x3c0f4265	0	DROM	failed to post WiFi event=%d ret=%d
+0x4207d5c8	2	IROM	0x3c0f4223	0	DROM	wifi ipc: failed to post wifi task
+0x4207ec8c	2	IROM	0x3c0f441f	0	DROM	failed to get bss for bssid=%02x:%02x:%02x:%02x:%02x:%02x
+0x42082d50	2	IROM	0x3c0f44c9	0	DROM	Set status to INIT, status:%d(Refused basic rates mismatch). maybe AP accept 11ax-only clients...
+0x42082d54	2	IROM	0x3c0f44b6	0	DROM	Set status to INIT
+0x4208c174	2	IROM	0x3c0f4a60	0	DROM	create wifi task: failed to create queue
+0x4208c17c	2	IROM	0x3c0f4a37	0	DROM	create wifi task: failed to create queue
+0x4208c184	2	IROM	0x3c0f4a10	0	DROM	create wifi task: failed to create sem
+0x4208c190	2	IROM	0x3c0f49e8	0	DROM	create wifi task: failed to create task
+0x4208d318	2	IROM	0x3c0f2066	0	DROM	lmacProcessCtsTimeout
+0x4208d600	2	IROM	0x3c0f2050	0	DROM	lmacProcessAckTimeout
+0x420923f0	2	IROM	0x3c0dbd58	0	DROM	E (%lu) %s: I2C software timeout
+0x420923f4	2	IROM	0x3c0dbd7a	0	DROM	E (%lu) %s: I2C hardware timeout detected
+0x420923f8	2	IROM	0x3c0dbda5	0	DROM	E (%lu) %s: I2C bus is still busy but software timeout detected
+0x420923fc	2	IROM	0x3c0dbde6	0	DROM	E (%lu) %s: I2C transaction timeout detected
+0x42092450	2	IROM	0x3c0d7419	0	DROM	E (%lu) %s: %s(%d): not able to power down in light sleep
+0x420924c0	2	IROM	0x3c0dc233	0	DROM	E (%lu) %s: %s(%d): Wrong I2C status, cannot delete device
+0x4209251c	2	IROM	0x3c0dc57c	0	DROM	E (%lu) %s: probe device timeout. Please check if xfer_timeout_ms and pull-ups are correctly set up
+0x42092594	2	IROM	0x3c0d73a9	0	DROM	E (%lu) %s: %s(%d): invalid GPIO number %d
+0x4209259c	2	IROM	0x3c0d7419	0	DROM	E (%lu) %s: %s(%d): not able to power down in light sleep
+0x42092680	2	IROM	0x3c0d73a9	0	DROM	E (%lu) %s: %s(%d): invalid GPIO number %d
+0x42092688	2	IROM	0x3c0d7419	0	DROM	E (%lu) %s: %s(%d): not able to power down in light sleep
+0x42092740	2	IROM	0x3c0d7b17	0	DROM	E (%lu) %s: %s(%d): no free transaction descriptor, please consider increasing trans_queue_depth
+0x420928ec	2	IROM	0x3c0db97b	0	DROM	E (%lu) %s: %s(%d): channel is controlled by ETM
+0x42092c6c	2	IROM	0x3c0d0050	0	DROM	ALIGN_SIZE == control->small_block_size / control->sl_index_count
+0x42092c70	2	IROM	0x3c0f50e4	0	DROM	control_construct
+0x420961c0	2	IROM	0x3fc9e3e6	3	DRAM	correct_power=%d,%d,temp=%d %d
+0x42099c90	2	IROM	0x3fc9e9a3	3	DRAM	%d,0x%x,%d, %d, power=%d, %d
+0x42099d7c	2	IROM	0x3fc9e9c1	3	DRAM	%d,0x%x,0x%x,%d, %d, power=%d, %d
+0x4209b12c	2	IROM	0x3fc9ea35	3	DRAM	total_pwr=%ld, min=%ld, max=%ld, rftx=0x%x, bb=0x%x, att=%d, dc_i=%d, dc_q=%d
+0x420aa3e0	2	IROM	0x3c0f4ab6	0	DROM	wifi assert: %d
+0x40374a40	4	IRAM	0x3fc9e090	3	DRAM	E (%lu) %s: %s(%d): wrong size, total size overflow
+0x40374f6c	4	IRAM	0x3c0d1042	0	DROM	pxTimeOut
+0x40374f70	4	IRAM	0x3c0e8f02	0	DROM	xTaskCheckForTimeOut
+0x40374fb8	4	IRAM	0x3c0e8ec6	0	DROM	vTaskPriorityDisinheritAfterTimeout
+0x403751d8	4	IRAM	0x3fc9da8a	3	DRAM	"0 == (align & (align - 1)) && ""must align to a power of two"""

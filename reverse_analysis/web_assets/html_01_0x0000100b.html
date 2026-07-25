@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- PWA Settings -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-title" content="RoboFish">
+    
+    <title>RoboFish FPV</title>
+    <style>
+        /* DJI 风格配色与重置 */
+        :root {
+            --dji-green: #2ecc71;
+            --dji-red: #e74c3c;
+            --dji-warning: #f39c12;
+            --dji-text: rgba(255, 255, 255, 0.9);
+            --glass-bg: rgba(20, 20, 20, 0.3);
+            --glass-border: rgba(255, 255, 255, 0.15);
+        }
+        * { 
+            margin: 0; padding: 0; box-sizing: border-box; 
+            user-select: none; -webkit-user-select: none; 
+            -webkit-touch-callout: none; /* 禁用长按呼出菜单 */
+            -webkit-tap-highlight-color: transparent; 
+        }
+        body { 
+            font-family: 'DIN Alternate', 'Roboto', 'Arial', sans-serif; 
+            background: #000; 
+            overflow: hidden; 
+            width: 100vw; height: 100vh;
+            color: var(--dji-text);
+            touch-action: none; /* 禁用浏览器默认手势(如缩放/滚动) */
+        }
+
+        /* 视频背景层 */
+        #video-container {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: #000;
+            touch-action: none; /* 仅在视频区域禁用手势 */
+        }
+        #videoStream { width: 100%; height: 100%; object-fit: contain; transition: object-fit 0.3s; }
+        
+        /* 横屏时视频填充屏幕 */
+        @media (orientation: landscape) {
+            #videoStream { object-fit: cover; }
+        }
+
+        /* UI 覆盖层 */
+        #ui-layer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+            pointer-events: none; /* 让点击穿透到视频层(如果需要)，控件单独设为auto */
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+
+        /* 顶部状态栏 */
+        .top-bar {
+            height: 40px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 30px;
+            pointer-events: auto;
+            font-size: 14px;
+        }
+        .status-left { display: flex; gap: 15px; align-items: center; }
+        .mode-badge {
+            background: rgba(0,0,0,0.5); border-radius: 4px; padding: 2px 8px;
+            font-size: 12px; font-weight: bold; color: var(--dji-green);
+            border: 1px solid var(--dji-green);
+            letter-spacing: 1px;
+        }
+        .status-text { font-size: 12px; opacity: 0.8; }
+        
+        .status-center { font-weight: 800; letter-spacing: 2px; opacity: 0.4; font-size: 14px; }
+        
+        .status-right { display: flex; gap: 20px; align-items: center; }
+        .icon-group { display: flex; align-items: center; gap: 6px; }
+        .icon-text { font-size: 14px; font-weight: bold; }
+        .settings-btn { cursor: pointer; font-size: 18px; opacity: 0.8; transition: opacity 0.2s; }
+        .settings-btn:active { opacity: 1; }
+
+        /* 中央 HUD */
+        .center-hud {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 200px; height: 200px;
+            pointer-events: none;
+            opacity: 0.7;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .crosshair {
+            width: 20px; height: 20px;
+            position: relative;
+        }
+        /* 十字线 */
+        .crosshair::before { content: ''; position: absolute; top: 9px; left: 0; width: 20px; height: 2px; background: white; box-shadow: 0 0 4px rgba(0,0,0,0.5); }
+        .crosshair::after { content: ''; position: absolute; top: 0; left: 9px; width: 2px; height: 20px; background: white; box-shadow: 0 0 4px rgba(0,0,0,0.5); }
+        /* 中心点 */
+        .center-dot {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 4px; height: 4px; background: var(--dji-green); border-radius: 50%;
+            box-shadow: 0 0 4px var(--dji-green);
+            z-index: 2;
+        }
+        /* 水平仪线条 */
+        .horizon-line {
+            width: 160px; height: 1px; background: rgba(255,255,255,0.3);
+            margin: 20px 0; display: flex; justify-content: space-between;
+        }
+        .horizon-line::before, .horizon-line::after {
+            content: ''; width: 1px; height: 8px; background: rgba(255,255,255,0.5);
+        }
+
+        /* 虚拟摇杆/控制区 */
+        .controls-area {
+            position: absolute; bottom: 60px; width: 100%; 
+            display: flex; justify-content: space-between; padding: 0 60px;
+            pointer-events: none;
+        }
+        
+        /* 摇杆底座 */
+        .stick-zone {
+            width: 180px; height: 180px;
+            background: var(--glass-bg);
+            border-radius: 50%;
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(4px);
+            position: relative;
+            pointer-events: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        /* 摇杆按钮通用样式 */
+        .stick-btn {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            color: white;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer;
+            transition: all 0.1s;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .stick-btn:active { background: var(--dji-green); border-color: var(--dji-green); transform: scale(0.95); color: black; }
+
+        /* 左侧方向控制 (D-Pad) */
+        .dpad-btn { width: 50px; height: 50px; font-size: 16px; }
+        .d-up { top: 15px; left: 50%; transform: translateX(-50%); }
+        .d-down { bottom: 15px; left: 50%; transform: translateX(-50%); }
+        .d-left { left: 15px; top: 50%; transform: translateY(-50%); }
+        .d-right { right: 15px; top: 50%; transform: translateY(-50%); }
+        .d-center { 
+            top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            width: 50px; height: 50px; 
+            background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);
+            font-size: 10px; font-weight: bold;
+        }
+        .d-center:active { background: var(--dji-red); color: white; }
+
+        /* 右侧功能控制 (ABXY) */
+        .action-btn { width: 55px; height: 55px; display: flex; flex-direction: column; }
+        .btn-label { font-size: 9px; opacity: 0.8; margin-top: -2px; transform: scale(0.8); }
+        .btn-letter { font-size: 16px; font-weight: bold; }
+        
+        .btn-y { top: 10px; left: 50%; transform: translateX(-50%); } /* Float */
+        .btn-a { bottom: 10px; left: 50%; transform: translateX(-50%); } /* Dive */
+        .btn-x { left: 10px; top: 50%; transform: translateY(-50%); } /* Pump */
+        .btn-b { right: 10px; top: 50%; transform: translateY(-50%); } /* Reset */
+
+        /* 底部功能条 (Mode/Confirm) */
+        .extra-actions {
+            position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 30px; pointer-events: auto;
+        }
+        .pill-btn {
+            background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3);
+            color: white; padding: 6px 20px; border-radius: 20px;
+            font-size: 11px; font-weight: bold; letter-spacing: 1px;
+            cursor: pointer; transition: all 0.2s;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .pill-btn:active { background: white; color: black; }
+
+        /* 底部遥测数据栏 */
+        .bottom-bar {
+            height: 50px;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+            display: flex; justify-content: center; align-items: center;
+            gap: 50px;
+            padding-bottom: 10px;
+            pointer-events: auto;
+        }
+        .telemetry-item { text-align: center; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+        .telemetry-label { font-size: 10px; color: #bbb; margin-bottom: 2px; }
+        .telemetry-value { font-size: 18px; font-weight: bold; font-family: 'DIN Alternate', sans-serif; }
+        .unit { font-size: 10px; opacity: 0.7; margin-left: 2px; }
+
+        /* 消息提示 Toast */
+        .toast {
+            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.85); color: white; padding: 8px 20px;
+            border-radius: 4px; border-left: 3px solid var(--dji-green);
+            display: none; z-index: 100; font-size: 13px; font-weight: bold;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            backdrop-filter: blur(4px);
+        }
+
+        /* 设置弹窗 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .modal-box { background: #222; padding: 25px; border-radius: 10px; width: 320px; color: white; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .modal-box h3 { margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 10px; text-align: center; color: var(--dji-green); }
+        .input-group { margin-bottom: 15px; }
+        .input-field { width: 100%; padding: 12px; background: #333; border: 1px solid #444; color: white; border-radius: 6px; outline: none; }
+        .input-field:focus { border-color: var(--dji-green); }
+        .modal-btns { display: flex; gap: 15px; margin-top: 25px; }
+        .modal-btn { 
+            flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .btn-save { background: var(--dji-green); color: #000; }
+        .btn-close { background: #444; color: white; }
+
+        /* 竖屏适配 (提示旋转) */
+        @media (orientation: portrait) {
+            .controls-area { 
+                bottom: 100px; 
+                flex-direction: column; 
+                align-items: center; 
+                gap: 40px; 
+                padding: 0;
+            }
+            .bottom-bar { gap: 20px; }
+            .stick-zone { width: 160px; height: 160px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 视频流 -->
+    <div id="video-container">
+        <img id="videoStream" src="" alt="Connecting...">
+    </div>
+
+    <!-- UI 层 -->
+    <div id="ui-layer">
+        <!-- 1. 顶部状态栏 -->
+        <div class="top-bar">
+            <div class="status-left">
+                <div class="mode-badge">N-MODE</div>
+                <div class="status-text">Vision System Ready</div>
+                <div class="status-text" id="ip-display" style="font-size: 11px; opacity: 0.6; margin-top: 2px;">IP: 加载中...</div>
+            </div>
+            <div class="status-center">
+                <div>ROBOFISH</div>
+                <div id="version-display" style="font-size: 10px; opacity: 0.5; margin-top: 2px;">v4.0.0 Partner</div>
+            </div>
+            <div class="status-right">
+                <div class="icon-group"><span>🔋</span><span class="icon-text" id="val-bat">86%</span></div>
+                <div class="icon-group"><span>📶</span><span class="icon-text" id="val-rssi">-65dBm</span></div>
+                <div class="settings-btn" onclick="openWifiModal()">⚙️</div>
+            </div>
+        </div>
+
+        <!-- 2. 中央 HUD -->
+        <div class="center-hud">
+            <div class="horizon-line"></div>
+            <div class="center-dot"></div>
+            <div class="crosshair"></div>
+            <div class="horizon-line"></div>
+        </div>
+
+        <!-- 3. 底部控件区 -->
+        <div class="controls-area">
+            <!-- 左侧方向摇杆 -->
+            <div class="stick-zone">
+                <button class="stick-btn dpad-btn d-up" onmousedown="send('forward')" onmouseup="send('stop')" ontouchstart="send('forward'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">▲</button>
+                <button class="stick-btn dpad-btn d-down" onmousedown="send('backward')" onmouseup="send('stop')" ontouchstart="send('backward'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">▼</button>
+                <button class="stick-btn dpad-btn d-left" onmousedown="send('left')" onmouseup="send('stop')" ontouchstart="send('left'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">◀</button>
+                <button class="stick-btn dpad-btn d-right" onmousedown="send('right')" onmouseup="send('stop')" ontouchstart="send('right'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">▶</button>
+                <button class="stick-btn dpad-btn d-center" onclick="send('stop')" oncontextmenu="return false">STOP</button>
+            </div>
+
+            <!-- 右侧动作摇杆 -->
+            <div class="stick-zone">
+                <!-- Y: Float -->
+                <button class="stick-btn action-btn btn-y" onclick="send('float')" oncontextmenu="return false">
+                    <span class="btn-letter">Y</span><span class="btn-label">Float</span>
+                </button>
+                <!-- A: Dive -->
+                <button class="stick-btn action-btn btn-a" onclick="send('dive')" oncontextmenu="return false">
+                    <span class="btn-letter">A</span><span class="btn-label">Dive</span>
+                </button>
+                <!-- X: Pump -->
+                <button class="stick-btn action-btn btn-x" onclick="send('pump')" oncontextmenu="return false">
+                    <span class="btn-letter">X</span><span class="btn-label">Pump</span>
+                </button>
+                <!-- B: Reset -->
+                <button class="stick-btn action-btn btn-b" onclick="send('reset')" oncontextmenu="return false">
+                    <span class="btn-letter">B</span><span class="btn-label">Reset</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 额外功能键 -->
+        <div class="extra-actions">
+            <button class="pill-btn" onclick="send('mode')" oncontextmenu="return false">MODE SWITCH</button>
+            <button class="pill-btn" id="demoBtn" onclick="send('demo')" oncontextmenu="return false">DEMO</button>
+            <button class="pill-btn" onclick="location.href='/partner'" oncontextmenu="return false">PARTNER LAB</button>
+        </div>
+
+        <!-- 4. 底部遥测 -->
+        <div class="bottom-bar">
+            <div class="telemetry-item">
+                <div class="telemetry-label">D</div>
+                <div class="telemetry-value"><span id="val-depth">0.0</span><span class="unit">m</span></div>
+            </div>
+            <div class="telemetry-item">
+                <div class="telemetry-label">T</div>
+                <div class="telemetry-value"><span id="val-temp">24.5</span><span class="unit">°C</span></div>
+            </div>
+            <div class="telemetry-item">
+                <div class="telemetry-label">SPD</div>
+                <div class="telemetry-value"><span id="val-speed">0.0</span><span class="unit">m/s</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 提示框 -->
+    <div id="toast" class="toast">Action Executed</div>
+
+    <!-- WiFi设置框 -->
+    <div id="wifiModal" class="modal">
+        <div class="modal-box">
+            <h3>📡 WiFi Setup</h3>
+            <div class="input-group">
+                <input type="text" id="ssid" class="input-field" placeholder="WiFi Name (SSID)">
+            </div>
+            <div class="input-group">
+                <input type="text" id="pass" class="input-field" placeholder="Password">
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn btn-close" onclick="closeWifiModal()" oncontextmenu="return false">Cancel</button>
+                <button class="modal-btn btn-save" onclick="saveWifi()" oncontextmenu="return false">Save & Restart</button>
+            </div>
+            <div style="margin-top: 15px; text-align: center;">
+                <button class="modal-btn btn-save" onclick="closeWifiModal(); openOtaModal();" style="background: #3498db;" oncontextmenu="return false">🔒 所有者固件更新</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OTA固件上传框 -->
+    <div id="otaModal" class="modal">
+        <div class="modal-box">
+            <h3>📤 OTA固件更新</h3>
+            <div class="input-group">
+                <input type="password" id="otaPassword" placeholder="请输入OTA密码" style="width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.25); color: #fff; box-sizing: border-box;">
+                <input type="file" id="firmwareFile" accept=".bin" style="display: none;" onchange="handleFileSelect(event)">
+                <button class="modal-btn btn-save" onclick="document.getElementById('firmwareFile').click();" style="width: 100%; margin-bottom: 10px;" oncontextmenu="return false">选择固件文件 (.bin)</button>
+                <div id="fileName" style="color: #bbb; font-size: 12px; margin-top: 5px;">未选择文件</div>
+            </div>
+            <div id="otaProgress" style="display: none; margin: 15px 0;">
+                <div style="background: #333; border-radius: 4px; padding: 2px;">
+                    <div id="otaProgressBar" style="background: #2ecc71; height: 20px; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
+                </div>
+                <div id="otaProgressText" style="text-align: center; margin-top: 5px; font-size: 12px;">0%</div>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn btn-close" onclick="closeOtaModal()" oncontextmenu="return false">Cancel</button>
+                <button class="modal-btn btn-save" id="otaUploadBtn" onclick="uploadFirmware()" disabled oncontextmenu="return false">上传并更新</button>
+            </div>
+            <div style="margin-top: 15px; text-align: center;">
+                <button class="modal-btn btn-close" onclick="closeOtaModal(); openWifiModal();" oncontextmenu="return false">返回WiFi设置</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(reg => {
+                    console.log('SW registered:', reg);
+                }).catch(err => {
+                    console.log('SW reg failed:', err);
+                });
+            });
+        }
+
+        const baseURL = window.location.origin;
+        let isPumpActive = false;
+
+        // 显示提示
+        function showToast(msg, isError = false) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.style.borderLeftColor = isError ? '#e74c3c' : '#2ecc71';
+            t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 2000);
+        }
+
+        // ---------------------------------------------------------------
+        // 指令发送：
+        //   1) 用 keepalive + cache:no-store，让浏览器复用底层 TCP 连接，
+        //      避免每按一下方向键都新建一次 TCP 握手(三次握手+TLS/WiFi调度)，
+        //      这正是以前"快速连按导致图传卡顿/指令丢失"的主要原因之一。
+        //   2) 对同类方向指令做节流(throttle)：相同 action 在 80ms 内只发一次，
+        //      再结合后端 CPG 标志位是幂等的，完全不影响操控体感。
+        //   3) 对 'stop' 做去抖：只在真正从"运动中"变为"停止"时才发一次 stop；
+        //      连续抬手 / 全局 touchend 重复触发不会再把指令队列灌满。
+        // ---------------------------------------------------------------
+        let lastAction = 'stop';      // 记录当前正在发送的运动方向
+        let lastSentAt = {};          // action -> timestamp 用于节流
+        const THROTTLE_MS = 80;
+
+        function fastFetch(url) {
+            // keepalive:true 允许页面切换/快速发多条时复用；cache:'no-store' 防止 Service Worker 介入
+            return fetch(baseURL + url, { method: 'GET', cache: 'no-store', keepalive: true });
+        }
+
+        function send(action) {
+            // 'stop' 去抖：已经处于 stop 就不再重复发
+            if (action === 'stop' && lastAction === 'stop') return;
+
+            // 其它指令节流：同 action 在 THROTTLE_MS 内只发一次
+            if (action !== 'stop') {
+                const now = performance.now();
+                if (lastSentAt[action] && (now - lastSentAt[action]) < THROTTLE_MS) return;
+                lastSentAt[action] = now;
+            }
+
+            let url = '';
+            let name = '';
+
+            if(action === 'pump') {
+               isPumpActive = !isPumpActive;
+               const val = isPumpActive ? 1 : 0;
+               url = '/control?var=pump&val=' + val;
+               name = isPumpActive ? 'Pump ON' : 'Pump OFF';
+
+               const btn = document.querySelector('.btn-x');
+               if(isPumpActive) {
+                   btn.style.background = 'var(--dji-green)';
+                   btn.style.color = 'black';
+                   btn.style.borderColor = 'var(--dji-green)';
+               } else {
+                   btn.style.background = 'rgba(255, 255, 255, 0.1)';
+                   btn.style.color = 'white';
+                   btn.style.borderColor = 'rgba(255,255,255,0.2)';
+               }
+            } else {
+               const map = {
+                   'forward': {var:'servo_forward', val:1, name:'Forward'},
+                   'backward': {var:'servo_backward', val:1, name:'Backward'},
+                   'stop': {var:'servo_stop', val:1, name:'Stop'},
+                   'left': {var:'servo_left', val:1, name:'Left Turn'},
+                   'right': {var:'servo_right', val:1, name:'Right Turn'},
+                   'float': {var:'pitch', val:45, name:'Pitch Up (Float)'},
+                   'dive': {var:'pitch', val:135, name:'Pitch Down (Dive)'},
+                   'reset': {var:'pitch', val:90, name:'Pitch Reset'},
+                   'mode': {var:'mode', val:0, name:'Mode Switch'},
+                   'demo': {var:'demo', val:1, name:'Demo'}
+               };
+               if(map[action]) {
+                   url = '/control?var=' + map[action].var + '&val=' + map[action].val;
+                   name = map[action].name;
+               }
+            }
+
+            // 更新运动状态记录（仅对方向类指令）
+            if (action === 'forward' || action === 'backward' ||
+                action === 'left'    || action === 'right'    ||
+                action === 'stop') {
+                lastAction = action;
+            }
+
+            // 任何人工控制指令都会让后端取消演示；前端同步复位按钮样式，
+            // 避免出现"后端已停、前端按钮还在高亮"的错位。
+            if (demoRunning && action !== 'demo' && (
+                action === 'forward' || action === 'backward' ||
+                action === 'left'    || action === 'right'    ||
+                action === 'stop'    || action === 'mode'     ||
+                action === 'float'   || action === 'dive'     ||
+                action === 'reset'   || action === 'pump')) {
+                demoRunning = false;
+                setDemoBtnActive(false);
+                if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; }
+            }
+
+            if(url) {
+                fastFetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error("HTTP error " + response.status);
+                    // mode / demo 都需要读取响应文本用于 UI 反馈
+                    return (action === 'mode' || action === 'demo') ? response.text() : null;
+                })
+                .then(text => {
+                    if(action === 'mode' && text) {
+                        const modeBadge = document.querySelector('.mode-badge');
+                        modeBadge.textContent = text + " MODE";
+                        modeBadge.style.color = '#e74c3c';
+                        setTimeout(() => modeBadge.style.color = 'var(--dji-green)', 500);
+                        showToast("Mode Switched: " + text);
+                    } else if (action === 'demo' && text) {
+                        handleDemoResponse(text);
+                    }
+                })
+                .catch(e => {
+                    // 静默失败，不要弹 toast 以免频繁操作时刷屏。
+                    // 真正的断连错误由图传 img.onerror 单独提示。
+                    console.warn('cmd failed:', action, e);
+                });
+            }
+        }
+
+        // ---------------- Demo 状态反馈 ----------------
+        // 与后端的 DEMO_TOTAL_MS 保持一致；略留余量，超时后自动复位按钮样式
+        const DEMO_TOTAL_MS = 4000 + 3500 + 4000 + 1200 + 400;
+        let demoRunning = false;
+        let demoTimer = null;
+
+        function setDemoBtnActive(active) {
+            const btn = document.getElementById('demoBtn');
+            if (!btn) return;
+            if (active) {
+                btn.style.background = 'var(--dji-green)';
+                btn.style.color = '#000';
+                btn.style.borderColor = 'var(--dji-green)';
+                btn.textContent = 'DEMO ●';
+            } else {
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+                btn.textContent = 'DEMO';
+            }
+        }
+
+        function handleDemoResponse(text) {
+            if (text === 'DEMO_STARTED') {
+                demoRunning = true;
+                setDemoBtnActive(true);
+                showToast('演示开始：前进 → 下潜 → 上浮 → 停止');
+                if (demoTimer) clearTimeout(demoTimer);
+                demoTimer = setTimeout(() => {
+                    demoRunning = false;
+                    setDemoBtnActive(false);
+                }, DEMO_TOTAL_MS);
+            } else if (text === 'DEMO_CANCELLED') {
+                demoRunning = false;
+                setDemoBtnActive(false);
+                if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; }
+                showToast('演示已取消');
+            } else if (text === 'DEMO_BLOCKED_FAILSAFE') {
+                showToast('失联保护中，无法启动演示', true);
+            }
+        }
+
+
+        // WiFi 弹窗逻辑
+        function openWifiModal() { document.getElementById('wifiModal').style.display = 'flex'; }
+        function closeWifiModal() { document.getElementById('wifiModal').style.display = 'none'; }
+        function saveWifi() {
+            const s = document.getElementById('ssid').value;
+            const p = document.getElementById('pass').value;
+            if(!s) { alert('SSID cannot be empty'); return; }
+            
+            showToast('Saving WiFi...', false);
+            fetch('/save_wifi?ssid=' + encodeURIComponent(s) + '&pass=' + encodeURIComponent(p))
+                .then(r => r.text())
+                .then(t => { 
+                    alert(t); 
+                    closeWifiModal();
+                })
+                .catch(e => alert('Error saving WiFi'));
+        }
+
+        // OTA 弹窗逻辑
+        let selectedFirmwareFile = null;
+        function openOtaModal() { 
+            document.getElementById('otaModal').style.display = 'flex';
+            document.getElementById('otaProgress').style.display = 'none';
+            document.getElementById('otaProgressBar').style.width = '0%';
+            document.getElementById('otaProgressText').textContent = '0%';
+        }
+        function closeOtaModal() { 
+            document.getElementById('otaModal').style.display = 'none';
+            selectedFirmwareFile = null;
+            document.getElementById('otaPassword').value = '';
+            document.getElementById('firmwareFile').value = '';
+            document.getElementById('fileName').textContent = '未选择文件';
+            document.getElementById('otaUploadBtn').disabled = true;
+        }
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                if (!file.name.endsWith('.bin')) {
+                    alert('请选择.bin格式的固件文件');
+                    return;
+                }
+                selectedFirmwareFile = file;
+                document.getElementById('fileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+                document.getElementById('otaUploadBtn').disabled = false;
+            }
+        }
+        function uploadFirmware() {
+            if (!selectedFirmwareFile) {
+                alert('请先选择固件文件');
+                return;
+            }
+            const otaPassword = document.getElementById('otaPassword').value;
+            if (!otaPassword) {
+                alert('请输入OTA密码');
+                return;
+            }
+            
+            document.getElementById('otaProgress').style.display = 'block';
+            document.getElementById('otaUploadBtn').disabled = true;
+            document.getElementById('otaUploadBtn').textContent = '上传中...';
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.addEventListener('progress', (evt) => {
+                    if (evt.lengthComputable) {
+                        const percent = (evt.loaded / evt.total) * 100;
+                        document.getElementById('otaProgressBar').style.width = percent + '%';
+                        document.getElementById('otaProgressText').textContent = Math.round(percent) + '%';
+                    }
+                });
+                
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.success) {
+                                showToast('OTA更新成功，设备即将重启...', false);
+                                setTimeout(() => {
+                                    alert('设备正在重启，请等待30秒后刷新页面');
+                                }, 2000);
+                            } else {
+                                alert('OTA更新失败: ' + (response.error || '未知错误'));
+                                document.getElementById('otaUploadBtn').disabled = false;
+                                document.getElementById('otaUploadBtn').textContent = '上传并更新';
+                            }
+                        } catch(e) {
+                            // 如果响应不是JSON（可能是重启前的最后响应），也认为成功
+                            showToast('OTA更新完成，设备重启中...', false);
+                        }
+                    } else {
+                        alert('OTA更新失败: HTTP ' + xhr.status);
+                        document.getElementById('otaUploadBtn').disabled = false;
+                        document.getElementById('otaUploadBtn').textContent = '上传并更新';
+                    }
+                });
+                
+                xhr.addEventListener('error', () => {
+                    alert('上传失败，请检查网络连接');
+                    document.getElementById('otaUploadBtn').disabled = false;
+                    document.getElementById('otaUploadBtn').textContent = '上传并更新';
+                });
+                
+                xhr.open('POST', '/ota_upload');
+                xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                xhr.setRequestHeader('X-OTA-Password', otaPassword);
+                xhr.send(arrayBuffer);
+            };
+            reader.readAsArrayBuffer(selectedFirmwareFile);
+        }
+
+        // 视频流连接
+        function startStream() {
+            const port = parseInt(window.location.port) || 80;
+            const img = document.getElementById('videoStream');
+            // 假设 stream 服务器端口是 control 端口 + 1
+            const streamUrl = 'http://' + window.location.hostname + ':' + (port + 1) + '/stream';
+            
+            img.src = streamUrl;
+            img.onload = () => { console.log('Stream connected'); }
+            img.onerror = () => {
+                console.log('Stream disconnected, retrying...');
+                setTimeout(() => { img.src = streamUrl + '?t=' + Date.now(); }, 2000);
+            }
+        }
+
+        // 获取并显示IP地址
+        function updateIPDisplay() {
+            fetch('/get_ip')
+                .then(r => r.json())
+                .then(data => {
+                    const ipDisplay = document.getElementById('ip-display');
+                    if (data.sta_connected && data.sta_ip && data.sta_ip !== '0.0.0.0') {
+                        ipDisplay.textContent = 'IP: ' + data.sta_ip + ' (' + data.sta_ssid + ')';
+                        ipDisplay.style.color = '#2ecc71'; // 绿色表示已连接
+                    } else {
+                        ipDisplay.textContent = 'AP: ' + data.ap_ip + ' (未配网)';
+                        ipDisplay.style.color = '#f39c12'; // 橙色表示AP模式
+                    }
+                    // 更新版本号显示
+                    if (data.version) {
+                        document.getElementById('version-display').textContent = 'v' + data.version;
+                    }
+                })
+                .catch(e => {
+                    document.getElementById('ip-display').textContent = 'IP: 获取失败';
+                });
+        }
+
+        // 初始化
+        window.onload = function() {
+            startStream();
+            updateIPDisplay(); // 显示IP地址
+            setInterval(updateIPDisplay, 10000); // 每10秒更新一次IP地址
+            
+            // 禁用右键菜单(长按菜单)
+            document.addEventListener('contextmenu', event => event.preventDefault());
+            
+            // 阻止双击缩放等默认行为 (仅在非交互区域)
+            document.addEventListener('touchmove', function(event) {
+                // 如果触摸目标不是按钮或输入框，则阻止默认行为（防止拖拽页面）
+                if (!event.target.closest('button') && !event.target.closest('input')) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
+
+            // 全局触摸结束监听：仅当上次有"方向性运动"指令在进行时才发 stop。
+            // 以前无论在哪里抬手都会 send('stop')，在模式按钮 / 俯仰按钮等场景下
+            // 会与触发的新动作争抢带宽、生成无意义的请求流量，进而拖慢图传。
+            window.addEventListener('touchend', function(event) {
+                if (lastAction === 'forward' || lastAction === 'backward' ||
+                    lastAction === 'left'    || lastAction === 'right') {
+                    send('stop');
+                }
+            });
+
+            // 为所有方向键添加 touchcancel 处理，防止意外中断导致不停
+            const dpadBtns = document.querySelectorAll('.dpad-btn');
+            dpadBtns.forEach(btn => {
+                btn.style.webkitTouchCallout = 'none';
+                btn.style.webkitUserSelect = 'none';
+
+                btn.addEventListener('touchcancel', (e) => {
+                    e.preventDefault();
+                    send('stop');
+                });
+            });
+            
+            // 遥测显示：深度/速度恒为 0，电量固定 95%
+            setInterval(() => {
+                // 深度 Depth -> 0.0
+                document.getElementById('val-depth').innerText = '0.0';
+
+                // 温度 Temp 仍随机
+                const temp = (20 + Math.random() * 8).toFixed(1);
+                document.getElementById('val-temp').innerText = temp;
+
+                // 速度 Speed -> 0.0
+                document.getElementById('val-speed').innerText = '0.0';
+
+                // 电量 Battery 固定 95%
+                document.getElementById('val-bat').innerText = '95%';
+
+                // 信号 RSSI (-40dBm - -80dBm)
+                const rssi = Math.floor(-40 - Math.random() * 40);
+                document.getElementById('val-rssi').innerText = rssi + 'dBm';
+            }, 5000);
+        };
+    </script>
+</body>
+</html>

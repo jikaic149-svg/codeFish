@@ -1,0 +1,24 @@
+filename	start	stop	description
+01_control_command_received.asm	0x420036dc	0x42003708	控制到达/退出失联保护
+02_control_tick.asm	0x42003708	0x42003a8c	CPG 与推进周期控制主体
+03_cpg_task.asm	0x42003a8c	0x42003aa8	CPGTask 入口与 20 ms 周期
+04_failsafe_trigger.asm	0x42003d14	0x42003d60	失联保护触发
+05_failsafe_watchdog.asm	0x42003d60	0x42003e28	AP/STA 双链路看门狗
+06_demo_request_guard.asm	0x42003f18	0x42003f34	Demo 启动/取消入口
+07_demo_request_start.asm	0x42003f34	0x42003f9c	Demo 启动路径
+08_demo_tick_guard.asm	0x42003f9c	0x42003fc1	Demo 状态机入口
+09_demo_tick_states_a.asm	0x42003fc1	0x42003fec	Demo 状态分派前半
+10_demo_tick_states_b.asm	0x42003fec	0x42004070	Demo 状态分派后半
+11_setup.asm	0x4200447c	0x42004864	setup、摄像头、网络与任务创建
+12_loop.asm	0x42004864	0x4200487c	Arduino loop：安全与状态机调度
+13_partner_http_handlers.asm	0x42004910	0x42004e80	Partner HTTP 处理函数
+14_ota_upload.asm	0x420054b0	0x420058ec	Web OTA 上传处理函数
+15_camera_control.asm	0x42005fac	0x4200657c	相机参数及机器鱼控制分派
+16_partner_stop.asm	0x42007288	0x420072bc	Partner 脚本安全停止
+17_partner_parse_save.asm	0x420072bc	0x420073bc	Partner 脚本解析与持久化
+18_partner_start.asm	0x420073bc	0x42007438	Partner 脚本启动
+19_partner_tick_guard.asm	0x42007438	0x4200745c	Partner 步骤推进入口
+20_partner_tick_body.asm	0x4200745c	0x420074d4	Partner 步骤及循环推进
+21_partner_get_script.asm	0x420074d4	0x420074dc	读取当前脚本文本
+22_partner_status_idle.asm	0x420074dc	0x4200755e	格式化空闲状态 JSON
+23_partner_status_running.asm	0x4200755e	0x42007594	计算运行中步骤剩余时间

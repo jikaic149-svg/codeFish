@@ -1,0 +1,34 @@
+address	name	confidence	notes
+0x420036dc	on_control_command	direct	新控制到达时退出 failsafe
+0x42003708	control_tick	direct	CPG 与推进周期控制主体
+0x42003a8c	CPGTask	direct	20 ms 循环任务
+0x42003aa8	set_pitch	high	限制为 0..180 并写胸鳍舵机
+0x42003acc	set_pump	high	GPIO 9 低电平有效
+0x42003ae0	hardware_init	high	舵机、ESC、水泵和初始中位
+0x42003cd8	emergency_stop	high	清动作标志并归中目标
+0x42003d14	trigger_failsafe	direct	紧急停止、pitch 45、橙色状态灯
+0x42003d60	failsafe_watchdog	direct	15 s 启用、双链路断开 3 s 触发
+0x42003e28	cancel_demo	high	取消 Demo，可选安全停止
+0x42003f18	request_demo	direct	启动/取消/拒绝 Demo
+0x42003f9c	demo_tick	direct	非阻塞 Demo 状态机
+0x4200447c	setup	direct	Arduino setup
+0x42004910	partner_status_handler	direct	GET /partner_status
+0x42004968	partner_page_handler	direct	GET /partner
+0x420049ec	gpio_page_handler	direct	GET /gpio
+0x42004a38	partner_stop_handler	direct	POST /partner_stop
+0x42004abc	partner_run_handler	direct	POST /partner_run
+0x42004b6c	partner_script_post_handler	direct	POST /partner_script
+0x42004c48	partner_script_get_handler	direct	GET /partner_script
+0x42004fe4	camera_root_handler	direct	GET /
+0x42005154	camera_status_handler	direct	GET /status
+0x420054b0	ota_upload_handler	direct	POST /ota_upload
+0x42005dc0	stream_handler	direct	GET /stream
+0x42005edc	capture_handler	direct	GET /capture
+0x42005fac	control_handler	direct	GET /control
+0x420070c8	partner_json_validator	high	动作字段、范围与总时长校验主体
+0x42007288	partner_stop	direct	停止脚本并清执行器状态
+0x420072bc	partner_parse_save	direct	解析、NVS 保存并加载运行结构
+0x420073bc	partner_start	direct	检查 failsafe 后启动
+0x42007438	partner_tick	direct	推进步骤和循环
+0x420074d4	partner_get_script	direct	返回已存 JSON 指针
+0x420074dc	partner_format_status	direct	格式化状态 JSON
