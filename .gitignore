@@ -1,0 +1,12 @@
+# macOS archive metadata
+.DS_Store
+._*
+__MACOSX/
+
+# Local IDE settings
+.idea/
+.vscode/
+
+# Temporary files
+*.tmp
+*.log
