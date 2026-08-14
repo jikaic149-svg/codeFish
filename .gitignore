@@ -5,11 +5,36 @@ __MACOSX/
 
 # Local IDE settings
 .idea/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/robofish-ota.ps1
+!.vscode/launch.json
+
+# Local ESP-IDF work files and timestamped OTA exports
+RoboFishPartnerDriverSDK/sdkconfig
+RoboFishPartnerDriverSDK/build/idf/
+RoboFishPartnerDriverSDK/build/*-idf/
+RoboFishPartnerDriverSDK/build/RoboFishPartnerDriverSDK-OTA-*.bin
+RoboFishPartnerDriverSDK/managed_components/
 
 # Temporary files
 *.tmp
 *.log
+.codex_camera_probe.jpg
+
+# Local Python/YOLO environments and generated caches
+.env
+**/.env
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+**/.matplotlib/
+**/.ultralytics/
+Ultralytics/
+VISION/Ultralytics/
 
 # Local reverse-engineering tool environment
 reverse_analysis/.tools/

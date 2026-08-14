@@ -1,133 +1,75 @@
 # codeFish RoboFish Partner
 
-面向 Seeed Studio XIAO ESP32-S3 的机器鱼固件交付包。项目同时提供可直接使用的 Partner Edition 预编译固件、供合作方二次开发的底层执行器驱动 SDK，以及预编译固件的可复现静态逆向分析资料。
+本仓库包含原始 `CameraTest.ino.bin`、可复现的静态逆向资料，以及依据这些证据重建的纯 ESP-IDF 5.3.2 完整功能工程。
 
-> 重要说明：完整机器鱼功能只以预编译固件形式提供；可修改的 SDK 源码刻意不包含摄像头、游动算法、动作模式和运动参数。
+> “还原”指功能等价重建。原镜像没有 ELF 符号和作者源码，因此不能声称逐行源码恢复或生成二进制一致镜像。
 
-## 项目内容
+## 目录
 
 ```text
 codeFish/
-├─ CameraTest.ino.bin                 RoboFish Partner Edition v4.0.0 完整固件
-├─ PARTNER_USER_GUIDE.md              完整固件及动作脚本使用说明
-├─ reverse_analysis/                  固件段、网页、反汇编、伪代码和中文逆向报告
-└─ RoboFishPartnerDriverSDK/
-   ├─ RoboFishPartnerDriverSDK.ino    Arduino 程序入口
-   ├─ RoboFishDriver.h/.cpp           舵机、电调和水泵底层驱动
-   ├─ OtaService.h/.cpp               Wi-Fi AP/STA 与 Web OTA 服务
-   ├─ sdk_config.h                    引脚、限位、超时和网络配置
-   ├─ README.md                       SDK 详细说明
-   └─ build/                          ESP32-S3 编译及烧录产物
+├─ CameraTest.ino.bin                 原始 ESP32-S3 应用镜像
+├─ reverse_analysis/                  镜像结构、字符串、网页、反汇编和伪代码
+├─ PARTNER_USER_GUIDE.md              网页与 Partner 脚本使用说明
+├─ .vscode/                           编译、连接鱼 AP 和无线 OTA 工作流
+└─ RoboFishPartnerDriverSDK/          纯 ESP-IDF 功能等价重建工程
 ```
 
-## 两套固件的区别
-
-| 内容 | `CameraTest.ino.bin` | `RoboFishPartnerDriverSDK` |
-| --- | --- | --- |
-| 交付形式 | 预编译应用固件 | 完整 SDK 源码及编译产物 |
-| 摄像头与视频流 | 包含 | 不包含 |
-| 网页驾驶界面 | 包含 | 不包含 |
-| 前进、后退、转向 | 包含 | 需要自行实现 |
-| 仿生/螺旋桨/混合模式 | 包含 | 不包含 |
-| 动作脚本 | 包含 | 不包含 |
-| 舵机、电调、水泵基础控制 | 包含 | 包含 |
-| Web OTA | 包含 | 包含 |
-
-完整固件中的内嵌资源显示其版本为 `RoboFish FPV Controller v4.0.0 Partner Edition`，提供 `/gpio` 驾驶页面、`/partner` 合作方实验页面、`/stream` 视频流以及动作脚本接口。项目中没有这套完整固件的对应源代码。
-
-## 完整固件逆向分析
-
-[`reverse_analysis/`](reverse_analysis/) 保存了 `CameraTest.ino.bin` 的静态逆向结果，包括 ESP32-S3 镜像与段布局、9737 条 ASCII 字符串、4 个完整 Web 资源、HTTP 路由、摄像头和执行器引脚、FreeRTOS 任务、50 Hz CPG 控制、失联自动上浮、Demo/Partner 状态机、OTA 流程、关键 Xtensa 反汇编及人工恢复伪代码。
-
-分析脚本可以从原始 `.bin` 重新生成段、字符串、指针和关键函数反汇编。所有结论按“二进制直接确认 / 高可信推断 / 无法静态确认”区分；恢复伪代码用于解释行为，不是原始源码，也不能直接替代固件编译。
-
-原始完整固件 SHA-256：
+原镜像 SHA-256：
 
 ```text
 bc55582a37e8cc3abce227b09bf2bc9f66d6d93fda4782f00bc25daecdb79009
 ```
 
-## Partner Edition 功能
+## 当前重建范围
 
-设备默认创建热点 `RoboFish-ND1`。连接后可访问：
+- XIAO ESP32-S3 Sense 摄像头、抓拍、BMP、MJPEG；
+- 原 `/gpio` 驾驶页与 `/partner` 脚本页；
+- BIONIC、PROP、HYBRID，前后左右、停止、俯仰、水泵和 Demo；
+- Partner JSON/NVS/非阻塞脚本引擎；
+- NVS 驱动方向配置与隐藏 `tail_reverse` 协议；
+- AP/可选 STA、captive portal、失联上浮保护；
+- GPIO7 八像素 RGB 状态灯；
+- 原网页兼容 OTA 与带 Basic Auth 的 VS Code OTA；
+- 8 MB 双 OTA 分区和 rollback。
 
-- `http://192.168.4.1/gpio`：实时驾驶和视频界面
-- `http://192.168.4.1/partner`：Partner Lab 动作脚本界面
+具体硬件、任务、路由和验证边界见 [工程说明](RoboFishPartnerDriverSDK/README.md) 与 [逆向报告](reverse_analysis/README.md)。
 
-动作脚本采用 JSON 格式，支持：
+## 构建
 
-- `mode_bionic`、`mode_prop`、`mode_hybrid`
-- `forward`、`backward`、`left`、`right`、`stop`
-- `pitch`、`pump_on`、`pump_off`
-
-固件限制单个脚本最多 32 步、重复 1～10 次，总执行时间最长 5 分钟。详细格式见 [PARTNER_USER_GUIDE.md](PARTNER_USER_GUIDE.md)。
-
-## 底层驱动 SDK
-
-SDK 提供以下 API：
-
-```cpp
-fish.setTailServo1(angle);
-fish.setTailServo2(angle);
-fish.setTailServos(angle1, angle2);
-fish.setPitchServo(angle);
-fish.setPump(enabled);
-fish.setEscThrottle(command);
-fish.setEscSteering(command);
-fish.centerTail();
-fish.stopPropulsion();
-fish.emergencyStop();
-fish.update();
-```
-
-`fish.update()` 必须在 `loop()` 中持续调用，以执行推进和水泵超时保护。SDK 默认不会让机器鱼游动，开发者需要自行实现随时间变化的关节协调、推进控制和安全状态机。
-
-### 硬件映射
-
-| 执行器 | GPIO | 默认/限制 |
-| --- | ---: | --- |
-| 尾部舵机 1 | 5 | 中心 86°，20～152° |
-| 尾部舵机 2 | 6 | 中心 86°，20～152° |
-| 胸鳍俯仰舵机 | 4 | 中心 90°，45～135° |
-| 水泵继电器 | 9 | 低电平有效，最长开启 10 秒 |
-| 电调油门 | 43 | 中立 90，范围 35～150 |
-| 电调转向 | 44 | 中心 88，范围 40～136 |
-
-非中立推进命令需要在 2 秒内刷新，否则驱动会自动回到中立。OTA 上传开始时，驱动会紧急停止并锁定全部执行器，直到设备重启。
-
-## SDK Web OTA
-
-SDK 启动后会创建热点 `RoboFish-Partner-SDK`，升级页面为：
+本机工作流固定使用：
 
 ```text
-http://192.168.4.1/update
+ESP-IDF  D:\ESP32\ESP-IDF-v5.3.2
+Tools    D:\ESP32\.espressif
+Python   D:\ESP32\.espressif\python_env\idf5.3_py3.13_env\Scripts\python.exe
+CMake    D:\CMAKE\bin\cmake.exe
+Ninja    D:\Ninja\ninja.exe
 ```
 
-OTA Web 服务运行在独立 FreeRTOS 任务中，并支持可选的 STA 路由器联网。上传时应选择 Arduino 导出的应用固件 `RoboFishPartnerDriverSDK.ino.bin`，不能上传 bootloader、partition 或 merged 固件。
+在 VS Code 中打开本目录，运行“RoboFish: 生成 ESP-IDF Web OTA 固件”；或在已导出的 IDF 环境中：
 
-热点密码及 OTA 账号保存在 `sdk_config.h` 中。它们是可修改的本地访问配置，不应被视为安全密钥；部署前请按实际网络环境修改。
+```powershell
+cd RoboFishPartnerDriverSDK
+idf.py -B build\idf build
+```
 
-## 编译环境
+时间命名的 OTA 应用镜像输出到：
 
-- Board：`XIAO_ESP32S3`
-- Arduino ESP32 Core：`3.3.7`
-- CPU：240 MHz
-- Flash：8 MB
-- Partition：双 OTA 应用分区 + SPIFFS
-- PSRAM：关闭
-- 优化：`-Os`
-- 外部依赖：`ESP32Servo`
+```text
+RoboFishPartnerDriverSDK/build/RoboFishPartnerDriverSDK-OTA-yyyyMMdd-HHmmss.bin
+```
 
-`build/esp32.esp32.XIAO_ESP32S3` 已包含应用固件、bootloader、分区表、合并固件、ELF、MAP、烧录参数和 `sdkconfig`。
+## 使用与 OTA
 
-## SDK 不包含的内容
+机器鱼创建 AP `RoboFish-ND1`，电脑作为 STA 连接后访问：
 
-- 摄像头和图传
-- CPG、正弦摆尾、相位差和转弯算法
-- `forward/backward/left/right` 等完整动作逻辑
-- 仿生、螺旋桨和混合模式状态机
-- Demo、动作脚本及 Partner Lab 页面
-- 自动上浮、深度控制、遥测和自主控制
-- 完整版固件中的推进标定与专有运动参数
+- `http://192.168.4.1/gpio`
+- `http://192.168.4.1/partner`
+- `http://192.168.4.1/update`
 
-更多 SDK 使用说明见 [RoboFishPartnerDriverSDK/README.md](RoboFishPartnerDriverSDK/README.md)。
+VS Code 的连接和上传任务会隐藏输入 AP/OTA 密码、校验 `/get_ip` 返回的 `4.0.0-partner` 与 `192.168.4.1`、要求输入 `UPLOAD`，并显示 HTTP 反馈。无线烧录只上传时间命名的应用 `.bin`。
+
+## 安全与验证
+
+当前已完成 ESP32-S3 目标编译和真实 `esp32-camera` 链接验证，尚未替用户连接或烧录硬件。涉及 ESC、螺旋桨、水泵和舵机的首次测试必须在安全无负载条件下进行，并逐项确认方向、限位、失联保护和 OTA 后回滚行为。

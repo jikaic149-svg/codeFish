@@ -1,0 +1,147 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "RoboFish: 检查 ESP-IDF 5.3.2 构建环境",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\robofish-ota.ps1",
+        "-Action",
+        "Check"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "RoboFish: 生成 ESP-IDF Web OTA 固件",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\robofish-ota.ps1",
+        "-Action",
+        "Build"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "RoboFish: USB 有线选择固件并烧录",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\robofish-ota.ps1",
+        "-Action",
+        "Flash"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "RoboFish: 检查当前机器鱼 AP",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\robofish-ota.ps1",
+        "-Action",
+        "Connect",
+        "-DeviceHost",
+        "${input:deviceHost}"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "RoboFish: Web OTA 烧录最新固件",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\robofish-ota.ps1",
+        "-Action",
+        "Upload",
+        "-DeviceHost",
+        "${input:deviceHost}",
+        "-OtaUsername",
+        "${input:otaUsername}"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "RoboFish: ESP-IDF 编译并无线 OTA 烧录",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "RoboFish: 生成 ESP-IDF Web OTA 固件",
+        "RoboFish: Web OTA 烧录最新固件"
+      ],
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "deviceHost",
+      "type": "promptString",
+      "description": "机器鱼 AP 上的 OTA 地址（默认 192.168.4.1）",
+      "default": "192.168.4.1"
+    },
+    {
+      "id": "otaUsername",
+      "type": "promptString",
+      "description": "Web OTA 用户名；OTA 密码将在终端中隐藏输入",
+      "default": "admin"
+    }
+  ]
+}

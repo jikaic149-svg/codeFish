@@ -1,0 +1,62 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "VISION: YOLO GPU（外置 USB 摄像头）",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}\\VISION\\yolo(PID).py",
+      "cwd": "${workspaceFolder}\\VISION",
+      "python": "${workspaceFolder}\\VISION\\.venv\\Scripts\\python.exe",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "YOLO_CONFIG_DIR": "${workspaceFolder}\\VISION\\.ultralytics",
+        "MPLCONFIGDIR": "${workspaceFolder}\\VISION\\.matplotlib"
+      }
+    },
+    {
+      "name": "RoboFish: USB 有线选择固件并烧录",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo RoboFish wired flash completed.",
+      "preLaunchTask": "RoboFish: USB 有线选择固件并烧录"
+    },
+    {
+      "name": "RoboFish: ESP-IDF 编译并无线 OTA 烧录",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo RoboFish ESP-IDF OTA workflow completed.",
+      "preLaunchTask": "RoboFish: ESP-IDF 编译并无线 OTA 烧录"
+    },
+    {
+      "name": "RoboFish: 仅生成 ESP-IDF OTA 固件",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo RoboFish ESP-IDF OTA image generated.",
+      "preLaunchTask": "RoboFish: 生成 ESP-IDF Web OTA 固件"
+    },
+    {
+      "name": "RoboFish: 检查当前机器鱼 AP",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo Current RoboFish AP verified.",
+      "preLaunchTask": "RoboFish: 检查当前机器鱼 AP"
+    },
+    {
+      "name": "RoboFish: 仅无线 OTA 烧录最新固件",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo RoboFish OTA upload workflow completed.",
+      "preLaunchTask": "RoboFish: Web OTA 烧录最新固件"
+    },
+    {
+      "name": "RoboFish: 检查 ESP-IDF 5.3.2 构建环境",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo ESP-IDF 5.3.2 environment check completed.",
+      "preLaunchTask": "RoboFish: 检查 ESP-IDF 5.3.2 构建环境"
+    }
+  ]
+}

@@ -11,10 +11,12 @@
 | SHA-256 | `bc55582a37e8cc3abce227b09bf2bc9f66d6d93fda4782f00bc25daecdb79009` |
 | 芯片 | ESP32-S3，chip ID 9 |
 | 镜像入口 | `0x40375c70` |
-| Flash 配置 | 8 MB、DIO、80 MHz |
+| Flash 配置 | 8 MB、QIO（镜像头/写入参数编码为 DIO）、80 MHz |
 | 段数 | 6 |
 | 镜像校验和 | `0x93`，重新计算一致 |
 | 镜像验证哈希 | `cd9b3a745232cd85590a6b25e661bbabfdce1b6583988b100b732dab21a191bb`，重新计算一致 |
+
+镜像头第 2 字节为 `0x02`，即 ROM 首次装载使用 DIO 编码；但固件内嵌的完整 Arduino FQBN 明确为 `FlashMode=qio`。这两项并不矛盾：ESP-IDF 5.3.2 的 `CONFIG_ESPTOOLPY_FLASHMODE_QIO` 会把镜像头/烧录参数映射为 `dio`，随后由二级 bootloader 切换到 QIO。工程配置因此应选 QIO，而不是仅凭镜像头字节写成 DIO。
 
 镜像可直接解析，DROM 中的代码引用、HTML 和日志均为明文，因此可确认应用镜像没有启用 Flash 加密。文件在验证哈希后结束，没有发现附加的 Secure Boot 签名块；但仅凭应用文件不能判断目标设备 eFuse 的真实配置。
 

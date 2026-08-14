@@ -85,6 +85,14 @@
         .settings-btn { cursor: pointer; font-size: 18px; opacity: 0.8; transition: opacity 0.2s; }
         .settings-btn:active { opacity: 1; }
 
+        .ota-test-banner {
+            position: fixed; top: 54px; left: 50%; transform: translateX(-50%);
+            z-index: 50; padding: 12px 28px; border-radius: 8px;
+            background: #00ff75; color: #001a0c; border: 3px solid white;
+            box-shadow: 0 0 28px #00ff75; font-size: 22px; font-weight: 900;
+            letter-spacing: 2px; pointer-events: none;
+        }
+
         /* 中央 HUD */
         .center-hud {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -259,6 +267,7 @@
     </style>
 </head>
 <body>
+    <div class="ota-test-banner">OTA TEST SUCCESS · 2026-08-13</div>
     <!-- 视频流 -->
     <div id="video-container">
         <img id="videoStream" src="" alt="Connecting...">
@@ -300,7 +309,7 @@
                 <button class="stick-btn dpad-btn d-down" onmousedown="send('backward')" onmouseup="send('stop')" ontouchstart="send('backward'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">▼</button>
                 <button class="stick-btn dpad-btn d-left" onmousedown="send('left')" onmouseup="send('stop')" ontouchstart="send('left'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">◀</button>
                 <button class="stick-btn dpad-btn d-right" onmousedown="send('right')" onmouseup="send('stop')" ontouchstart="send('right'); return false;" ontouchend="send('stop'); return false;" oncontextmenu="return false">▶</button>
-                <button class="stick-btn dpad-btn d-center" onclick="send('stop')" oncontextmenu="return false">STOP</button>
+                <button class="stick-btn dpad-btn d-center" onpointerdown="emergencyStop(true); return false;" oncontextmenu="return false">STOP</button>
             </div>
 
             <!-- 右侧动作摇杆 -->
@@ -428,21 +437,46 @@
         //      这正是以前"快速连按导致图传卡顿/指令丢失"的主要原因之一。
         //   2) 对同类方向指令做节流(throttle)：相同 action 在 80ms 内只发一次，
         //      再结合后端 CPG 标志位是幂等的，完全不影响操控体感。
-        //   3) 对 'stop' 做去抖：只在真正从"运动中"变为"停止"时才发一次 stop；
-        //      连续抬手 / 全局 touchend 重复触发不会再把指令队列灌满。
+        //   3) STOP 独立于运动状态，永远下发并取消尚未完成的运动请求。
         // ---------------------------------------------------------------
         let lastAction = 'stop';      // 记录当前正在发送的运动方向
         let lastSentAt = {};          // action -> timestamp 用于节流
+        const pendingMotionControllers = new Set();
         const THROTTLE_MS = 80;
 
-        function fastFetch(url) {
+        function fastFetch(url, signal = null) {
             // keepalive:true 允许页面切换/快速发多条时复用；cache:'no-store' 防止 Service Worker 介入
-            return fetch(baseURL + url, { method: 'GET', cache: 'no-store', keepalive: true });
+            const options = { method: 'GET', cache: 'no-store', keepalive: true };
+            if (signal) options.signal = signal;
+            return fetch(baseURL + url, options);
+        }
+
+        function emergencyStop(showSuccess = false) {
+            // 本地状态绝不能阻止 STOP；先取消仍在等待的运动请求，减少旧命令晚到。
+            pendingMotionControllers.forEach(controller => controller.abort());
+            pendingMotionControllers.clear();
+            lastAction = 'stop';
+
+            if (demoRunning) {
+                demoRunning = false;
+                setDemoBtnActive(false);
+                if (demoTimer) { clearTimeout(demoTimer); demoTimer = null; }
+            }
+
+            const nonce = Date.now().toString();
+            return fastFetch('/control?var=servo_stop&val=1&_stop=' + nonce)
+                .then(response => {
+                    if (!response.ok) throw new Error('HTTP error ' + response.status);
+                    if (showSuccess) showToast('紧急停止已确认');
+                })
+                .catch(error => {
+                    showToast('紧急停止失败，请再次按 STOP', true);
+                    console.error('emergency stop failed:', error);
+                });
         }
 
         function send(action) {
-            // 'stop' 去抖：已经处于 stop 就不再重复发
-            if (action === 'stop' && lastAction === 'stop') return;
+            if (action === 'stop') return emergencyStop(false);
 
             // 其它指令节流：同 action 在 THROTTLE_MS 内只发一次
             if (action !== 'stop') {
@@ -510,7 +544,12 @@
             }
 
             if(url) {
-                fastFetch(url)
+                const isMotionAction = action === 'forward' || action === 'backward' ||
+                                       action === 'left' || action === 'right';
+                const motionController = isMotionAction ? new AbortController() : null;
+                if (motionController) pendingMotionControllers.add(motionController);
+
+                fastFetch(url, motionController ? motionController.signal : null)
                 .then(response => {
                     if (!response.ok) throw new Error("HTTP error " + response.status);
                     // mode / demo 都需要读取响应文本用于 UI 反馈
@@ -530,7 +569,10 @@
                 .catch(e => {
                     // 静默失败，不要弹 toast 以免频繁操作时刷屏。
                     // 真正的断连错误由图传 img.onerror 单独提示。
-                    console.warn('cmd failed:', action, e);
+                    if (e.name !== 'AbortError') console.warn('cmd failed:', action, e);
+                })
+                .finally(() => {
+                    if (motionController) pendingMotionControllers.delete(motionController);
                 });
             }
         }
@@ -752,8 +794,26 @@
             window.addEventListener('touchend', function(event) {
                 if (lastAction === 'forward' || lastAction === 'backward' ||
                     lastAction === 'left'    || lastAction === 'right') {
-                    send('stop');
+                    emergencyStop(false);
                 }
+            });
+
+            // 鼠标移出方向按钮后松开时，按钮自身的 mouseup 不会触发。
+            window.addEventListener('mouseup', function() {
+                if (lastAction === 'forward' || lastAction === 'backward' ||
+                    lastAction === 'left'    || lastAction === 'right') {
+                    emergencyStop(false);
+                }
+            });
+
+            window.addEventListener('blur', function() {
+                if (lastAction !== 'stop') emergencyStop(false);
+            });
+            window.addEventListener('pagehide', function() {
+                emergencyStop(false);
+            });
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) emergencyStop(false);
             });
 
             // 为所有方向键添加 touchcancel 处理，防止意外中断导致不停
@@ -764,7 +824,7 @@
 
                 btn.addEventListener('touchcancel', (e) => {
                     e.preventDefault();
-                    send('stop');
+                    emergencyStop(false);
                 });
             });
             

@@ -11,44 +11,19 @@
  * the proprietary swimming parameters from the full RoboFish firmware.
  */
 
-#include "OtaService.h"
-#include "RoboFishDriver.h"
-#include "sdk_config.h"
+#include "src/app/RoboFishRuntime.h"
+#include "src/config/sdk_config.h"
 
-RoboFishDriver fish;
-
-void stopForOta() {
-  fish.prepareForOta();
-}
+RoboFishRuntime runtime;
+RoboFishDriver &fish = runtime.driver();
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  Serial.println("\nRoboFish Partner Driver SDK 1.0.0");
-
-  if (!fish.begin()) {
-    Serial.println("Driver initialization failed. Check board selection and wiring.");
-  }
-
-  OtaServiceConfig otaConfig = {
-    RF_AP_SSID,
-    RF_AP_PASSWORD,
-    RF_STA_SSID,
-    RF_STA_PASSWORD,
-    RF_OTA_USERNAME,
-    RF_OTA_PASSWORD
-  };
-  if (!otaServiceBegin(otaConfig, stopForOta)) {
-    Serial.println("Web OTA service failed to start.");
-  }
-
-  Serial.println("No swimming algorithm is included.");
-  Serial.println("Implement your actuator timing in loop().");
+  runtime.begin();
 }
 
 void loop() {
   // Keep the basic driver safety timeouts active.
-  fish.update();
+  runtime.update();
 
   // Partner development starts here. Examples of individual hardware calls:
   //
@@ -66,6 +41,5 @@ void loop() {
   // To make the fish swim, write the required time-varying joint coordination,
   // propulsion control and safety state machine here.
 
-  delay(10);
+  delay(RF_MAIN_LOOP_DELAY_MS);
 }
-

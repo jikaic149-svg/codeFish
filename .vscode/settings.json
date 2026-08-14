@@ -1,0 +1,18 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}\\VISION\\.venv\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
+  "idf.espIdfPathWin": "D:\\ESP32\\ESP-IDF-v5.3.2",
+  "idf.toolsPathWin": "D:\\ESP32\\.espressif",
+  "idf.pythonBinPathWin": "D:\\ESP32\\.espressif\\python_env\\idf5.3_py3.13_env\\Scripts\\python.exe",
+  "idf.customExtraPaths": "D:\\CMAKE\\bin;D:\\Ninja",
+  "cmake.cmakePath": "D:\\CMAKE\\bin\\cmake.exe",
+  "cmake.generator": "Ninja",
+  "cmake.sourceDirectory": "${workspaceFolder}/RoboFishPartnerDriverSDK",
+  "cmake.buildDirectory": "${workspaceFolder}/RoboFishPartnerDriverSDK/build/idf",
+  "files.associations": {
+    "*.c": "c",
+    "*.h": "c",
+    "*.cpp": "cpp"
+  },
+  "task.allowAutomaticTasks": "off"
+}
