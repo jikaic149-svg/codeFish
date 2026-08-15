@@ -35,6 +35,8 @@ __pycache__/
 **/.ultralytics/
 Ultralytics/
 VISION/Ultralytics/
+VISION/marker_profile.local.json
+VISION/.marker_profile.test.json
 
 # Local reverse-engineering tool environment
 reverse_analysis/.tools/

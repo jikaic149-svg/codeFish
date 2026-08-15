@@ -18,8 +18,20 @@ os.environ["MPLCONFIGDIR"] = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".matplotlib"
 )
 
-from ultralytics import YOLO
 from collections import deque
+from fish_detector import FishDetector
+from fixed_reference_tracker import FixedReferenceTracker, ReferenceSource
+from path_guidance import (
+    PathGuidance,
+    VelocityEstimator,
+    compensate_camera_latency,
+)
+from vision_toolbar import (
+    UiPalette,
+    VisionHud,
+    VisionToolbar,
+    draw_unicode_text,
+)
 
 # ============= 设置工作目录（带路径安全回退） =============
 PREFERRED_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +49,8 @@ os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 TARGET_FPS = 60
 TARGET_WIDTH = 640
 TARGET_HEIGHT = 480
+CAMERA_LATENCY_S = 0.30             # 三次屏幕秒表测试均值约 0.31 s
+CAMERA_LATENCY_MAX_PREDICTION_M = 0.12
 
 # 是否默认开启 CLAHE（直方图均衡化，水面有强烈反光或光照不均时开启）
 ENABLE_CLAHE_DEFAULT = False
@@ -56,9 +70,11 @@ MARKER_BL = 3
 # 🐟 [配置区] YOLO 仿生鱼检测
 # ==============================================================================
 YOLO_MODEL_PATH = os.path.join(WORK_DIR, "best.pt")
-YOLO_CONF_THRESHOLD = 0.5
+YOLO_CONF_THRESHOLD = 0.18
 YOLO_IMG_SIZE = 640
 YOLO_DEVICE = 0             # 0 = GPU，无显卡改为 "cpu"
+YOLO_DETECT_INTERVAL_S = 0.20  # YOLO 仅做 5 Hz 身份确认，橙色色块逐帧跟踪
+MARKER_PROFILE_PATH = os.path.join(WORK_DIR, "marker_profile.local.json")
 
 # ==============================================================================
 # 📡 [配置区] 通信参数（平板 TCP & RoboFish ESP32 HTTP）
@@ -71,8 +87,7 @@ ROBOFISH_IP = "192.168.4.1"
 ROBOFISH_PORT = 80
 
 # --- 坐标与速度计算平滑系数 ---
-POS_SMOOTHING_ALPHA = 0.4      # 坐标平滑系数（抗 YOLO 坐标抖动）
-VELOCITY_SMOOTHING_ALPHA = 0.3 # 速度平滑系数
+POS_SMOOTHING_ALPHA = 0.4      # 坐标平滑系数（抗色块坐标抖动）
 
 # --- MJPEG 视频推流配置 ---
 MJPEG_PORT = 8090
@@ -125,99 +140,6 @@ def build_calibration_homography(points, frame_width, frame_height):
     return homography, None
 
 # ==============================================================================
-# 🎛️ 标准位置式 PID 控制器类 (带抗积分饱和限幅 & 微分平滑)
-# ==============================================================================
-class PIDController:
-    def __init__(self, Kp=150.0, Ki=8.0, Kd=35.0, output_min=10, output_max=70):
-        self.Kp = Kp
-        self.Ki = Ki
-        self.Kd = Kd
-        self.output_min = output_min
-        self.output_max = output_max
-
-        self.prev_error = 0.0
-        self.integral = 0.0
-        self.last_time = time.time()
-
-    def update(self, error):
-        now = time.time()
-        dt = now - self.last_time
-        if dt <= 0.0:
-            dt = 0.01
-
-        # 1. P 项 (比例)
-        p_term = self.Kp * error
-
-        # 2. I 项 (积分) + 抗饱和限幅 (Anti-Windup)
-        self.integral += error * dt
-        self.integral = np.clip(self.integral, -0.5, 0.5)
-        i_term = self.Ki * self.integral
-
-        # 3. D 项 (微分 - 抑制水下惯性引发的蛇形走位)
-        derivative = (error - self.prev_error) / dt
-        d_term = self.Kd * derivative
-
-        self.prev_error = error
-        self.last_time = now
-
-        # 总 PID 输出计算
-        output = p_term + i_term + d_term
-        return output
-
-    def reset(self):
-        self.prev_error = 0.0
-        self.integral = 0.0
-        self.last_time = time.time()
-
-
-def compute_drawn_path_error(position, path_points, start_segment=0):
-    """计算鱼相对绘制轨迹的有符号横向误差和剩余距离，单位为米。"""
-    if position is None or path_points is None or len(path_points) < 2:
-        return None
-
-    pos = np.asarray(position, dtype=np.float32)
-    path = np.asarray(path_points, dtype=np.float32)
-    first = int(np.clip(start_segment - 2, 0, len(path) - 2))
-    last = min(len(path) - 2, first + 30)
-    best = None
-
-    for seg_index in range(first, last + 1):
-        p0 = path[seg_index]
-        segment = path[seg_index + 1] - p0
-        length_sq = float(np.dot(segment, segment))
-        if length_sq <= 1e-8:
-            continue
-
-        projection = float(np.clip(np.dot(pos - p0, segment) / length_sq, 0.0, 1.0))
-        closest = p0 + projection * segment
-        offset = pos - closest
-        distance_sq = float(np.dot(offset, offset))
-        if best is None or distance_sq < best['distance_sq']:
-            segment_length = float(np.sqrt(length_sq))
-            cross_m = float((segment[0] * offset[1] - segment[1] * offset[0]) / segment_length)
-            best = {
-                'distance_sq': distance_sq,
-                'cross_m': cross_m,
-                'projection': projection,
-                'segment': seg_index,
-                'segment_length': segment_length,
-            }
-
-    if best is None:
-        return None
-
-    remaining_m = (1.0 - best['projection']) * best['segment_length']
-    for seg_index in range(best['segment'] + 1, len(path) - 1):
-        remaining_m += float(np.linalg.norm(path[seg_index + 1] - path[seg_index]))
-
-    return {
-        'cross_m': best['cross_m'],
-        'along_m': best['projection'] * best['segment_length'],
-        'dist_m': remaining_m,
-        'seg_index': best['segment'],
-    }
-
-# ==============================================================================
 # 📷 相机多线程读取类（含曝光手动调节支持）
 # ==============================================================================
 class CameraStream:
@@ -235,7 +157,7 @@ class CameraStream:
         self.reported_fps = self.cap.get(cv2.CAP_PROP_FPS)
 
         # 曝光控制
-        self.exposure_val = -5
+        self.exposure_val = -6  # 约 1/64 秒，避免曝光时间把帧率限制在约 30 FPS
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
         self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure_val)
         self.cap.set(cv2.CAP_PROP_GAIN, 100)
@@ -621,20 +543,32 @@ class RoboFishComm:
         query_string = urllib.parse.urlencode({"var": variable, "val": value})
         url = f"{self.base_url}/control?{query_string}"
         req = urllib.request.Request(
-            url, headers={'User-Agent': 'RoboFish-Visual-Tracker'}
+            url, headers={
+                'User-Agent': 'RoboFish-Visual-Tracker',
+                'Connection': 'close',
+            }
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.read().decode('utf-8', errors='replace').strip()
 
-    def _request_vision_pid(self, sequence, x_error_m, y_error_m, timeout=0.3):
+    def _request_vision_pid(
+        self, sequence, x_error_m, y_error_m, speed_mps,
+        curve_severity, brake_request, timeout=0.3
+    ):
         query_string = urllib.parse.urlencode({
             "seq": int(sequence),
             "x_error": f"{float(x_error_m):.4f}",
             "y_error": f"{float(y_error_m):.4f}",
+            "speed": f"{float(speed_mps):.4f}",
+            "curve": f"{float(curve_severity):.3f}",
+            "brake": 1 if brake_request else 0,
         })
         url = f"{self.base_url}/vision_pid?{query_string}"
         req = urllib.request.Request(
-            url, headers={'User-Agent': 'RoboFish-Visual-Tracker'}
+            url, headers={
+                'User-Agent': 'RoboFish-Visual-Tracker',
+                'Connection': 'close',
+            }
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.loads(response.read().decode('utf-8'))
@@ -651,9 +585,18 @@ class RoboFishComm:
 
             try:
                 if params.get("kind") == "vision_pid":
-                    self._request_vision_pid(
+                    request_started = time.perf_counter()
+                    payload = self._request_vision_pid(
                         params["seq"], params["x_error"], params["y_error"],
+                        params["speed"], params["curve"], params["brake"],
                         timeout=0.3
+                    )
+                    latency_ms = (time.perf_counter() - request_started) * 1000.0
+                    print(
+                        f"✅ [VISION ACK] seq={payload['seq']} "
+                        f"applied={payload.get('applied_seq', '-')} "
+                        f"esc={payload.get('esc', '-')}° "
+                        f"RTT={latency_ms:.1f}ms"
                     )
                 else:
                     action_map = {
@@ -676,8 +619,15 @@ class RoboFishComm:
                 self._last_send_t = now
 
             except Exception as e:
-                # 🔴 增加错误打印，防止网络报错被静默忽略
-                print(f"⚠️ [HTTP 发送失败] 无法连通机器鱼 ({self.base_url}): {e}")
+                if params.get("kind") == "vision_pid":
+                    print(
+                        f"❌ [VISION ACK 失败] seq={params.get('seq', '-')} "
+                        f"x={float(params.get('x_error', 0.0)):+.4f}m "
+                        f"y={float(params.get('y_error', 0.0)):.4f}m "
+                        f"错误={e}"
+                    )
+                else:
+                    print(f"⚠️ [HTTP 发送失败] 无法连通机器鱼 ({self.base_url}): {e}")
 
     def get_mcu_hz(self):
         if time.time() - self._last_send_t > 1.5:
@@ -690,7 +640,7 @@ class RoboFishComm:
 
         # 1. 限频控制：单片机限制最高下发频率为 10Hz (间隔>=0.1s)
         if not is_stop and (now - self._last_cmd_t < 0.1):
-            return
+            return False
 
         self._last_cmd_t = now
         self._last_params = params
@@ -704,8 +654,9 @@ class RoboFishComm:
 
         try:
             self.cmd_queue.put_nowait(params)
+            return True
         except queue.Full:
-            pass
+            return False
 
     def set_mode(self, motion_mode):
         mode_map = {
@@ -718,18 +669,21 @@ class RoboFishComm:
         print(f"⚙️ [HTTP 下发] 切换机器鱼模式为: {target_mode}")
         self._send_async({"action": target_mode})
 
-    def ensure_prop_mode(self):
-        """按固件的循环模式接口切换，最多三次确保进入 PROP。"""
-        for _ in range(3):
-            try:
-                mode = self._request_control("mode", timeout=0.5).upper()
-                print(f"⚙️ [HTTP 模式反馈] {mode or 'EMPTY'}")
-                if mode == "PROP":
-                    return True
-            except Exception as error:
-                print(f"⚠️ [HTTP 模式切换失败] {error}")
-                return False
-        return False
+    def ensure_hybrid_mode(self):
+        """Reset stale vision sequencing without cycling all drive modes.
+
+        The firmware's /vision_pid handler enters HYBRID atomically when the
+        first sample is accepted.  Calling the legacy ``mode`` endpoint here
+        would cycle BIONIC -> PROP -> HYBRID and create a misleading startup
+        transient on every path restart.
+        """
+        try:
+            self._request_control("servo_stop", timeout=0.5)
+            print("⚙️ [HTTP 视觉准备] 控制序号已复位，首包 PID 将直接进入 HYBRID")
+            return True
+        except Exception as error:
+            print(f"❌ [HTTP 视觉准备失败] {error}")
+            return False
 
     def send_command(self, cmd_str):
         if cmd_str in ["stop", "emergency_stop"]:
@@ -752,127 +706,37 @@ class RoboFishComm:
             print(f"⚠️ [HTTP 停止失败] {error}")
             return False
 
-    def process_tracking_error(self, cross_m, along_m, dist_m):
+    def process_tracking_error(
+        self, cross_m, along_m, dist_m, speed_mps=0.0,
+        curve_severity=0.0, brake_request=False,
+        cross_track_m=0.0, heading_error_deg=0.0,
+        path_curve_severity=0.0, steering_gain=1.0,
+    ):
         """发送标定后的误差；X/Y PID 均由 ESP32 的 VisionControl task 计算。"""
         self.vision_seq = (self.vision_seq + 1) & 0x7fffffff
-        print(
-            f"🚀 [MCU XY PID] seq={self.vision_seq} "
-            f"x={cross_m:+.3f}m y={dist_m:.3f}m"
-        )
-        self._send_async({
+        queued = self._send_async({
             "kind": "vision_pid",
             "seq": self.vision_seq,
             "x_error": float(np.clip(cross_m, -5.0, 5.0)),
             "y_error": float(np.clip(dist_m, 0.0, 5.0)),
+            "speed": float(np.clip(speed_mps, 0.0, 5.0)),
+            "curve": float(np.clip(curve_severity, 0.0, 1.0)),
+            "brake": bool(brake_request),
         })
+        if queued:
+            print(
+                f"➡️ [VISION 入队] seq={self.vision_seq} "
+                f"x={cross_m:+.3f}m y={dist_m:.3f}m "
+                f"v={speed_mps:.2f}m/s 离={cross_track_m:.2f}m "
+                f"角={heading_error_deg:+.0f}° "
+                f"曲={path_curve_severity:.2f} 增={steering_gain:.2f} "
+                f"制动={'是' if brake_request else '否'}"
+            )
 
     def close(self):
         self.stopped = True
         if self.thread.is_alive():
             self.thread.join(timeout=1.0)
-
-# ==============================================================================
-# 🐟 YOLO 仿生鱼检测器（独立线程 + BoT-SORT 轻量追踪）
-# ==============================================================================
-class FishDetector:
-    def __init__(self, model_path, conf=0.5, imgsz=640, device=0):
-        print(f"🐟 正在加载YOLO模型: {model_path} ...")
-        self.model = YOLO(model_path)
-        self.conf = conf
-        self.imgsz = imgsz
-        self.device = device
-
-        self._latest_frame = None
-        self._latest_frame_lock = threading.Lock()
-
-        self._result_lock = threading.Lock()
-        self._result = {
-            'pixel': None,
-            'confidence': 0.0,
-            'track_id': None,
-            'frame_time': 0.0
-        }
-
-        self._fps_smooth = 0.0
-        self._last_infer_t = time.time()
-
-        self._stop = False
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-
-    def start(self):
-        self.thread.start()
-        print(f"✅ YOLO检测线程已启动（设备: {self.device}, 输入尺寸: {self.imgsz}）")
-        return self
-
-    def submit_frame(self, frame, frame_time):
-        with self._latest_frame_lock:
-            self._latest_frame = (frame, frame_time)
-
-    def _loop(self):
-        while not self._stop:
-            with self._latest_frame_lock:
-                item = self._latest_frame
-                self._latest_frame = None
-            if item is None:
-                time.sleep(0.001)
-                continue
-
-            frame, frame_time = item
-
-            try:
-                results = self.model.track(
-                    frame,
-                    conf=self.conf,
-                    imgsz=self.imgsz,
-                    device=self.device,
-                    tracker="botsort.yaml",
-                    persist=True,
-                    verbose=False
-                )
-            except Exception as e:
-                print(f"⚠️ YOLO推理出错: {e}")
-                continue
-
-            pixel = None
-            confidence = 0.0
-            track_id = None
-
-            if len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
-                boxes = results[0].boxes
-                best_idx = int(boxes.conf.argmax().item())
-
-                x1, y1, x2, y2 = boxes.xyxy[best_idx].tolist()
-                confidence = float(boxes.conf[best_idx].item())
-                pixel = [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
-
-                if boxes.id is not None:
-                    track_ids = boxes.id.cpu().numpy()
-                    if len(track_ids) > best_idx:
-                        track_id = int(track_ids[best_idx])
-
-            now = time.time()
-            dt = now - self._last_infer_t
-            self._last_infer_t = now
-            if dt > 0:
-                self._fps_smooth = 0.9 * self._fps_smooth + 0.1 * (1.0 / dt)
-
-            with self._result_lock:
-                self._result = {
-                    'pixel': pixel,
-                    'confidence': confidence,
-                    'track_id': track_id,
-                    'frame_time': frame_time,
-                    'infer_fps': self._fps_smooth
-                }
-
-    def get_latest(self):
-        with self._result_lock:
-            return dict(self._result)
-
-    def close(self):
-        self._stop = True
-        if self.thread.is_alive():
-            self.thread.join(timeout=2.0)
 
 # ==============================================================================
 # 🎬 异步录像写入类
@@ -924,6 +788,10 @@ def main():
     print("🚀 YOLO 仿生鱼追踪与 RoboFish HTTP PID 控制转发系统正在启动...")
     print(f"📂 工作目录: {os.path.abspath(WORK_DIR)}")
     print(f"📐 目标捕获: {TARGET_WIDTH}x{TARGET_HEIGHT} @ {TARGET_FPS}FPS")
+    print(
+        f"⏱️ 相机延迟补偿: {CAMERA_LATENCY_S * 1000:.0f} ms "
+        f"(最大预测 {CAMERA_LATENCY_MAX_PREDICTION_M:.2f} m)"
+    )
     print(f"📱 平板有线 TCP 端口: {TABLET_TCP_PORT}")
     print(f"🤖 RoboFish 机器鱼目标: http://{ROBOFISH_IP}:{ROBOFISH_PORT}")
     print("=" * 60 + "\n")
@@ -934,7 +802,6 @@ def main():
         cam.release()
         return
 
-    time.sleep(0.5)
     print(f"✅ 相机流已就绪：{cam.real_width} x {cam.real_height}")
 
     # 1. 启动平板 TCP 服务器
@@ -947,13 +814,28 @@ def main():
     # 3. 启动 RoboFish ESP32 HTTP 通信与 PID 控制服务
     fish_comm = RoboFishComm(ip=ROBOFISH_IP, port=ROBOFISH_PORT)
 
-    # 4. 启动 YOLO 视觉检测线程
+    # 4. 构造轻量检测器；模型在窗口显示后由后台线程加载。
     fish_detector = FishDetector(
         model_path=YOLO_MODEL_PATH,
         conf=YOLO_CONF_THRESHOLD,
         imgsz=YOLO_IMG_SIZE,
         device=YOLO_DEVICE
-    ).start()
+    )
+
+    # 5. 固定色标参考点：本地配置存在时加载，否则明确使用降级模式。
+    reference_tracker = FixedReferenceTracker(
+        profile_path=MARKER_PROFILE_PATH,
+        enable_rigid_body=False,
+    )
+    if reference_tracker.is_profiled:
+        print(f"✅ 已加载橙色鱼尾模型: {MARKER_PROFILE_PATH}")
+    elif reference_tracker.profile_load_error:
+        print(
+            "⚠️ 已忽略不合格的旧色标模型："
+            f"{reference_tracker.profile_load_error}。请点击【鱼尾标定】重新框选。"
+        )
+    else:
+        print("⚠️ 尚未标定固定色标：位置仅为 ESTIMATED_FALLBACK，不能用于 PWM—速度精标定。")
 
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     aruco_params = cv2.aruco.DetectorParameters()
@@ -975,8 +857,21 @@ def main():
         'active': False,
         'segment': 0,
         'last_control_t': 0.0,
-        'stop_requested': False,
     }
+    path_guidance = PathGuidance(
+        spacing_m=0.03,
+        lookahead_m=0.24,
+        min_lookahead_m=0.14,
+        max_attraction_gain=1.25,
+        full_attraction_error_m=0.18,
+        curve_preview_m=0.32,
+        curve_feedforward_gain=0.35,
+        min_curve_steering_gain=0.55,
+        max_curve_steering_gain=1.35,
+        max_x_error_m=0.24,
+        arrival_radius_m=0.20,
+        brake_radius_m=0.40,
+    )
 
     calib_state = {
         'H': None,
@@ -989,30 +884,130 @@ def main():
         'pts_disp': []
     }
 
+    toolbar = VisionToolbar()
+    hud = VisionHud()
+    pending_ui_actions = deque()
+    frame_state = {
+        'latest': None,
+        'reference_position': None,
+        'reference_source': ReferenceSource.INVALID,
+        'tail_marker_position': None,
+    }
+    marker_roi_state = {
+        'selecting': False,
+        'dragging': False,
+        'start': None,
+        'end': None,
+        'confirmed_bbox': None,
+        'confirmed_center': None,
+        'confirmed_until': 0.0,
+    }
+    heading_state = {
+        'selecting': False,
+        'tail_point': None,
+        'head_point': None,
+        'unit_vector': None,
+        'world_unit_vector': None,
+        'control_heading': None,
+        'control_heading_source': None,
+        'angle_deg': None,
+        'confirmed_until': 0.0,
+    }
+    pointer_state = {
+        'pressed_toolbar_action': None,
+    }
+
     # 像素平滑与平滑轨迹控制参数
     pixel_state = {'smooth_x': None, 'smooth_y': None}
     PIXEL_SMOOTH_ALPHA = 0.35      # 像素一阶平滑滤波系数
     MIN_TRAJ_DIST_SQ = 3.0 ** 2    # 移动阈值死区
 
-    pos_state = {'smooth_x': None, 'smooth_y': None}
-    velocity_state = {'prev_x': None, 'prev_y': None, 'prev_t': None, 'vx_smooth': 0.0, 'vy_smooth': 0.0}
+    pos_state = {'smooth_x': None, 'smooth_y': None, 'frame_time': None}
+    velocity_estimator = VelocityEstimator(
+        history_seconds=0.40,
+        min_span_seconds=0.12,
+        blend=0.45,
+        max_speed_mps=0.80,
+    )
+    velocity_state = {'vx_smooth': 0.0, 'vy_smooth': 0.0}
     fps_state = {'last_loop_t': time.time(), 'loop_fps': 0.0}
-    display_state = {'last_t': 0.0}
+    display_state = {
+        'last_t': 0.0,
+        'window_width': cam.real_width,
+        'window_height': cam.real_height,
+    }
+    yolo_submit_state = {'last_t': float('-inf')}
 
     last_motion_mode = None  # 记录上一次发出的运动模式
 
     window_name = "AUV YOLO Tracker (RoboFish PID)"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     display_width = 960
     display_height = int(display_width * cam.real_height / cam.real_width)
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window_name, display_width, display_height)
+    display_state['window_width'] = display_width
+    display_state['window_height'] = display_height
 
     def mouse_callback(event, x, y, flags, param):
+        # Git 原版：HighGUI 直接给出原图坐标，不再二次换算。
         rx = int(np.clip(x, 0, cam.real_width - 1))
         ry = int(np.clip(y, 0, cam.real_height - 1))
 
+        if event in (cv2.EVENT_LBUTTONDOWN, cv2.EVENT_LBUTTONUP):
+            toolbar_action = toolbar.hit_test(
+                rx, ry, cam.real_width, cam.real_height
+            )
+            if toolbar_action is not None:
+                if event == cv2.EVENT_LBUTTONDOWN:
+                    pending_ui_actions.append(toolbar_action)
+                    pointer_state['pressed_toolbar_action'] = toolbar_action
+                elif pointer_state['pressed_toolbar_action'] != toolbar_action:
+                    pending_ui_actions.append(toolbar_action)
+                pointer_state['pressed_toolbar_action'] = (
+                    toolbar_action if event == cv2.EVENT_LBUTTONDOWN else None
+                )
+                drawn_path_state['drawing'] = False
+                marker_roi_state['dragging'] = False
+                return
+            if toolbar.contains(rx, ry, cam.real_height):
+                return
+
+        if marker_roi_state['selecting']:
+            canvas_bottom = max(0, cam.real_height - toolbar.height - 1)
+            marker_y = int(np.clip(ry, 0, canvas_bottom))
+            if event == cv2.EVENT_LBUTTONDOWN:
+                marker_roi_state['start'] = (rx, marker_y)
+                marker_roi_state['end'] = (rx, marker_y)
+                marker_roi_state['dragging'] = True
+            elif event == cv2.EVENT_MOUSEMOVE and marker_roi_state['dragging']:
+                marker_roi_state['end'] = (rx, marker_y)
+            elif event == cv2.EVENT_LBUTTONUP and marker_roi_state['dragging']:
+                marker_roi_state['end'] = (rx, marker_y)
+                marker_roi_state['dragging'] = False
+                start = marker_roi_state['start']
+                end = marker_roi_state['end']
+                if start is not None and end is not None:
+                    pending_ui_actions.append((
+                        'APPLY_MARKER_ROI',
+                        (start[0], start[1], end[0], end[1])
+                    ))
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                marker_roi_state['selecting'] = False
+                marker_roi_state['dragging'] = False
+                marker_roi_state['start'] = None
+                marker_roi_state['end'] = None
+                print("⏹️ 已取消色标框选。")
+            return
+
+        if heading_state['selecting']:
+            if event == cv2.EVENT_LBUTTONDOWN:
+                pending_ui_actions.append(('APPLY_HEAD_DIRECTION', (rx, ry)))
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                heading_state['selecting'] = False
+                print("⏹️ 已取消鱼头方向标定，原有初始方向保持不变。")
+            return
+
         if event == cv2.EVENT_LBUTTONDOWN and calib_state['is_calibrating']:
-            # WIN32 HighGUI 已将缩放窗口中的点击位置换算为原图坐标。
             calib_state['pts_raw'].append([rx, ry])
             calib_state['pts_disp'].append((rx, ry))
             if len(calib_state['pts_raw']) == 4:
@@ -1035,8 +1030,10 @@ def main():
                 drawn_path_state['drawing'] = True
                 drawn_path_state['active'] = False
                 drawn_path_state['segment'] = 0
-                drawn_path_state['stop_requested'] = True
+                path_guidance.clear()
             elif event == cv2.EVENT_MOUSEMOVE and drawn_path_state['drawing']:
+                if toolbar.contains(rx, ry, cam.real_height):
+                    return
                 points = drawn_path_state['pixels']
                 if not points or (rx - points[-1][0]) ** 2 + (ry - points[-1][1]) ** 2 >= 5 ** 2:
                     points.append((rx, ry))
@@ -1049,49 +1046,30 @@ def main():
                 drawn_path_state['drawing'] = False
                 drawn_path_state['active'] = False
                 drawn_path_state['segment'] = 0
-                drawn_path_state['stop_requested'] = True
+                path_guidance.clear()
 
     cv2.setMouseCallback(window_name, mouse_callback)
-    print("\n🎥 系统运行中，等待平板 UI 指令...")
-    print("👉 轨迹控制：左键拖动画线  [Enter] PROP模式启动  [Space] 停止  [右键] 清除  [q] 停止并退出")
-    print("👉 其他功能：[a] 录像  [b] 抓拍  [t] 重新标定  [c] CLAHE  [[]/[]] 曝光\n")
+    print("\n🎥 鼠标与窗口尺寸已还原 Git 原版。")
+    print("👉 主要功能直接点击画面底部按钮；左键拖动画轨迹，右键清除。\n")
 
-    last_processed_frame_time = None
+    # 先呈现相机画面，再让后台线程导入 Torch/Ultralytics 和预热 CUDA。
+    startup_ret, startup_frame, _ = cam.read()
+    if startup_ret and startup_frame is not None:
+        cv2.imshow(window_name, startup_frame)
+        cv2.waitKey(1)
+    fish_detector.start()
 
     try:
         while True:
             if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-                fish_comm.stop_now()
-                print("🛑 窗口已关闭，推进已停止。")
+                print("窗口已关闭。")
                 break
             ret, frame, frame_time = cam.read()
             if not ret or frame is None:
                 continue
 
-            if frame_time == last_processed_frame_time:
-                if time.time() - frame_time > 0.5:
-                    fish_comm.stop_now()
-                    print("🛑 摄像头画面中断，已停止推进并退出。")
-                    break
-                if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-                    fish_comm.stop_now()
-                    print("🛑 窗口已关闭，推进已停止。")
-                    break
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    fish_comm.stop_now()
-                    break
-                elif key == ord(' '):
-                    fish_comm.stop_now()
-                    drawn_path_state['active'] = False
-                    is_tracing_active = False
-                elif key == ord('['):
-                    cam.adjust_exposure(-1)
-                elif key == ord(']'):
-                    cam.adjust_exposure(1)
-                time.sleep(0.001)
-                continue
-            last_processed_frame_time = frame_time
+            # 始终处理采集线程提供的最新画面，不再因时间戳暂时未变化而暂停主循环。
+            frame_state['latest'] = frame.copy()
 
             # 计算主循环帧率
             now = time.time()
@@ -1103,6 +1081,36 @@ def main():
 
             img_show = frame.copy()
             img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            if marker_roi_state['selecting'] and marker_roi_state['start'] is not None:
+                marker_end = marker_roi_state['end'] or marker_roi_state['start']
+                cv2.rectangle(
+                    img_show,
+                    marker_roi_state['start'],
+                    marker_end,
+                    (0, 165, 255),
+                    2,
+                )
+
+            if (
+                marker_roi_state['confirmed_bbox'] is not None
+                and time.time() <= marker_roi_state['confirmed_until']
+            ):
+                confirm_x1, confirm_y1, confirm_x2, confirm_y2 = marker_roi_state['confirmed_bbox']
+                confirm_cx, confirm_cy = marker_roi_state['confirmed_center']
+                cv2.rectangle(
+                    img_show, (confirm_x1, confirm_y1), (confirm_x2, confirm_y2),
+                    UiPalette.SUCCESS, 2, cv2.LINE_AA
+                )
+                cv2.drawMarker(
+                    img_show, (int(round(confirm_cx)), int(round(confirm_cy))),
+                    UiPalette.SUCCESS, cv2.MARKER_CROSS, 14, 2, cv2.LINE_AA
+                )
+                draw_unicode_text(
+                    img_show, "已自动找到橙色鱼尾中心",
+                    (confirm_x1, max(3, confirm_y1 - 22)),
+                    14, UiPalette.SUCCESS, bold=True, stroke_width=1
+                )
 
             if len(drawn_path_state['pixels']) > 1:
                 path_pixels = np.asarray(
@@ -1129,8 +1137,10 @@ def main():
             if use_clahe:
                 img_gray = clahe.apply(img_gray)
 
-            # 提交帧给异步 YOLO 线程
-            fish_detector.submit_frame(frame, frame_time)
+            # YOLO 低频确认身份/协助重捕；橙色色块在主循环中逐帧跟踪。
+            if frame_time - yolo_submit_state['last_t'] >= YOLO_DETECT_INTERVAL_S:
+                fish_detector.submit_frame(frame, frame_time)
+                yolo_submit_state['last_t'] = frame_time
 
             corner_pixels = {}
             if calib_state['H'] is None:
@@ -1148,11 +1158,50 @@ def main():
 
             # 获取 YOLO 检测最新结果
             yolo_result = fish_detector.get_latest()
-            auv_pixel = yolo_result['pixel']
-            auv_id_detected = auv_pixel is not None
+            yolo_status = fish_detector.get_status()
+            yolo_pixel = yolo_result['pixel']
+            yolo_bbox = yolo_result.get('bbox')
+            auv_id_detected = yolo_pixel is not None
             yolo_confidence = yolo_result['confidence']
             yolo_infer_fps = yolo_result.get('infer_fps', 0.0)
             track_id = yolo_result.get('track_id', None)
+
+            reference_observation = reference_tracker.update(
+                frame=frame,
+                timestamp=frame_time,
+                yolo_bbox=yolo_bbox,
+                yolo_confidence=yolo_confidence,
+                track_id=track_id,
+                yolo_timestamp=yolo_result.get('frame_time'),
+            )
+            auv_pixel = (
+                list(reference_observation.position)
+                if reference_observation.position is not None
+                else None
+            )
+            frame_state['reference_position'] = (
+                tuple(reference_observation.position)
+                if reference_observation.position is not None else None
+            )
+            frame_state['reference_source'] = reference_observation.source
+            frame_state['tail_marker_position'] = (
+                reference_observation.metrics.get('tail_marker_position')
+                if reference_observation.metrics else None
+            )
+
+            # YOLO 框只表示身份与色标搜索区域，不再作为精确位置绘制。
+            if yolo_bbox is not None:
+                box_x1, box_y1, box_x2, box_y2 = [int(value) for value in yolo_bbox]
+                cv2.rectangle(
+                    img_show, (box_x1, box_y1), (box_x2, box_y2),
+                    UiPalette.PRIMARY, 1
+                )
+                yolo_label = f"机器鱼 #{track_id if track_id is not None else '-'}　{yolo_confidence * 100:.0f}%"
+                draw_unicode_text(
+                    img_show, yolo_label,
+                    (box_x1, max(3, box_y1 - 20)), 13,
+                    UiPalette.PRIMARY, bold=True, stroke_width=1
+                )
 
             # ------------------------------------------------------------------
             # 目标平滑绘制与抗锯齿轨迹管理
@@ -1170,13 +1219,25 @@ def main():
                 cx = int(pixel_state['smooth_x'])
                 cy = int(pixel_state['smooth_y'])
 
-                cv2.rectangle(img_show, (cx - 15, cy - 15), (cx + 15, cy + 15), (0, 0, 255), 2)
-                cv2.circle(img_show, (cx, cy), 4, (0, 0, 255), -1)
-                id_text = f"fish {yolo_confidence:.2f}"
-                if track_id is not None:
-                    id_text = f"ID:{track_id} {yolo_confidence:.2f}"
-                cv2.putText(img_show, id_text, (cx + 20, cy - 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                source_colours = {
+                    ReferenceSource.RIGID_BODY: UiPalette.SUCCESS,
+                    ReferenceSource.MARKER: UiPalette.SUCCESS,
+                    ReferenceSource.PREDICTED: UiPalette.WARNING,
+                    ReferenceSource.ESTIMATED_FALLBACK: UiPalette.WARNING,
+                }
+                reference_colour = source_colours.get(
+                    reference_observation.source, UiPalette.DANGER
+                )
+                cv2.rectangle(img_show, (cx - 15, cy - 15), (cx + 15, cy + 15), reference_colour, 2)
+                cv2.circle(img_show, (cx, cy), 4, reference_colour, -1)
+                id_text = (
+                    f"{hud.SOURCE_NAMES.get(reference_observation.source, reference_observation.source)}　"
+                    f"质量 {reference_observation.quality * 100:.0f}%"
+                )
+                draw_unicode_text(
+                    img_show, id_text, (cx + 20, max(3, cy - 24)),
+                    13, reference_colour, bold=True, stroke_width=1
+                )
 
                 if len(trajectory) == 0:
                     trajectory.append((cx, cy))
@@ -1192,6 +1253,39 @@ def main():
             else:
                 pixel_state['smooth_x'] = None
                 pixel_state['smooth_y'] = None
+
+            if heading_state['selecting'] and frame_state['tail_marker_position'] is not None:
+                tail_x, tail_y = [
+                    int(round(value))
+                    for value in frame_state['tail_marker_position']
+                ]
+                cv2.drawMarker(
+                    img_show, (tail_x, tail_y), UiPalette.PRIMARY,
+                    cv2.MARKER_CROSS, 18, 2, cv2.LINE_AA
+                )
+                draw_unicode_text(
+                    img_show, "鱼尾已自动获取，请点击鱼头中心",
+                    (min(frame.shape[1] - 235, tail_x + 12), max(3, tail_y - 24)),
+                    13, UiPalette.PRIMARY, bold=True, stroke_width=1
+                )
+
+            if (
+                heading_state['tail_point'] is not None
+                and heading_state['head_point'] is not None
+                and time.time() <= heading_state['confirmed_until']
+            ):
+                tail_point = tuple(int(round(value)) for value in heading_state['tail_point'])
+                head_point = tuple(int(round(value)) for value in heading_state['head_point'])
+                cv2.arrowedLine(
+                    img_show, tail_point, head_point, UiPalette.PRIMARY,
+                    3, cv2.LINE_AA, tipLength=0.18
+                )
+                draw_unicode_text(
+                    img_show,
+                    f"初始鱼头方向 {heading_state['angle_deg']:.1f}°",
+                    (min(frame.shape[1] - 160, head_point[0] + 8), max(3, head_point[1] - 22)),
+                    13, UiPalette.PRIMARY, bold=True, stroke_width=1
+                )
 
             # 自动标定四个角点
             if len(corner_pixels) == 4 and not calib_state['manual_locked'] and not calib_state['auto_locked']:
@@ -1223,7 +1317,15 @@ def main():
 
             # 解算物理坐标与平滑滤波
             current_x, current_y = None, None
-            if calib_state['H'] is not None and auv_pixel is not None:
+            control_reference_available = (
+                reference_observation.source == ReferenceSource.MARKER
+                or reference_observation.source == ReferenceSource.PREDICTED
+            )
+            if (
+                calib_state['H'] is not None
+                and auv_pixel is not None
+                and control_reference_available
+            ):
                 pt_real = cv2.perspectiveTransform(
                     np.float32([[[auv_pixel[0], auv_pixel[1]]]]), calib_state['H']
                 )
@@ -1232,42 +1334,50 @@ def main():
                 if pos_state['smooth_x'] is None or pos_state['smooth_y'] is None:
                     pos_state['smooth_x'] = raw_x
                     pos_state['smooth_y'] = raw_y
-                else:
+                elif pos_state['frame_time'] != frame_time:
                     a_pos = POS_SMOOTHING_ALPHA
                     pos_state['smooth_x'] = a_pos * raw_x + (1 - a_pos) * pos_state['smooth_x']
                     pos_state['smooth_y'] = a_pos * raw_y + (1 - a_pos) * pos_state['smooth_y']
+                pos_state['frame_time'] = frame_time
 
                 current_x = float(pos_state['smooth_x'])
                 current_y = float(pos_state['smooth_y'])
             else:
                 pos_state['smooth_x'] = None
                 pos_state['smooth_y'] = None
+                pos_state['frame_time'] = None
 
-            # 计算运动速度与方向
+            # 短窗口轨迹拟合速度：比逐帧差分更能抑制鱼尾摆动和单帧尖峰。
             speed = None
             direction_deg = None
+            velocity = None
             if current_x is not None and current_y is not None:
-                if velocity_state['prev_x'] is not None:
-                    dt = frame_time - velocity_state['prev_t']
-                    if dt > 0:
-                        vx_raw = (current_x - velocity_state['prev_x']) / dt
-                        vy_raw = (current_y - velocity_state['prev_y']) / dt
-                        a_vel = VELOCITY_SMOOTHING_ALPHA
-                        velocity_state['vx_smooth'] = a_vel * vx_raw + (1 - a_vel) * velocity_state['vx_smooth']
-                        velocity_state['vy_smooth'] = a_vel * vy_raw + (1 - a_vel) * velocity_state['vy_smooth']
-                        speed = float(np.hypot(velocity_state['vx_smooth'], velocity_state['vy_smooth']))
+                velocity = velocity_estimator.update(
+                    (current_x, current_y), frame_time
+                )
+                if velocity is not None:
+                    velocity_state['vx_smooth'] = float(velocity[0])
+                    velocity_state['vy_smooth'] = float(velocity[1])
+                    speed = float(np.linalg.norm(velocity))
+                    if speed >= 0.04:
                         direction_deg = float(
-                            np.degrees(np.arctan2(velocity_state['vy_smooth'], velocity_state['vx_smooth'])) % 360
+                            np.degrees(np.arctan2(velocity[1], velocity[0])) % 360
                         )
-                velocity_state['prev_x'] = current_x
-                velocity_state['prev_y'] = current_y
-                velocity_state['prev_t'] = frame_time
             else:
-                velocity_state['vx_smooth'] *= 0.9
-                velocity_state['vy_smooth'] *= 0.9
-                velocity_state['prev_x'] = None
-                velocity_state['prev_y'] = None
-                velocity_state['prev_t'] = None
+                velocity_estimator.reset()
+                velocity_state['vx_smooth'] = 0.0
+                velocity_state['vy_smooth'] = 0.0
+
+            control_x, control_y = current_x, current_y
+            if current_x is not None and current_y is not None and velocity is not None:
+                compensated_position = compensate_camera_latency(
+                    (current_x, current_y),
+                    velocity,
+                    CAMERA_LATENCY_S,
+                    CAMERA_LATENCY_MAX_PREDICTION_M,
+                )
+                control_x = float(compensated_position[0])
+                control_y = float(compensated_position[1])
 
             # ------------------------------------------------------------------
             # 1. 处理 UI 传来的控制指令 (急停/停止)
@@ -1303,128 +1413,265 @@ def main():
             # 平板误差仅保留显示；本机鼠标轨迹独占推进控制。
             err_msg = tablet_server.get_latest_tracking_error()
 
-            # 本机绘制轨迹：像素路径转换为米制路径，10 Hz 运行现有 PID。
+            # 本机绘制轨迹：START 时已完成米制等距采样；这里更新单向
+            # 路径进度、离轨自适应前视点和鱼体坐标左右误差。
             local_path_error = None
-            if drawn_path_state['stop_requested']:
-                fish_comm.stop_now()
-                drawn_path_state['stop_requested'] = False
-                is_tracing_active = False
-                current_status_text = "STOPPED"
-
             if drawn_path_state['active']:
                 if calib_state['H'] is None or len(drawn_path_state['pixels']) < 2:
-                    fish_comm.stop_now()
                     drawn_path_state['active'] = False
                     is_tracing_active = False
+                    path_guidance.clear()
                     current_status_text = "UNCALIBRATED"
                 elif current_x is None or current_y is None:
-                    fish_comm.stop_now()
                     drawn_path_state['active'] = False
                     is_tracing_active = False
                     current_status_text = "TARGET LOST"
-                    print("🛑 YOLO目标丢失，已停止轨迹追踪。")
-                else:
-                    path_input = np.float32([
-                        [[point[0], point[1]]]
-                        for point in drawn_path_state['pixels']
-                    ])
-                    path_world = cv2.perspectiveTransform(
-                        path_input, calib_state['H']
-                    ).reshape((-1, 2))
-                    local_path_error = compute_drawn_path_error(
-                        (current_x, current_y), path_world,
-                        drawn_path_state['segment']
+                    yolo_frame_t = float(yolo_result.get('frame_time') or 0.0)
+                    yolo_age_s = (
+                        max(0.0, frame_time - yolo_frame_t)
+                        if yolo_frame_t > 0.0 else float('inf')
                     )
-                    if local_path_error is not None:
-                        drawn_path_state['segment'] = max(
-                            drawn_path_state['segment'],
-                            local_path_error['seg_index']
+                    gate_text = ','.join(
+                        reference_observation.gate_reasons
+                    ) or '无'
+                    rejected = reference_observation.metrics.get(
+                        'rejected_candidate', {}
+                    )
+                    rejected_text = ''
+                    if rejected:
+                        rejected_text = (
+                            f"，候选面积比={rejected.get('area_ratio', '-')}"
+                            f"，形状比={rejected.get('aspect', '-')}"
+                            f"，颜色={rejected.get('color_coverage', '-')}"
+                            f"，跳变={rejected.get('jump_px', '-')}px"
                         )
-                        if local_path_error['dist_m'] <= 0.12:
-                            fish_comm.stop_now()
-                            drawn_path_state['active'] = False
-                            is_tracing_active = False
-                            current_status_text = "ARRIVED"
-                            print("✅ 已到达轨迹终点，推进已停止。")
-                        elif now - drawn_path_state['last_control_t'] >= 0.1:
-                            fish_comm.process_tracking_error(
-                                local_path_error['cross_m'],
-                                local_path_error['along_m'],
-                                local_path_error['dist_m']
-                            )
-                            drawn_path_state['last_control_t'] = now
-                            is_tracing_active = True
-                            current_status_text = "PROP TRACKING"
+                    print(
+                        "橙色色块及短时预测均已失效，轨迹追踪已取消；"
+                        f"门控={gate_text}{rejected_text}。"
+                    )
+                    print(
+                        f"[YOLO 诊断] 置信度={yolo_confidence:.2f}，"
+                        f"框={'有' if yolo_bbox is not None else '无'}，"
+                        f"结果年龄={yolo_age_s:.2f}s。"
+                    )
+                elif not path_guidance.prepared:
+                    drawn_path_state['active'] = False
+                    is_tracing_active = False
+                    current_status_text = "PATH INVALID"
+                    print("轨迹引导器尚未准备，请重新点击【启动】。")
+                else:
+                    local_path_error = path_guidance.update(
+                        (control_x, control_y),
+                        frame_time,
+                        allow_course_update=(
+                            reference_observation.source == ReferenceSource.MARKER
+                        ),
+                        speed_mps=(speed if speed is not None else 0.0),
+                    )
+                    if local_path_error['heading_source'] == 'COURSE':
+                        heading_state['control_heading'] = tuple(
+                            float(value) for value in local_path_error['heading']
+                        )
+                        heading_state['control_heading_source'] = 'COURSE'
+                    drawn_path_state['segment'] = local_path_error['seg_index']
+
+                    # 引导几何属于算法模块；像素绘制仍由主 UI 编排。
+                    try:
+                        inv_h = np.linalg.inv(calib_state['H'])
+                        heading_tip = (
+                            np.asarray((control_x, control_y), dtype=np.float32)
+                            + np.asarray(local_path_error['heading'], dtype=np.float32) * 0.18
+                        )
+                        guide_world = np.float32([[
+                            local_path_error['lookahead_point'],
+                            local_path_error['closest_point'],
+                            heading_tip,
+                        ]])
+                        guide_pixels = cv2.perspectiveTransform(
+                            guide_world, inv_h
+                        )[0]
+                        lookahead_pixel = tuple(
+                            int(round(value)) for value in guide_pixels[0]
+                        )
+                        closest_pixel = tuple(
+                            int(round(value)) for value in guide_pixels[1]
+                        )
+                        heading_pixel = tuple(
+                            int(round(value)) for value in guide_pixels[2]
+                        )
+                        tail_pixel = tuple(
+                            int(round(value)) for value in reference_observation.position
+                        )
+                        cv2.line(
+                            img_show, tail_pixel, lookahead_pixel,
+                            (255, 255, 0), 2, cv2.LINE_AA
+                        )
+                        cv2.circle(img_show, lookahead_pixel, 7, (255, 255, 0), 2)
+                        cv2.circle(img_show, closest_pixel, 4, (255, 0, 255), -1)
+                        cv2.arrowedLine(
+                            img_show, tail_pixel, heading_pixel,
+                            (0, 200, 255), 2, cv2.LINE_AA, tipLength=0.20
+                        )
+                    except (ValueError, np.linalg.LinAlgError, cv2.error):
+                        pass
+
+                    if local_path_error['settled']:
+                        fish_comm.stop_now()
+                        drawn_path_state['active'] = False
+                        is_tracing_active = False
+                        current_status_text = "ARRIVED"
+                        print(
+                            "✅ 已进入终点 0.20 m 停止圈，"
+                            "已发送渐变 STOP。"
+                        )
+                    elif now - drawn_path_state['last_control_t'] >= 0.1:
+                        fish_comm.process_tracking_error(
+                            local_path_error['x_error_m'],
+                            local_path_error['along_m'],
+                            local_path_error['drive_distance_m'],
+                            speed_mps=(speed if speed is not None else 0.0),
+                            curve_severity=local_path_error['curve_severity'],
+                            brake_request=local_path_error['brake_request'],
+                            cross_track_m=local_path_error['cross_track_m'],
+                            heading_error_deg=local_path_error['heading_error_deg'],
+                            path_curve_severity=(
+                                local_path_error['path_curve_severity']
+                            ),
+                            steering_gain=local_path_error['steering_gain'],
+                        )
+                        drawn_path_state['last_control_t'] = now
+                        is_tracing_active = True
+                        current_status_text = (
+                            "HYBRID BRAKING"
+                            if local_path_error['brake_request']
+                            else "HYBRID TRACKING"
+                        )
 
             # 获取当前实时通信频率
             tab_tx_hz, tab_rx_hz = tablet_server.get_comm_fps()
             mcu_hz = fish_comm.get_mcu_hz()
 
             # ==============================================================================
-            # 🔴 统一绘制 OSD HUD 图层 (黑边高对比度)
-            # ==============================================================================
-            # 1. 坐标与识别状态显示
-            if current_x is not None and current_y is not None:
-                pos_str = f"AUV Pos: X:{current_x:.2f}m Y:{current_y:.2f}m [{current_status_text}]"
-                draw_outlined_text(img_show, pos_str, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
-            else:
-                pos_str = f"AUV Pos: SEARCHING... [{current_status_text}]"
-                draw_outlined_text(img_show, pos_str, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 165, 255), 2)
-
-            # 2. 鲜黄色实时速度与方向显示
-            if speed is not None and direction_deg is not None:
-                speed_str = f"Speed: {speed:.2f}m/s  Dir: {direction_deg:.1f}deg"
-            else:
-                speed_str = "Speed: 0.00m/s  Dir: 0.0deg"
-            draw_outlined_text(img_show, speed_str, (20, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 255), 2)
-
-            # 🔴🔴 3. [修改重点] 在视频画面左下角清晰渲染平板发来的轨迹追踪误差 OSD 🔴🔴
+            # 统一中文 HUD：紧凑半透明卡片，不再用超大英文覆盖画面。
             display_error = local_path_error if local_path_error is not None else err_msg
-            if display_error is not None:
-                cross_m = display_error.get("cross_m", 0.0)
-                along_m = display_error.get("along_m", 0.0)
-                dist_m = display_error.get("dist_m", 0.0)
-                seg_idx = display_error.get("seg_index", 0)
-
-                error_source = "Local Path" if local_path_error is not None else "Tablet"
-                err_line1 = f"[{error_source} Tracking Error] Seg Index: #{seg_idx} | Total Dist: {dist_m:.3f}m"
-                err_line2 = f" Cross (Lateral): {cross_m:+.3f}m  |  Along (Tangential): {along_m:+.3f}m"
-
-                # 绘制双行黑边高对比度误差文本 (洋红 + 亮黄)
-                draw_outlined_text(img_show, err_line1, (20, frame.shape[0] - 60),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 255), 2)
-                draw_outlined_text(img_show, err_line2, (20, frame.shape[0] - 25),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
-
-            # 4. 右上角系统性能 & 通信频率显示
-            fps_text = f"Loop: {fps_state['loop_fps']:.1f}fps | Cam: {cam.measured_fps:.1f}fps | YOLO: {yolo_infer_fps:.1f}fps"
-            text_size, _ = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
-            fps_color = (0, 255, 0) if fps_state['loop_fps'] >= TARGET_FPS * 0.8 else (0, 165, 255)
-            draw_outlined_text(img_show, fps_text, (frame.shape[1] - text_size[0] - 20, 35),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.65, fps_color, 2)
-
-            # 硬件通信频率与曝光状态栏
-            comm_text = f"Tablet: TX {tab_tx_hz}Hz/RX {tab_rx_hz}Hz | MCU(ESP32): {mcu_hz}Hz | Exp: {cam.exposure_val}"
-            comm_size, _ = cv2.getTextSize(comm_text, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
-            draw_outlined_text(img_show, comm_text, (frame.shape[1] - comm_size[0] - 20, 70),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 200, 0), 2)
-
-            # 5. 手动标定提示
+            hud_prompt = None
             if calib_state['is_calibrating']:
-                calibration_text = (
-                    f"MANUAL CALIBRATION {len(calib_state['pts_raw'])}/4: "
-                    "Click TL->TR->BR->BL"
+                hud_prompt = (
+                    f"场地标定 {len(calib_state['pts_raw'])}/4："
+                    "依次点击 左上 → 右上 → 右下 → 左下"
                 )
-                draw_outlined_text(img_show, calibration_text,
-                                   (20, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            elif marker_roi_state['selecting']:
+                hud_prompt = "鱼尾标定：框住鱼尾附近，程序自动寻找橙色中心；右键取消"
+            elif heading_state['selecting']:
+                hud_prompt = "鱼头方向：鱼尾自动取点，请点击鱼头中心；右键取消"
+            elif yolo_status['loading']:
+                hud_prompt = "YOLO / CUDA 正在后台加载，窗口与标定功能可先使用"
+            elif yolo_status['error']:
+                hud_prompt = f"YOLO 加载失败：{yolo_status['error']}"
 
-            # 6. 录制指示红点
+            if (
+                reference_observation.search_roi is not None
+                and reference_observation.source == ReferenceSource.INVALID
+            ):
+                sx1, sy1, sx2, sy2 = reference_observation.search_roi
+                cv2.rectangle(
+                    img_show, (sx1, sy1), (sx2, sy2),
+                    UiPalette.WARNING, 1, cv2.LINE_AA
+                )
+
+            hud.draw(
+                img_show,
+                source=reference_observation.source,
+                status=current_status_text,
+                quality=reference_observation.quality,
+                pwm_ready=reference_observation.usable_for_pwm_speed,
+                position=(current_x, current_y) if current_x is not None and current_y is not None else None,
+                speed=speed,
+                direction_deg=direction_deg,
+                gate_reasons=reference_observation.gate_reasons,
+                loop_fps=fps_state['loop_fps'],
+                camera_fps=cam.measured_fps,
+                yolo_fps=yolo_infer_fps,
+                exposure=cam.exposure_val,
+                tablet_tx_hz=tab_tx_hz,
+                tablet_rx_hz=tab_rx_hz,
+                mcu_hz=mcu_hz,
+                tracking_error=display_error,
+                prompt=hud_prompt,
+            )
+
             if is_recording:
-                cv2.circle(img_show, (30, 30), 10, (0, 0, 255), -1)
+                cv2.circle(img_show, (frame.shape[1] - 22, 107), 5, UiPalette.DANGER, -1)
+                draw_unicode_text(
+                    img_show, "录像中", (frame.shape[1] - 78, 98),
+                    13, UiPalette.DANGER, bold=True
+                )
 
             # ==============================================================================
             # 构建 JSON 数据并推送/保存完整的画面
             # ==============================================================================
+            guidance_json = None
+            if local_path_error is not None:
+                guidance_json = {
+                    "x_error_m": round(float(local_path_error['x_error_m']), 4),
+                    "body_left_m": round(float(local_path_error['body_left_m']), 4),
+                    "heading_error_deg": round(
+                        float(local_path_error['heading_error_deg']), 2
+                    ),
+                    "steering_error_deg": round(
+                        float(local_path_error['steering_error_deg']), 2
+                    ),
+                    "curve_severity": round(
+                        float(local_path_error['curve_severity']), 3
+                    ),
+                    "path_curve_severity": round(
+                        float(local_path_error['path_curve_severity']), 3
+                    ),
+                    "path_curve_angle_deg": round(
+                        float(local_path_error['path_curve_angle_deg']), 2
+                    ),
+                    "curve_steering_gain": round(
+                        float(local_path_error['curve_steering_gain']), 3
+                    ),
+                    "steering_gain": round(
+                        float(local_path_error['steering_gain']), 3
+                    ),
+                    "cross_track_m": round(
+                        float(local_path_error['cross_track_m']), 4
+                    ),
+                    "attraction_gain": round(
+                        float(local_path_error['attraction_gain']), 3
+                    ),
+                    "off_path_ratio": round(
+                        float(local_path_error['off_path_ratio']), 3
+                    ),
+                    "control_severity": round(
+                        float(local_path_error['control_severity']), 3
+                    ),
+                    "curve_direction": local_path_error['curve_direction'],
+                    "lookahead_m": round(
+                        float(local_path_error['lookahead_m']), 3
+                    ),
+                    "brake_request": bool(local_path_error['brake_request']),
+                    "heading_source": local_path_error['heading_source'],
+                    "heading": [
+                        round(float(value), 5)
+                        for value in local_path_error['heading']
+                    ],
+                    "lookahead": [
+                        round(float(value), 4)
+                        for value in local_path_error['lookahead_point']
+                    ],
+                    "progress_m": round(float(local_path_error['along_m']), 4),
+                    "remaining_m": round(float(local_path_error['dist_m']), 4),
+                    "drive_distance_m": round(
+                        float(local_path_error['drive_distance_m']), 4
+                    ),
+                    "end_distance_m": round(
+                        float(local_path_error['end_distance_m']), 4
+                    ),
+                    "segment": int(local_path_error['seg_index']),
+                }
             json_data = {
                 "timestamp": frame_time,
                 "track_id": track_id,
@@ -1433,9 +1680,22 @@ def main():
                     "u": float(auv_pixel[0]) if auv_pixel else None,
                     "v": float(auv_pixel[1]) if auv_pixel else None
                 },
+                "reference": reference_observation.to_dict(),
+                "initial_heading": {
+                    "calibrated": heading_state['angle_deg'] is not None,
+                    "tail_pixel": heading_state['tail_point'],
+                    "head_pixel": heading_state['head_point'],
+                    "angle_deg": heading_state['angle_deg'],
+                    "world_unit": heading_state['world_unit_vector'],
+                },
+                "guidance": guidance_json,
+                "yolo_bbox": [round(float(value), 2) for value in yolo_bbox] if yolo_bbox else None,
                 "physical": {
                     "x": round(current_x, 4) if current_x is not None else None,
-                    "y": round(current_y, 4) if current_y is not None else None
+                    "y": round(current_y, 4) if current_y is not None else None,
+                    "control_x": round(control_x, 4) if control_x is not None else None,
+                    "control_y": round(control_y, 4) if control_y is not None else None,
+                    "camera_latency_s": CAMERA_LATENCY_S,
                 },
                 "velocity": {
                     "vx": float(round(velocity_state['vx_smooth'], 4)) if speed is not None else None,
@@ -1449,6 +1709,9 @@ def main():
                     "camera_fps": round(cam.measured_fps, 1),
                     "yolo_fps": round(yolo_infer_fps, 1),
                     "yolo_confidence": round(yolo_confidence, 3),
+                    "yolo_ready": bool(yolo_status['ready']),
+                    "yolo_loading": bool(yolo_status['loading']),
+                    "yolo_load_seconds": yolo_status['load_seconds'],
                     "clahe_enabled": use_clahe,
                     "exposure": cam.exposure_val,
                     "tablet_tx_hz": tab_tx_hz,
@@ -1456,6 +1719,16 @@ def main():
                     "mcu_hz": mcu_hz
                 }
             }
+
+            toolbar.draw(img_show, active={
+                'START': drawn_path_state['active'],
+                'STOP': current_status_text in ('STOPPED', 'EMERGENCY STOP'),
+                'MARKER_ROI': marker_roi_state['selecting'],
+                'HEAD_DIRECTION': heading_state['selecting'],
+                'POOL_CALIB': calib_state['is_calibrating'],
+                'RECORD': is_recording,
+                'CLAHE': use_clahe,
+            })
 
             tablet_server.send(json_data)
             mjpeg_server.update(img_show)
@@ -1477,101 +1750,327 @@ def main():
 
             # 键盘按键响应
             key = cv2.waitKey(1) & 0xFF
+            keyboard_actions = {
+                ord('q'): 'EXIT',
+                ord(' '): 'STOP',
+                ord('['): 'EXP_DOWN',
+                ord(']'): 'EXP_UP',
+                ord('a'): 'RECORD',
+                ord('b'): 'SNAPSHOT',
+                ord('t'): 'POOL_CALIB',
+                ord('c'): 'CLAHE',
+                ord('m'): 'MARKER_ROI',
+            }
+            if key in (10, 13):
+                pending_ui_actions.append('START')
+            elif key in keyboard_actions:
+                pending_ui_actions.append(keyboard_actions[key])
 
-            if key == ord('q'):
-                print("\n🚪 用户按下 [q] 键，准备退出...")
-                fish_comm.stop_now()
-                break
-            elif key == ord(' '):
-                drawn_path_state['active'] = False
-                is_tracing_active = False
-                current_status_text = "STOPPED"
-                fish_comm.stop_now()
-            elif key in (10, 13):
-                if calib_state['H'] is None:
-                    print("❌ 无法启动：请先按 T 完成四角标定。")
-                elif len(drawn_path_state['pixels']) < 2:
-                    print("❌ 无法启动：请先用鼠标左键拖动画出轨迹。")
-                elif current_x is None or current_y is None:
-                    print("❌ 无法启动：YOLO 尚未识别到鱼。")
+            exit_requested = False
+            while pending_ui_actions:
+                action_item = pending_ui_actions.popleft()
+                if isinstance(action_item, tuple):
+                    action, action_payload = action_item
                 else:
-                    start_world = cv2.perspectiveTransform(
-                        np.float32([[[drawn_path_state['pixels'][0][0],
-                                     drawn_path_state['pixels'][0][1]]]]),
-                        calib_state['H']
-                    )[0][0]
-                    start_distance = float(np.hypot(
-                        current_x - start_world[0], current_y - start_world[1]
-                    ))
-                    if start_distance > 0.40:
-                        print(f"❌ 无法启动：轨迹起点距离鱼 {start_distance:.2f}m，请从鱼附近开始画。")
-                    elif fish_comm.ensure_prop_mode():
-                        fish_comm.vision_seq = 0
-                        drawn_path_state['active'] = True
-                        drawn_path_state['segment'] = 0
-                        drawn_path_state['last_control_t'] = 0.0
-                        is_tracing_active = True
-                        current_status_text = "PROP TRACKING"
-                        print("▶️ PROP 螺旋桨轨迹 PID 已启动。")
-                    else:
-                        fish_comm.stop_now()
-                        print("❌ 无法确认机器鱼进入 PROP 模式，未启动追踪。")
-            elif key == ord('['):
-                cam.adjust_exposure(-1)
-            elif key == ord(']'):
-                cam.adjust_exposure(1)
-            elif key == ord('a'):
-                is_recording = not is_recording
-                if is_recording:
-                    timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-                    record_fps = round(cam.measured_fps, 1)
-                    recorder = AsyncVideoRecorder(
-                        path=f'{WORK_DIR}/auv_record_{timestamp_str}.mp4',
-                        fourcc=fourcc,
-                        fps=record_fps,
-                        frame_size=(cam.real_width, cam.real_height),
-                        csv_path=f'{WORK_DIR}/auv_data_{timestamp_str}.csv'
-                    )
-                    print(f"🔴 开始录制... 帧率: {record_fps}fps  数据保存在: {WORK_DIR}")
-                else:
-                    if recorder:
-                        recorder.close()
-                        recorder = None
-                    print("⏹️ 停止录制并保存文件。")
+                    action, action_payload = action_item, None
 
-            elif key == ord('b'):
-                ms = int((time.time() * 1000) % 1000)
-                img_filename = f"{WORK_DIR}/auv_frame_{time.strftime('%Y%m%d_%H%M%S')}_{ms:03d}.jpg"
-                cv2.imwrite(img_filename, img_show)
-                print(f"📸 抓拍成功！已保存为: {img_filename}")
+                if action == 'EXIT':
+                    print("\n已点击退出。")
+                    exit_requested = True
+                    break
 
-            elif key == ord('t'):
-                calib_state['is_calibrating'] = not calib_state['is_calibrating']
-                if calib_state['is_calibrating']:
-                    fish_comm.stop_now()
+                if action == 'STOP':
                     drawn_path_state['active'] = False
-                    drawn_path_state['pixels'].clear()
                     is_tracing_active = False
-                    current_status_text = "CALIBRATING"
-                    calib_state['H'] = None
-                    calib_state['manual_locked'] = False
-                    calib_state['auto_locked'] = False
-                    calib_state['auto_stable_count'] = 0
-                    calib_state['auto_prev_points'] = None
-                    calib_state['pts_raw'].clear()
-                    calib_state['pts_disp'].clear()
-                    pos_state['smooth_x'] = None
-                    pos_state['smooth_y'] = None
-                    print("🔧 进入手动标定模式，请按顺序点击四个角点（左上→右上→右下→左下）")
-                else:
-                    calib_state['pts_raw'].clear()
-                    calib_state['pts_disp'].clear()
-                    current_status_text = "UNCALIBRATED"
-                    print("⏹️ 已取消手动标定；当前没有有效标定矩阵。")
+                    current_status_text = "STOPPED"
+                    fish_comm.stop_now()
 
-            elif key == ord('c'):
-                use_clahe = not use_clahe
-                print(f"🔄 CLAHE 状态切换: {'【开启】' if use_clahe else '【关闭】'}")
+                elif action == 'CLEAR_PATH':
+                    drawn_path_state['pixels'].clear()
+                    drawn_path_state['drawing'] = False
+                    drawn_path_state['active'] = False
+                    drawn_path_state['segment'] = 0
+                    path_guidance.clear()
+                    is_tracing_active = False
+                    current_status_text = "PATH CLEARED"
+
+                elif action == 'START':
+                    if calib_state['H'] is None:
+                        print("❌ 无法启动：请先点击【场地标定】完成四角标定。")
+                    elif len(drawn_path_state['pixels']) < 2:
+                        print("❌ 无法启动：请先用鼠标左键拖动画出轨迹。")
+                    elif current_x is None or current_y is None:
+                        reasons = ','.join(reference_observation.gate_reasons) or '无'
+                        print(
+                            "❌ 无法启动：橙色鱼尾未锁定。"
+                            f"来源={reference_observation.source}，门控={reasons}。"
+                            "请先重新框选【鱼尾标定】。"
+                        )
+                    elif heading_state['world_unit_vector'] is None:
+                        print("❌ 无法启动：请先点击【鱼头方向】并标定当前鱼头。")
+                    else:
+                        if reference_observation.source == ReferenceSource.MARKER:
+                            print("✅ 当前使用橙色鱼尾中心追踪。")
+                        if reference_observation.source == ReferenceSource.ESTIMATED_FALLBACK:
+                            print("⚠️ 当前是无色标降级位置，只允许测试，数据不能用于 PWM—速度精标定。")
+                        path_input = np.float32([[
+                            [point[0], point[1]]
+                            for point in drawn_path_state['pixels']
+                        ]])
+                        path_world = cv2.perspectiveTransform(
+                            path_input,
+                            calib_state['H']
+                        )[0]
+                        startup_heading = (
+                            heading_state['control_heading']
+                            or heading_state['world_unit_vector']
+                        )
+                        startup_heading_source = (
+                            heading_state['control_heading_source']
+                            or 'CALIBRATED'
+                        )
+                        try:
+                            initial_guidance = path_guidance.start(
+                                path_world,
+                                (control_x, control_y),
+                                frame_time,
+                                startup_heading,
+                            )
+                        except (ValueError, RuntimeError) as error:
+                            path_guidance.clear()
+                            print(f"❌ 无法准备轨迹：{error}")
+                        else:
+                            start_distance = float(np.linalg.norm(
+                                np.asarray((control_x, control_y))
+                                - path_guidance.path[0]
+                            ))
+                            if start_distance > 0.40:
+                                path_guidance.clear()
+                                print(
+                                    f"❌ 无法启动：轨迹起点距离鱼 {start_distance:.2f}m，"
+                                    "请从鱼附近开始画。"
+                                )
+                            elif fish_comm.ensure_hybrid_mode():
+                                fish_comm.vision_seq = 0
+                                drawn_path_state['active'] = True
+                                drawn_path_state['segment'] = initial_guidance['seg_index']
+                                drawn_path_state['last_control_t'] = 0.0
+                                is_tracing_active = True
+                                current_status_text = "HYBRID TRACKING"
+                                print(
+                                    "▶️ HYBRID 前视轨迹引导已启动："
+                                    f"{len(path_guidance.path)} 个等距点，"
+                                    "预看 0.32 m 曲率，转向比例随曲率 "
+                                    "0.55~1.35 倍连续变化，"
+                                    "安全上限 ±0.24 m。"
+                                )
+                                first_error = float(
+                                    initial_guidance['steering_error_deg']
+                                )
+                                first_turn = (
+                                    '左'
+                                    if first_error > 3.0
+                                    else '右'
+                                    if first_error < -3.0
+                                    else '直行'
+                                )
+                                source_text = (
+                                    '上次运动航向'
+                                    if startup_heading_source == 'COURSE'
+                                    else '人工鱼头方向'
+                                )
+                                print(
+                                    f"🧭 起步使用{source_text}，"
+                                    f"首个引导={first_turn} {abs(first_error):.1f}°。"
+                                )
+                            else:
+                                path_guidance.clear()
+                                print("❌ 无法确认机器鱼进入 HYBRID 模式，未启动追踪。")
+
+                elif action == 'MARKER_ROI':
+                    drawn_path_state['active'] = False
+                    is_tracing_active = False
+                    calib_state['is_calibrating'] = False
+                    heading_state['selecting'] = False
+                    marker_roi_state['selecting'] = not marker_roi_state['selecting']
+                    marker_roi_state['dragging'] = False
+                    marker_roi_state['start'] = None
+                    marker_roi_state['end'] = None
+                    if marker_roi_state['selecting']:
+                        current_status_text = "SELECT MARKER ROI"
+                        print("🎯 请框住鱼尾附近区域，程序会自动寻找橙色中心；右键或再次点击【鱼尾标定】取消。")
+                    else:
+                        current_status_text = "READY"
+                        print("⏹️ 已取消色标框选，原有色标模型保持不变。")
+
+                elif action == 'APPLY_MARKER_ROI':
+                    latest_frame = frame_state['latest']
+                    try:
+                        profile = reference_tracker.calibrate_from_roi(
+                            latest_frame, action_payload, save=True
+                        )
+                        calibration_result = reference_tracker.last_calibration
+                        marker_roi_state['selecting'] = False
+                        marker_roi_state['dragging'] = False
+                        marker_roi_state['start'] = None
+                        marker_roi_state['end'] = None
+                        marker_roi_state['confirmed_bbox'] = calibration_result['marker_bbox']
+                        marker_roi_state['confirmed_center'] = calibration_result['marker_center']
+                        marker_roi_state['confirmed_until'] = time.time() + 3.0
+                        current_status_text = "MARKER READY"
+                        print(
+                            "✅ 已自动找到橙色鱼尾中心并保存模型："
+                            f"center=({calibration_result['marker_center'][0]:.1f},"
+                            f"{calibration_result['marker_center'][1]:.1f}), "
+                            f"H={profile.hue_center:.1f}±{profile.hue_tolerance:.1f}, "
+                            f"area={profile.expected_area:.1f}px²"
+                        )
+                    except Exception as error:
+                        marker_roi_state['selecting'] = True
+                        marker_roi_state['dragging'] = False
+                        marker_roi_state['start'] = None
+                        marker_roi_state['end'] = None
+                        current_status_text = "MARKER ROI RETRY"
+                        print(f"❌ 色标框选失败：{error}。请调整范围后重新框选。")
+
+                elif action == 'HEAD_DIRECTION':
+                    drawn_path_state['active'] = False
+                    is_tracing_active = False
+                    calib_state['is_calibrating'] = False
+                    marker_roi_state['selecting'] = False
+                    heading_state['selecting'] = not heading_state['selecting']
+                    if heading_state['selecting']:
+                        current_status_text = "SELECT HEAD DIRECTION"
+                        print("🧭 鱼尾中心将自动获取，请直接点击鱼头中心；右键或再次点击【鱼头方向】取消。")
+                    else:
+                        current_status_text = "READY"
+                        print("⏹️ 已取消鱼头方向标定，原有初始方向保持不变。")
+
+                elif action == 'APPLY_HEAD_DIRECTION':
+                    tail_point = frame_state['tail_marker_position']
+                    if calib_state['H'] is None:
+                        current_status_text = "SELECT HEAD DIRECTION"
+                        print("❌ 请先完成场地标定，再标定鱼头方向。")
+                    elif (
+                        tail_point is None
+                    ):
+                        current_status_text = "SELECT HEAD DIRECTION"
+                        print("❌ 当前没有可靠的橙色鱼尾中心，请先完成鱼尾标定并让鱼尾保持可见。")
+                    else:
+                        head_point = tuple(float(value) for value in action_payload)
+                        tail_point = tuple(float(value) for value in tail_point)
+                        dx = head_point[0] - tail_point[0]
+                        dy = head_point[1] - tail_point[1]
+                        length = float(np.hypot(dx, dy))
+                        if length < 15.0:
+                            current_status_text = "SELECT HEAD DIRECTION"
+                            print("❌ 鱼头点离鱼尾太近，请准确点击鱼头中心。")
+                        else:
+                            world_points = cv2.perspectiveTransform(
+                                np.float32([[tail_point, head_point]]),
+                                calib_state['H'],
+                            )[0]
+                            world_delta = world_points[1] - world_points[0]
+                            world_length = float(np.linalg.norm(world_delta))
+                            if world_length <= 1e-6:
+                                current_status_text = "SELECT HEAD DIRECTION"
+                                print("❌ 鱼头方向映射失败，请重新点击。")
+                            else:
+                                world_unit = world_delta / world_length
+                                heading_state['tail_point'] = tail_point
+                                heading_state['head_point'] = head_point
+                                heading_state['unit_vector'] = (dx / length, dy / length)
+                                heading_state['world_unit_vector'] = (
+                                    float(world_unit[0]), float(world_unit[1])
+                                )
+                                heading_state['control_heading'] = (
+                                    float(world_unit[0]), float(world_unit[1])
+                                )
+                                heading_state['control_heading_source'] = 'CALIBRATED'
+                                heading_state['angle_deg'] = float(
+                                    (
+                                        np.degrees(np.arctan2(-world_unit[1], world_unit[0]))
+                                        + 360.0
+                                    ) % 360.0
+                                )
+                                heading_state['confirmed_until'] = time.time() + 5.0
+                                heading_state['selecting'] = False
+                                current_status_text = "HEAD DIRECTION READY"
+                                print(
+                                    "✅ 初始鱼头方向标定完成："
+                                    f"尾点=({tail_point[0]:.1f},{tail_point[1]:.1f})，"
+                                    f"头点=({head_point[0]:.1f},{head_point[1]:.1f})，"
+                                    f"方向={heading_state['angle_deg']:.1f}°（右为 0°，上为 90°）。"
+                                )
+
+                elif action == 'POOL_CALIB':
+                    calib_state['is_calibrating'] = not calib_state['is_calibrating']
+                    marker_roi_state['selecting'] = False
+                    heading_state['selecting'] = False
+                    if calib_state['is_calibrating']:
+                        drawn_path_state['active'] = False
+                        drawn_path_state['pixels'].clear()
+                        path_guidance.clear()
+                        heading_state['tail_point'] = None
+                        heading_state['head_point'] = None
+                        heading_state['unit_vector'] = None
+                        heading_state['world_unit_vector'] = None
+                        heading_state['angle_deg'] = None
+                        is_tracing_active = False
+                        current_status_text = "CALIBRATING"
+                        calib_state['H'] = None
+                        calib_state['manual_locked'] = False
+                        calib_state['auto_locked'] = False
+                        calib_state['auto_stable_count'] = 0
+                        calib_state['auto_prev_points'] = None
+                        calib_state['pts_raw'].clear()
+                        calib_state['pts_disp'].clear()
+                        pos_state['smooth_x'] = None
+                        pos_state['smooth_y'] = None
+                        print("🔧 请按左上→右上→右下→左下依次点击四个场地角点。")
+                    else:
+                        calib_state['pts_raw'].clear()
+                        calib_state['pts_disp'].clear()
+                        current_status_text = "UNCALIBRATED"
+                        print("⏹️ 已取消场地标定；当前没有有效标定矩阵。")
+
+                elif action == 'RECORD':
+                    is_recording = not is_recording
+                    if is_recording:
+                        timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+                        record_fps = max(1.0, round(cam.measured_fps, 1))
+                        recorder = AsyncVideoRecorder(
+                            path=f'{WORK_DIR}/auv_record_{timestamp_str}.mp4',
+                            fourcc=fourcc,
+                            fps=record_fps,
+                            frame_size=(cam.real_width, cam.real_height),
+                            csv_path=f'{WORK_DIR}/auv_data_{timestamp_str}.csv'
+                        )
+                        print(f"🔴 开始录制... 帧率: {record_fps}fps  数据保存在: {WORK_DIR}")
+                    else:
+                        if recorder:
+                            recorder.close()
+                            recorder = None
+                        print("⏹️ 停止录制并保存文件。")
+
+                elif action == 'SNAPSHOT':
+                    ms = int((time.time() * 1000) % 1000)
+                    img_filename = f"{WORK_DIR}/auv_frame_{time.strftime('%Y%m%d_%H%M%S')}_{ms:03d}.jpg"
+                    cv2.imwrite(img_filename, img_show)
+                    print(f"📸 抓拍成功！已保存为: {img_filename}")
+
+                elif action == 'CLAHE':
+                    use_clahe = not use_clahe
+                    print(f"🔄 CLAHE 状态切换: {'【开启】' if use_clahe else '【关闭】'}")
+
+                elif action == 'EXP_DOWN':
+                    cam.adjust_exposure(-1)
+
+                elif action == 'EXP_UP':
+                    cam.adjust_exposure(1)
+
+            if exit_requested:
+                break
 
     except Exception as e:
         print(f"❌ 运行过程中发生未捕获异常: {e}")
@@ -1580,7 +2079,6 @@ def main():
 
     finally:
         print("\n🧹 正在清理系统资源并关闭网络服务...")
-        fish_comm.stop_now()
         fish_comm.close()
         tablet_server.close()
         fish_detector.close()

@@ -107,6 +107,7 @@ MotionController::MotionController(RoboFishDriver &driver)
              false,
              0,
              0,
+             0,
              false,
              false,
              0.0f,
@@ -122,8 +123,16 @@ MotionController::MotionController(RoboFishDriver &driver)
              static_cast<float>(RF_TAIL_CENTER),
              RF_ESC_THROTTLE_NEUTRAL,
              RF_ESC_STEERING_CENTER,
-             RF_ESC_THROTTLE_NEUTRAL,
-             RF_ESC_STEERING_CENTER} {}
+              RF_ESC_THROTTLE_NEUTRAL,
+              RF_ESC_STEERING_CENTER,
+              0,
+              0,
+              0.0f,
+              0.0f,
+              false,
+              VisionBrakePhase::Cruise,
+              0,
+              false} {}
 
 bool MotionController::begin() {
   if (started_.load()) return true;
@@ -210,6 +219,18 @@ void MotionController::stopMotionLocked() {
   state_.tail2Target = static_cast<float>(RF_TAIL_CENTER);
   state_.escThrottleTarget = RF_ESC_THROTTLE_NEUTRAL;
   state_.escSteeringTarget = RF_ESC_STEERING_CENTER;
+  resetVisionBrakeLocked();
+}
+
+void MotionController::resetVisionBrakeLocked() {
+  state_.visionTailPowerPercent = 0;
+  state_.visionPropPowerPercent = 0;
+  state_.visionSpeedMps = 0.0f;
+  state_.visionCurveSeverity = 0.0f;
+  state_.visionBrakeRequested = false;
+  state_.visionBrakePhase = VisionBrakePhase::Cruise;
+  state_.visionBrakePhaseStartedMs = 0;
+  state_.visionPropReverse = false;
 }
 
 bool MotionController::setMode(DriveMode mode) {
@@ -265,6 +286,7 @@ bool MotionController::setAction(MotionAction action, uint8_t powerPercent,
     return false;
   }
   const bool leftFailsafe = onOperatorCommandLocked();
+  resetVisionBrakeLocked();
   state_.action = action;
   state_.powerPercent = clampPercent(powerPercent);
   state_.turnStrengthPercent = clampPercent(strengthPercent);
@@ -449,8 +471,8 @@ bool MotionController::automationSafeStop() {
 
 VisionControlResult MotionController::applyVisionControl(
     uint32_t sequence, uint8_t powerPercent, int steeringPercent) {
-  if (!commandAllowed() || powerPercent > 70 || steeringPercent < -70 ||
-      steeringPercent > 70 || !takeState(kCommandLockTimeout)) {
+  if (!commandAllowed() || powerPercent > 100 || steeringPercent < -100 ||
+      steeringPercent > 100 || !takeState(kCommandLockTimeout)) {
     return VisionControlResult::Rejected;
   }
 
@@ -463,12 +485,15 @@ VisionControlResult MotionController::applyVisionControl(
   }
 
   onOperatorCommandLocked();
+  resetVisionBrakeLocked();
   state_.visionControlActive = true;
   state_.visionPidEnabled = false;
   state_.visionSequence = sequence;
   state_.lastVisionCommandMs = nowMs();
-  state_.mode = DriveMode::Prop;
+  state_.mode = DriveMode::Hybrid;
   state_.powerPercent = powerPercent;
+  state_.visionTailPowerPercent = powerPercent;
+  state_.visionPropPowerPercent = powerPercent;
   state_.turnStrengthPercent =
       static_cast<uint8_t>(std::abs(steeringPercent));
 
@@ -487,10 +512,16 @@ VisionControlResult MotionController::applyVisionControl(
 
 VisionControlResult MotionController::applyVisionPid(uint32_t sequence,
                                                      float xErrorM,
-                                                     float yErrorM) {
+                                                     float yErrorM,
+                                                     float speedMps,
+                                                     float curveSeverity,
+                                                     bool brakeRequested) {
   if (!commandAllowed() || !std::isfinite(xErrorM) ||
-      !std::isfinite(yErrorM) || std::abs(xErrorM) > 5.0f || yErrorM < 0.0f ||
-      yErrorM > 5.0f || !takeState(kCommandLockTimeout)) {
+      !std::isfinite(yErrorM) || !std::isfinite(speedMps) ||
+      !std::isfinite(curveSeverity) || std::abs(xErrorM) > 5.0f ||
+      yErrorM < 0.0f || yErrorM > 5.0f || speedMps < 0.0f ||
+      speedMps > 5.0f || curveSeverity < 0.0f || curveSeverity > 1.0f ||
+      !takeState(kCommandLockTimeout)) {
     return VisionControlResult::Rejected;
   }
 
@@ -504,14 +535,18 @@ VisionControlResult MotionController::applyVisionPid(uint32_t sequence,
 
   const bool startingPid = !state_.visionPidEnabled;
   onOperatorCommandLocked();
+  if (startingPid) resetVisionBrakeLocked();
   state_.visionControlActive = true;
   state_.visionPidEnabled = true;
   state_.visionPidPending = true;
   state_.visionSequence = sequence;
   state_.lastVisionCommandMs = nowMs();
-  state_.mode = DriveMode::Prop;
+  state_.mode = DriveMode::Hybrid;
   state_.visionXErrorM = xErrorM;
   state_.visionYErrorM = yErrorM;
+  state_.visionSpeedMps = speedMps;
+  state_.visionCurveSeverity = curveSeverity;
+  state_.visionBrakeRequested = brakeRequested;
   if (startingPid) {
     state_.visionXIntegral = 0.0f;
     state_.visionYIntegral = 0.0f;
@@ -765,14 +800,32 @@ void MotionController::visionTick(uint32_t now) {
     if (yError <= RF_VISION_PID_DEADBAND_M) powerOutput = 0.0f;
 
     const int steeringPercent = static_cast<int>(std::lround(
-        std::clamp(steeringOutput, -70.0f, 70.0f)));
-    const int powerPercent = static_cast<int>(std::lround(
-        std::clamp(powerOutput, 0.0f, 70.0f)));
-    state_.powerPercent = static_cast<uint8_t>(powerPercent);
+        std::clamp(steeringOutput, -100.0f, 100.0f)));
+    const int requestedPowerPercent = static_cast<int>(std::lround(
+        std::clamp(powerOutput, 0.0f, 100.0f)));
+    const float turnDemand = std::max(
+        state_.visionCurveSeverity,
+        static_cast<float>(std::abs(steeringPercent)) / 100.0f);
+    const int tailPowerPercent = static_cast<int>(std::lround(
+        RF_VISION_TAIL_STRAIGHT_POWER_PERCENT +
+        (RF_VISION_TAIL_TURN_POWER_PERCENT -
+         RF_VISION_TAIL_STRAIGHT_POWER_PERCENT) *
+            turnDemand));
+    const int propellerLimitPercent = static_cast<int>(std::lround(
+        100.0f -
+        (100.0f - RF_VISION_PROP_CURVE_MIN_POWER_PERCENT) *
+            state_.visionCurveSeverity));
+    const int propellerPowerPercent =
+        std::min(requestedPowerPercent, propellerLimitPercent);
+    state_.visionTailPowerPercent = static_cast<uint8_t>(
+        requestedPowerPercent > 0 ? std::clamp(tailPowerPercent, 0, 100) : 0);
+    state_.visionPropPowerPercent = static_cast<uint8_t>(
+        std::clamp(propellerPowerPercent, 0, 100));
+    state_.powerPercent = state_.visionPropPowerPercent;
     state_.turnStrengthPercent =
         static_cast<uint8_t>(std::abs(steeringPercent));
-    if (powerPercent == 0) {
-      stopMotionLocked();
+    if (requestedPowerPercent == 0) {
+      state_.action = MotionAction::Stopped;
     } else if (steeringPercent > 0) {
       // Preserve the polarity already verified by the existing PC tracker:
       // positive cross-track error commands a left turn.
@@ -781,6 +834,65 @@ void MotionController::visionTick(uint32_t now) {
       state_.action = MotionAction::Right;
     } else {
       state_.action = MotionAction::Forward;
+    }
+    state_.visionAppliedSequence = state_.visionSequence;
+  }
+
+  if (state_.visionControlActive && state_.visionPidEnabled) {
+    if (!state_.visionBrakeRequested) {
+      state_.visionBrakePhase = VisionBrakePhase::Cruise;
+      state_.visionBrakePhaseStartedMs = 0;
+      state_.visionPropReverse = false;
+    } else {
+      if (state_.visionBrakePhase == VisionBrakePhase::Cruise) {
+        state_.visionBrakePhase = VisionBrakePhase::Neutralizing;
+        state_.visionBrakePhaseStartedMs = now;
+      }
+
+      state_.visionTailPowerPercent = 0;
+      state_.visionPropPowerPercent = 0;
+      state_.powerPercent = 0;
+      state_.turnStrengthPercent = 0;
+      state_.action = MotionAction::Stopped;
+      state_.visionPropReverse = false;
+
+      switch (state_.visionBrakePhase) {
+        case VisionBrakePhase::Neutralizing:
+          if (std::abs(state_.escThrottleOutput - RF_ESC_THROTTLE_NEUTRAL) <=
+              RF_VISION_BRAKE_NEUTRAL_TOLERANCE_DEG) {
+            state_.visionBrakePhase = VisionBrakePhase::NeutralDwell;
+            state_.visionBrakePhaseStartedMs = now;
+          }
+          break;
+        case VisionBrakePhase::NeutralDwell:
+          if (now - state_.visionBrakePhaseStartedMs >=
+              RF_VISION_BRAKE_NEUTRAL_DWELL_MS) {
+            state_.visionBrakePhase = VisionBrakePhase::ReverseBrake;
+            state_.visionBrakePhaseStartedMs = now;
+          }
+          break;
+        case VisionBrakePhase::ReverseBrake: {
+          const uint32_t reverseElapsed =
+              now - state_.visionBrakePhaseStartedMs;
+          const bool speedSettled =
+              reverseElapsed >= RF_VISION_BRAKE_REVERSE_MIN_MS &&
+              state_.visionSpeedMps <= RF_VISION_BRAKE_SETTLED_SPEED_MPS;
+          if (speedSettled ||
+              reverseElapsed >= RF_VISION_BRAKE_REVERSE_MAX_MS) {
+            state_.visionBrakePhase = VisionBrakePhase::Hold;
+            state_.visionBrakePhaseStartedMs = now;
+          } else {
+            state_.visionPropPowerPercent =
+                RF_VISION_BRAKE_REVERSE_POWER_PERCENT;
+            state_.powerPercent = state_.visionPropPowerPercent;
+            state_.visionPropReverse = true;
+          }
+          break;
+        }
+        case VisionBrakePhase::Hold:
+        case VisionBrakePhase::Cruise:
+          break;
+      }
     }
   }
   if (state_.visionControlActive &&
@@ -805,7 +917,16 @@ void MotionController::controlTick(uint32_t now) {
   const bool propMode = state_.mode == DriveMode::Prop ||
                         state_.mode == DriveMode::Hybrid;
   const bool moving = state_.action != MotionAction::Stopped;
-  const bool reverse = state_.action == MotionAction::Backward;
+  const bool visionManaged = state_.visionControlActive &&
+                             state_.mode == DriveMode::Hybrid;
+  const uint8_t tailPowerPercent =
+      visionManaged ? state_.visionTailPowerPercent : state_.powerPercent;
+  const uint8_t propPowerPercent =
+      visionManaged ? state_.visionPropPowerPercent : state_.powerPercent;
+  const bool tailMoving = visionManaged ? tailPowerPercent > 0 : moving;
+  const bool propMoving = visionManaged ? propPowerPercent > 0 : moving;
+  const bool reverse = visionManaged ? state_.visionPropReverse
+                                     : state_.action == MotionAction::Backward;
   const bool turning = state_.action == MotionAction::Left ||
                        state_.action == MotionAction::Right;
   float turnSign = state_.action == MotionAction::Left ? -1.0f : 1.0f;
@@ -816,7 +937,7 @@ void MotionController::controlTick(uint32_t now) {
   state_.escThrottleTarget = RF_ESC_THROTTLE_NEUTRAL;
   state_.escSteeringTarget = RF_ESC_STEERING_CENTER;
 
-  if (moving && tailMode) {
+  if (tailMoving && tailMode) {
     const bool hybrid = state_.mode == DriveMode::Hybrid;
     const float amplitudeScale = hybrid ? 58.0f : 50.0f;
     const float phaseRate =
@@ -826,7 +947,7 @@ void MotionController::controlTick(uint32_t now) {
         hybrid ? RF_HYBRID_TAIL_PHASE_LAG_CYCLES
                : RF_BIONIC_TAIL_PHASE_LAG_CYCLES;
     const float amplitude =
-        amplitudeScale * static_cast<float>(state_.powerPercent) / 100.0f;
+        amplitudeScale * static_cast<float>(tailPowerPercent) / 100.0f;
     const float direction = reverse ? -1.0f : 1.0f;
     const float phase = std::fmod(static_cast<float>(now) * 0.001f *
                                       phaseRate * kTwoPi,
@@ -838,43 +959,60 @@ void MotionController::controlTick(uint32_t now) {
       bias = turnSign * turnScale *
              static_cast<float>(state_.turnStrengthPercent) / 100.0f;
     }
+    const float biasedCenter = static_cast<float>(RF_TAIL_CENTER) + bias;
+    const float symmetricAmplitudeLimit = std::max(
+        0.0f,
+        std::min(biasedCenter - static_cast<float>(RF_TAIL_MIN_ANGLE),
+                 static_cast<float>(RF_TAIL_MAX_ANGLE) - biasedCenter));
+    const float limitedAmplitude = std::min(amplitude, symmetricAmplitudeLimit);
 
     // High-confidence approximation: the binary proves sin/fmod, the listed
     // phase/amplitude constants, a 0.9 secondary mix and turn asymmetry, but
     // symbol stripping prevents recovery of the exact original expression.
     // Direction polarity must still be verified on an unloaded mechanism.
     state_.tail1Target = std::clamp(
-        static_cast<float>(RF_TAIL_CENTER) +
-            direction * amplitude * std::sin(phase) + bias,
-        0.0f, 180.0f);
+        biasedCenter + direction * limitedAmplitude * std::sin(phase),
+        static_cast<float>(RF_TAIL_MIN_ANGLE),
+        static_cast<float>(RF_TAIL_MAX_ANGLE));
     state_.tail2Target = std::clamp(
-        static_cast<float>(RF_TAIL_CENTER) +
-            direction * amplitude * kTail2AmplitudeRatio *
-                std::sin(phase + phaseLagCycles * kTwoPi) +
-            bias,
-        0.0f, 180.0f);
+        biasedCenter + direction * limitedAmplitude * kTail2AmplitudeRatio *
+                           std::sin(phase + phaseLagCycles * kTwoPi),
+        static_cast<float>(RF_TAIL_MIN_ANGLE),
+        static_cast<float>(RF_TAIL_MAX_ANGLE));
   }
 
-  if (moving && propMode) {
+  if (propMoving && propMode) {
     const bool hybrid = state_.mode == DriveMode::Hybrid;
     bool escBackward = reverse;
     if (state_.escReversed) escBackward = !escBackward;
     if (escBackward) {
       state_.escThrottleTarget =
-          kEscDriveBaseline - roundedPercent(hybrid ? 42 : 34,
-                                             state_.powerPercent);
+          kEscDriveBaseline - roundedPercent(
+                                  hybrid ? RF_HYBRID_ESC_REVERSE_GAIN_DEG : 34,
+                                  propPowerPercent);
     } else {
       state_.escThrottleTarget =
-          kEscDriveBaseline + roundedPercent(hybrid ? 44 : 36,
-                                             state_.powerPercent);
+          kEscDriveBaseline + roundedPercent(
+                                  hybrid ? RF_HYBRID_ESC_FORWARD_GAIN_DEG : 36,
+                                  propPowerPercent);
     }
     if (turning) {
-      const int steeringOffset =
+      bool steerLeft = state_.action == MotionAction::Left;
+      if (state_.steeringReversed) steerLeft = !steerLeft;
+      int steeringOffset =
           roundedPercent(hybrid ? RF_HYBRID_PROP_TURN_MAX_OFFSET_DEG
                                 : RF_PROP_TURN_MAX_OFFSET_DEG,
                          state_.turnStrengthPercent);
-      bool steerLeft = state_.action == MotionAction::Left;
-      if (state_.steeringReversed) steerLeft = !steerLeft;
+      if (!steerLeft && state_.turnStrengthPercent > 0) {
+        const int rightMaximum =
+            hybrid ? RF_HYBRID_PROP_RIGHT_TURN_MAX_OFFSET_DEG
+                   : RF_PROP_RIGHT_TURN_MAX_OFFSET_DEG;
+        const int rightRange = std::max(
+            0, rightMaximum - RF_PROP_RIGHT_TURN_DEADZONE_OFFSET_DEG);
+        steeringOffset = RF_PROP_RIGHT_TURN_DEADZONE_OFFSET_DEG +
+                         roundedPercent(rightRange,
+                                        state_.turnStrengthPercent);
+      }
       state_.escSteeringTarget = RF_ESC_STEERING_CENTER +
                                  (steerLeft ? -steeringOffset
                                             : steeringOffset);
@@ -891,7 +1029,7 @@ void MotionController::controlTick(uint32_t now) {
       slew(state_.tail2Output, state_.tail2Target, tailStep);
   state_.escThrottleOutput = slewThrottle(
       state_.escThrottleOutput, state_.escThrottleTarget,
-      state_.mode == DriveMode::Hybrid && moving);
+      state_.mode == DriveMode::Hybrid && propMoving);
   state_.escSteeringOutput =
       slew(state_.escSteeringOutput, state_.escSteeringTarget,
            RF_ESC_STEERING_SLEW_DEG_PER_TICK);
@@ -930,7 +1068,8 @@ bool MotionController::getStatus(MotionStatus &status) const {
             static_cast<int>(std::lround(state_.tail1Output)),
             static_cast<int>(std::lround(state_.tail2Output)),
             state_.escThrottleOutput,
-            state_.escSteeringOutput};
+            state_.escSteeringOutput,
+            state_.visionAppliedSequence};
   giveState();
   return true;
 }

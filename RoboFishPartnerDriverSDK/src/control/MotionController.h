@@ -45,6 +45,14 @@ enum class VisionControlResult : uint8_t {
   Rejected,
 };
 
+enum class VisionBrakePhase : uint8_t {
+  Cruise = 0,
+  Neutralizing,
+  NeutralDwell,
+  ReverseBrake,
+  Hold,
+};
+
 struct MotionStatus {
   DriveMode mode;
   MotionAction action;
@@ -60,6 +68,7 @@ struct MotionStatus {
   int tail2Output;
   int escThrottleOutput;
   int escSteeringOutput;
+  uint32_t visionAppliedSequence;
 };
 
 // Restored application-level motion coordinator for the recovered CameraTest
@@ -111,16 +120,21 @@ class MotionController {
   // preserving pitch, Demo ownership and failsafe state.
   bool automationSafeStop();
 
-  // Applies the latest PC vision command using propulsion only. powerPercent
-  // is 0..70 and signed steeringPercent is -70..70 (left..right).
+  // Applies the latest PC vision command in HYBRID mode. powerPercent drives
+  // both tail amplitude and propeller power; signed steeringPercent drives
+  // tail bias and propeller steering together (left..right).
   VisionControlResult applyVisionControl(uint32_t sequence,
                                          uint8_t powerPercent,
                                          int steeringPercent);
 
   // Enqueues the latest calibrated visual errors for the VisionControl task.
   // xErrorM is signed lateral error; yErrorM is remaining forward distance.
+  // Speed and upcoming curve severity shape independent tail/propeller power;
+  // brakeRequested enters the non-blocking soft reverse-brake state machine.
   VisionControlResult applyVisionPid(uint32_t sequence, float xErrorM,
-                                     float yErrorM);
+                                     float yErrorM, float speedMps,
+                                     float curveSeverity,
+                                     bool brakeRequested);
 
   DemoRequestResult requestDemo();
   bool cancelDemo(bool returnToSafePose = true);
@@ -160,6 +174,7 @@ class MotionController {
     uint32_t demoStateStartedMs;
     bool visionControlActive;
     uint32_t visionSequence;
+    uint32_t visionAppliedSequence;
     uint32_t lastVisionCommandMs;
     bool visionPidEnabled;
     bool visionPidPending;
@@ -178,6 +193,14 @@ class MotionController {
     int escSteeringTarget;
     int escThrottleOutput;
     int escSteeringOutput;
+    uint8_t visionTailPowerPercent;
+    uint8_t visionPropPowerPercent;
+    float visionSpeedMps;
+    float visionCurveSeverity;
+    bool visionBrakeRequested;
+    VisionBrakePhase visionBrakePhase;
+    uint32_t visionBrakePhaseStartedMs;
+    bool visionPropReverse;
   };
 
   static constexpr uint32_t kControlTaskStackBytes = 4096;
@@ -200,6 +223,7 @@ class MotionController {
   bool onOperatorCommandLocked();
   bool automationAllowedLocked() const;
   void stopMotionLocked();
+  void resetVisionBrakeLocked();
   void cancelDemoLocked(bool returnToSafePose);
   bool triggerFailsafeLocked();
 

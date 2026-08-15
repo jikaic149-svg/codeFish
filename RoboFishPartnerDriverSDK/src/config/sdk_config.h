@@ -44,7 +44,7 @@
 // Constant steering bias applied to both tail joints at 100% turn strength.
 // Larger values tighten turns while the oscillation amplitude stays unchanged.
 #define RF_BIONIC_TAIL_TURN_BIAS_DEG 18.0f
-#define RF_HYBRID_TAIL_TURN_BIAS_DEG 14.0f
+#define RF_HYBRID_TAIL_TURN_BIAS_DEG 18.0f
 
 #define RF_PITCH_CENTER         86
 #define RF_PITCH_UI_NEUTRAL     90
@@ -60,9 +60,15 @@
 #define RF_ESC_PWM_MAX_US     2100
 
 // Propeller steering offsets at 100% turn strength, in servo-angle degrees.
-// Valid range: 0..min(center-min, max-center). Larger values tighten turns.
+// The positive/right PWM side has a measured weak response, so it receives an
+// affine dead-zone compensation: any non-zero right command starts at 2 deg
+// and reaches a higher calibrated maximum. Left commands remain unchanged.
+// All values must remain within the configured steering min/max limits.
 #define RF_PROP_TURN_MAX_OFFSET_DEG        32
-#define RF_HYBRID_PROP_TURN_MAX_OFFSET_DEG 16
+#define RF_HYBRID_PROP_TURN_MAX_OFFSET_DEG 26
+#define RF_PROP_RIGHT_TURN_DEADZONE_OFFSET_DEG  2
+#define RF_PROP_RIGHT_TURN_MAX_OFFSET_DEG      35
+#define RF_HYBRID_PROP_RIGHT_TURN_MAX_OFFSET_DEG 25
 
 // Web manual-control power defaults, in percent (valid range: 0..100).
 // BIONIC and HYBRID use the stronger tail setting with matching slew limits;
@@ -77,6 +83,8 @@
 #define RF_ESC_THROTTLE_SLEW_DEG_PER_TICK         3
 #define RF_HYBRID_ESC_ACCEL_SLEW_DEG_PER_TICK     1
 #define RF_ESC_STEERING_SLEW_DEG_PER_TICK          8
+#define RF_HYBRID_ESC_FORWARD_GAIN_DEG             52
+#define RF_HYBRID_ESC_REVERSE_GAIN_DEG             46
 
 // Current relay board is active-low.
 #define RF_PUMP_ACTIVE_HIGH false
@@ -90,16 +98,35 @@
 // this many milliseconds; otherwise propulsion stops and steering centers.
 #define RF_VISION_COMMAND_TIMEOUT_MS 500
 
-// MCU-side visual PID tuning. Inputs are metres. X controls signed ESC
-// steering and Y controls forward ESC power. Outputs remain limited to 70%.
-#define RF_VISION_X_KP 150.0f
-#define RF_VISION_X_KI   8.0f
-#define RF_VISION_X_KD  35.0f
-#define RF_VISION_Y_KP 180.0f
-#define RF_VISION_Y_KI   2.0f
-#define RF_VISION_Y_KD  10.0f
+// MCU-side visual control tuning. Inputs are metres.  The LOS heading error
+// is already filtered and latency-compensated on the PC, so X uses P only;
+// adding I/D here amplifies fish-tail marker swing and delayed samples.
+// 300 %/m maps the visual +/-0.18 m limit to about +/-54% steering.
+#define RF_VISION_X_KP 300.0f
+#define RF_VISION_X_KI   0.0f
+#define RF_VISION_X_KD   0.0f
+// 800 %/m reaches full straight power at about 0.125 m. This keeps normal
+// tracking firm while retaining a short proportional slowdown near the goal.
+#define RF_VISION_Y_KP 800.0f
+#define RF_VISION_Y_KI   0.0f
+#define RF_VISION_Y_KD   0.0f
 #define RF_VISION_PID_INTEGRAL_LIMIT 0.50f
-#define RF_VISION_PID_DEADBAND_M     0.015f
+#define RF_VISION_PID_DEADBAND_M     0.006f
+
+// Vision HYBRID open-loop curve slowdown.  Full bends reduce both propulsion
+// sources; measured camera speed is deliberately not closed around throttle
+// because its latency would create another oscillating loop.  Tail steering
+// bias remains active at 60% power.  Terminal braking keeps the existing
+// neutral/dwell/current-limited reverse sequence.
+#define RF_VISION_TAIL_STRAIGHT_POWER_PERCENT       74
+#define RF_VISION_TAIL_TURN_POWER_PERCENT           60
+#define RF_VISION_PROP_CURVE_MIN_POWER_PERCENT      20
+#define RF_VISION_BRAKE_REVERSE_POWER_PERCENT       26
+#define RF_VISION_BRAKE_NEUTRAL_TOLERANCE_DEG        1
+#define RF_VISION_BRAKE_NEUTRAL_DWELL_MS           160
+#define RF_VISION_BRAKE_REVERSE_MIN_MS              120
+#define RF_VISION_BRAKE_REVERSE_MAX_MS              480
+#define RF_VISION_BRAKE_SETTLED_SPEED_MPS          0.03f
 
 // ESP-IDF HTTP server task. ESP-IDF expresses its stack size in bytes.
 // Priority and core preserve the previous background OTA execution context.

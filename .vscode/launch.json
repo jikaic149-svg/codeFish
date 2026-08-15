@@ -2,6 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "VISION: 仅摄像头延迟测试",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}\\VISION\\camera_latency_test.py",
+      "cwd": "${workspaceFolder}\\VISION",
+      "python": "${workspaceFolder}\\VISION\\.venv\\Scripts\\python.exe",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
       "name": "VISION: YOLO GPU（外置 USB 摄像头）",
       "type": "debugpy",
       "request": "launch",

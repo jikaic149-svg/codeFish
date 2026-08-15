@@ -187,14 +187,17 @@ esp_err_t ProductWebService::visionPidHandler(httpd_req_t *request) {
 
 esp_err_t ProductWebService::applyVisionPid(httpd_req_t *request) {
   const size_t queryLength = httpd_req_get_url_query_len(request);
-  if (queryLength == 0 || queryLength > 127) {
+  if (queryLength == 0 || queryLength > 191) {
     return sendJsonError(request, "400 Bad Request", "Invalid query length");
   }
 
-  std::array<char, 128> query = {};
+  std::array<char, 192> query = {};
   std::array<char, 16> sequenceText = {};
   std::array<char, 24> xText = {};
   std::array<char, 24> yText = {};
+  std::array<char, 24> speedText = {};
+  std::array<char, 16> curveText = {};
+  std::array<char, 4> brakeText = {};
   if (httpd_req_get_url_query_str(request, query.data(), query.size()) !=
           ESP_OK ||
       httpd_query_key_value(query.data(), "seq", sequenceText.data(),
@@ -202,9 +205,15 @@ esp_err_t ProductWebService::applyVisionPid(httpd_req_t *request) {
       httpd_query_key_value(query.data(), "x_error", xText.data(),
                             xText.size()) != ESP_OK ||
       httpd_query_key_value(query.data(), "y_error", yText.data(),
-                            yText.size()) != ESP_OK) {
+                            yText.size()) != ESP_OK ||
+      httpd_query_key_value(query.data(), "speed", speedText.data(),
+                            speedText.size()) != ESP_OK ||
+      httpd_query_key_value(query.data(), "curve", curveText.data(),
+                            curveText.size()) != ESP_OK ||
+      httpd_query_key_value(query.data(), "brake", brakeText.data(),
+                            brakeText.size()) != ESP_OK) {
     return sendJsonError(request, "400 Bad Request",
-                         "Required: seq, x_error, y_error");
+                         "Required: seq, x_error, y_error, speed, curve, brake");
   }
 
   auto parseSequence = [](const char *text, uint32_t *value) -> bool {
@@ -233,16 +242,25 @@ esp_err_t ProductWebService::applyVisionPid(httpd_req_t *request) {
   uint32_t sequence = 0;
   float xError = 0.0f;
   float yError = 0.0f;
+  float speedMps = 0.0f;
+  float curveSeverity = 0.0f;
+  uint32_t brakeValue = 0;
   if (!parseSequence(sequenceText.data(), &sequence) ||
       !parseFloat(xText.data(), &xError) || !parseFloat(yText.data(), &yError) ||
-      std::abs(xError) > 5.0f || yError < 0.0f || yError > 5.0f) {
+      !parseFloat(speedText.data(), &speedMps) ||
+      !parseFloat(curveText.data(), &curveSeverity) ||
+      !parseSequence(brakeText.data(), &brakeValue) ||
+      std::abs(xError) > 5.0f || yError < 0.0f || yError > 5.0f ||
+      speedMps < 0.0f || speedMps > 5.0f || curveSeverity < 0.0f ||
+      curveSeverity > 1.0f || brakeValue > 1) {
     return sendJsonError(request, "400 Bad Request",
-                         "x_error must be +/-5 m; y_error must be 0..5 m");
+                         "Invalid vision PID value range");
   }
 
   stopPartnerForManualControl();
   const VisionControlResult result =
-      motion_.applyVisionPid(sequence, xError, yError);
+      motion_.applyVisionPid(sequence, xError, yError, speedMps,
+                             curveSeverity, brakeValue != 0);
   if (result == VisionControlResult::StaleSequence) {
     return sendJsonError(request, "409 Conflict", "Stale sequence");
   }
@@ -250,11 +268,20 @@ esp_err_t ProductWebService::applyVisionPid(httpd_req_t *request) {
     return sendJsonError(request, "409 Conflict", "Control command rejected");
   }
 
+  MotionStatus status = {};
+  if (!motion_.getStatus(status)) {
+    return sendJsonError(request, "503 Service Unavailable",
+                         "Control status unavailable");
+  }
+
   std::array<char, 192> response = {};
   std::snprintf(response.data(), response.size(),
-                "{\"ok\":true,\"seq\":%lu,\"x_error\":%.4f,"
-                "\"y_error\":%.4f,\"pid\":\"mcu_xy\"}",
-                static_cast<unsigned long>(sequence), xError, yError);
+                 "{\"ok\":true,\"seq\":%lu,\"x_error\":%.4f,"
+                 "\"y_error\":%.4f,\"pid\":\"mcu_xy\","
+                 "\"applied_seq\":%lu,\"esc\":%d}",
+                 static_cast<unsigned long>(sequence), xError, yError,
+                 static_cast<unsigned long>(status.visionAppliedSequence),
+                 status.escSteeringOutput);
   return send(request, "200 OK", "application/json; charset=utf-8",
               response.data());
 }
@@ -299,10 +326,10 @@ esp_err_t ProductWebService::applyVisionControl(httpd_req_t *request) {
   long power = 0;
   long steering = 0;
   if (!parseInteger(sequenceText.data(), 0, 2147483647L, &sequence) ||
-      !parseInteger(powerText.data(), 0, 70, &power) ||
-      !parseInteger(steeringText.data(), -70, 70, &steering)) {
+      !parseInteger(powerText.data(), 0, 100, &power) ||
+      !parseInteger(steeringText.data(), -100, 100, &steering)) {
     return sendJsonError(request, "400 Bad Request",
-                         "seq=0..2147483647, power=0..70, steering=-70..70");
+                         "seq=0..2147483647, power=0..100, steering=-100..100");
   }
 
   stopPartnerForManualControl();
@@ -318,7 +345,7 @@ esp_err_t ProductWebService::applyVisionControl(httpd_req_t *request) {
 
   std::array<char, 160> response = {};
   std::snprintf(response.data(), response.size(),
-                "{\"ok\":true,\"seq\":%ld,\"mode\":\"PROP\","
+                "{\"ok\":true,\"seq\":%ld,\"mode\":\"HYBRID\","
                 "\"power\":%ld,\"steering\":%ld}",
                 sequence, power, steering);
   return send(request, "200 OK", "application/json; charset=utf-8",
