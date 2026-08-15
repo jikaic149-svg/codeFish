@@ -21,7 +21,8 @@ class VisionToolbarTests(unittest.TestCase):
     def test_every_button_can_be_hit(self):
         toolbar = VisionToolbar()
         rectangles = toolbar.layout(640, 480)
-        self.assertEqual(len(rectangles), 12)
+        self.assertEqual(len(rectangles), 13)
+        self.assertIn("TURN_CALIB", rectangles)
         for action, (x1, y1, x2, y2) in rectangles.items():
             hit = toolbar.hit_test((x1 + x2) // 2, (y1 + y2) // 2, 640, 480)
             self.assertEqual(hit, action)

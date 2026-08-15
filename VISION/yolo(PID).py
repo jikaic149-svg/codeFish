@@ -26,6 +26,12 @@ from path_guidance import (
     VelocityEstimator,
     compensate_camera_latency,
 )
+from turn_calibration import (
+    TurnCalibrationError,
+    TurnCalibrationSession,
+    load_turn_calibrations,
+    save_turn_calibration,
+)
 from vision_toolbar import (
     UiPalette,
     VisionHud,
@@ -40,11 +46,11 @@ if not os.path.exists(WORK_DIR):
     os.makedirs(WORK_DIR)
 os.chdir(WORK_DIR)
 
-# 🔴 核心提速秘籍：禁用 OpenCV MSMF 后端的硬件转换功能
+# 核心提速秘籍：禁用 OpenCV MSMF 后端的硬件转换功能
 os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 
 # ==============================================================================
-# 🔴 [配置区] 相机采集帧率与分辨率
+# [配置区] 相机采集帧率与分辨率
 # ==============================================================================
 TARGET_FPS = 60
 TARGET_WIDTH = 640
@@ -56,7 +62,7 @@ CAMERA_LATENCY_MAX_PREDICTION_M = 0.12
 ENABLE_CLAHE_DEFAULT = False
 
 # ==============================================================================
-# 🔴 [配置区] 场地真实物理尺寸与标靶 ID 映射
+# [配置区] 场地真实物理尺寸与标靶 ID 映射
 # ==============================================================================
 PHYSICAL_WIDTH = 3.14   # 水池长度（米）
 PHYSICAL_HEIGHT = 1.6   # 水池宽度（米）
@@ -67,7 +73,7 @@ MARKER_BR = 4
 MARKER_BL = 3
 
 # ==============================================================================
-# 🐟 [配置区] YOLO 仿生鱼检测
+# [配置区] YOLO 仿生鱼检测
 # ==============================================================================
 YOLO_MODEL_PATH = os.path.join(WORK_DIR, "best.pt")
 YOLO_CONF_THRESHOLD = 0.18
@@ -75,14 +81,17 @@ YOLO_IMG_SIZE = 640
 YOLO_DEVICE = 0             # 0 = GPU，无显卡改为 "cpu"
 YOLO_DETECT_INTERVAL_S = 0.20  # YOLO 仅做 5 Hz 身份确认，橙色色块逐帧跟踪
 MARKER_PROFILE_PATH = os.path.join(WORK_DIR, "marker_profile.local.json")
+TURN_CALIBRATION_PATH = os.path.join(
+    WORK_DIR, "turn_calibration.local.json"
+)
 
 # ==============================================================================
-# 📡 [配置区] 通信参数（平板 TCP & RoboFish ESP32 HTTP）
+# [配置区] 通信参数（平板 TCP & RoboFish ESP32 HTTP）
 # ==============================================================================
 TABLET_TCP_HOST = "0.0.0.0"
 TABLET_TCP_PORT = 9998
 
-# 🔴 RoboFish 机器鱼 AP 网络默认配置
+# RoboFish 机器鱼 AP 网络默认配置
 ROBOFISH_IP = "192.168.4.1"
 ROBOFISH_PORT = 80
 
@@ -140,7 +149,7 @@ def build_calibration_homography(points, frame_width, frame_height):
     return homography, None
 
 # ==============================================================================
-# 📷 相机多线程读取类（含曝光手动调节支持）
+# 相机多线程读取类（含曝光手动调节支持）
 # ==============================================================================
 class CameraStream:
     def __init__(self, src=0):
@@ -179,7 +188,7 @@ class CameraStream:
         with self.lock:
             self.exposure_val += delta
             self.cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure_val)
-            print(f"📷 相机手动曝光值调整为: {self.exposure_val}")
+            print(f"相机手动曝光值调整为: {self.exposure_val}")
 
     def update(self):
         while not self.stopped:
@@ -210,7 +219,7 @@ class CameraStream:
         self.cap.release()
 
 # ==============================================================================
-# 📺 MJPEG 视频流服务器
+# MJPEG 视频流服务器
 # ==============================================================================
 class MJPEGServer:
     def __init__(self, host="0.0.0.0", port=MJPEG_PORT, max_viewers=1):
@@ -228,7 +237,7 @@ class MJPEGServer:
         def video():
             with self._viewer_lock:
                 if self._viewer_count >= self.max_viewers:
-                    print(f"⚠️ 视频流已有 {self._viewer_count} 个客户端在看，拒绝新连接")
+                    print(f"视频流已有 {self._viewer_count} 个客户端在看，拒绝新连接")
                     return Response("视频流已被占用，请先关闭其他正在观看的窗口/设备", status=503)
             return Response(
                 self.generate(),
@@ -251,7 +260,7 @@ class MJPEGServer:
     def generate(self):
         with self._viewer_lock:
             self._viewer_count += 1
-            print(f"📺 视频流新增1个观看者，当前共 {self._viewer_count} 个")
+            print(f"视频流新增1个观看者，当前共 {self._viewer_count} 个")
 
         last_send_t = 0.0
         min_interval = 1.0 / MJPEG_MAX_FPS
@@ -289,7 +298,7 @@ class MJPEGServer:
         finally:
             with self._viewer_lock:
                 self._viewer_count = max(0, self._viewer_count - 1)
-                print(f"📺 视频流断开1个观看者，当前共 {self._viewer_count} 个")
+                print(f"视频流断开1个观看者，当前共 {self._viewer_count} 个")
 
     def start(self):
         threading.Thread(
@@ -302,10 +311,10 @@ class MJPEGServer:
             ),
             daemon=True
         ).start()
-        print(f"📺 MJPEG视频流已启动: http://0.0.0.0:{self.port}/video.mjpg")
+        print(f"MJPEG视频流已启动: http://0.0.0.0:{self.port}/video.mjpg")
 
 # ==============================================================================
-# 📱 平板 TCP 服务器（含实时 TX/RX 传输频率计算）
+# 平板 TCP 服务器（含实时 TX/RX 传输频率计算）
 # ==============================================================================
 class TabletTCPServer:
     def __init__(self, host=TABLET_TCP_HOST, port=TABLET_TCP_PORT):
@@ -330,7 +339,7 @@ class TabletTCPServer:
         self._command_queue = queue.Queue()
         self._rx_lock = threading.Lock()
 
-        # 🔴 频率计算参数
+        # 频率计算参数
         self.tx_fps = 0.0
         self.rx_fps = 0.0
         self._last_tx_t = time.time()
@@ -345,7 +354,7 @@ class TabletTCPServer:
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(1)
             self.server_socket.settimeout(1.0)
-            print(f"✅ 平板 TCP 有线双向服务器已启动: {self.host}:{self.port}")
+            print(f"平板 TCP 有线双向服务器已启动: {self.host}:{self.port}")
 
             self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
             self._accept_thread.start()
@@ -354,7 +363,7 @@ class TabletTCPServer:
             self._receiver_thread = threading.Thread(target=self._receiver_loop, daemon=True)
             self._receiver_thread.start()
         except Exception as e:
-            print(f"⚠️ 平板 TCP 服务器启动失败: {e}")
+            print(f"平板 TCP 服务器启动失败: {e}")
 
     def _accept_loop(self):
         while not self._stop:
@@ -369,7 +378,7 @@ class TabletTCPServer:
                             pass
                     self.client_socket = conn
                     self.client_addr = addr
-                print(f"✅ 平板 UI 已建立连接: {addr}")
+                print(f"平板 UI 已建立连接: {addr}")
             except socket.timeout:
                 continue
             except Exception:
@@ -402,7 +411,7 @@ class TabletTCPServer:
             except (socket.error, BrokenPipeError):
                 with self._lock:
                     if self.client_socket:
-                        print(f"🔌 平板 UI 连接断开: {self.client_addr}")
+                        print(f"平板 UI 连接断开: {self.client_addr}")
                         try:
                             self.client_socket.close()
                         except:
@@ -448,7 +457,7 @@ class TabletTCPServer:
                                 mode = parsed.get('motion_mode', 'bionic')
                                 rev = parsed.get('reverse', False)
                                 loop_flag = parsed.get('loop', False)
-                                print(f"🗺️  [UI 消息] 收到轨迹规划: 点数={num_pts} | 模式={mode} | 反向={rev} | 循环={loop_flag}")
+                                print(f" [UI 消息] 收到轨迹规划: 点数={num_pts} | 模式={mode} | 反向={rev} | 循环={loop_flag}")
 
                             elif msg_type == "tracking_error":
                                 with self._rx_lock:
@@ -457,7 +466,7 @@ class TabletTCPServer:
                             elif msg_type == "command":
                                 cmd = parsed.get('cmd')
                                 self._command_queue.put(parsed)
-                                print(f"⚠️  [UI 消息] 收到控制指令: 【{cmd.upper()}】")
+                                print(f" [UI 消息] 收到控制指令: 【{cmd.upper()}】")
 
                         except json.JSONDecodeError:
                             pass
@@ -467,7 +476,7 @@ class TabletTCPServer:
             except (socket.error, ConnectionResetError):
                 with self._lock:
                     if self.client_socket:
-                        print(f"🔌 平板 UI 接收通道已断开")
+                        print(f"平板 UI 接收通道已断开")
                         try:
                             self.client_socket.close()
                         except:
@@ -518,17 +527,17 @@ class TabletTCPServer:
                 pass
 
 # ==============================================================================
-# 🤖 RoboFish ESP32S3 异步 HTTP 通信类 (含 10Hz 限频防冲垮 + 频率统计)
+# RoboFish ESP32S3 异步 HTTP 通信类 (含 10Hz 限频防冲垮 + 频率统计)
 # ==============================================================================
 class RoboFishComm:
     def __init__(self, ip=ROBOFISH_IP, port=ROBOFISH_PORT):
         self.ip = ip
         self.port = port
         self.base_url = f"http://{ip}:{port}"
-        self.cmd_queue = queue.Queue(maxsize=1)  # 🔴 队列深度设为 1，只留最新指令
+        self.cmd_queue = queue.Queue(maxsize=1)  # 队列深度设为 1，只留最新指令
         self.stopped = False
 
-        # 🔴 单片机通信频率统计与限频控制
+        # 单片机通信频率统计与限频控制
         self.mcu_hz = 0.0
         self._last_send_t = time.time()
         self._last_cmd_t = 0.0                  # 发包间隔时间戳
@@ -537,7 +546,7 @@ class RoboFishComm:
 
         self.thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.thread.start()
-        print(f"✅ RoboFish 机器鱼 HTTP PID 控制接口准备就绪 -> 目标地址: {self.base_url}")
+        print(f"RoboFish 机器鱼 HTTP PID 控制接口准备就绪 -> 目标地址: {self.base_url}")
 
     def _request_control(self, variable, value=1, timeout=0.3):
         query_string = urllib.parse.urlencode({"var": variable, "val": value})
@@ -593,7 +602,7 @@ class RoboFishComm:
                     )
                     latency_ms = (time.perf_counter() - request_started) * 1000.0
                     print(
-                        f"✅ [VISION ACK] seq={payload['seq']} "
+                        f"[VISION ACK] seq={payload['seq']} "
                         f"applied={payload.get('applied_seq', '-')} "
                         f"esc={payload.get('esc', '-')}° "
                         f"RTT={latency_ms:.1f}ms"
@@ -621,13 +630,13 @@ class RoboFishComm:
             except Exception as e:
                 if params.get("kind") == "vision_pid":
                     print(
-                        f"❌ [VISION ACK 失败] seq={params.get('seq', '-')} "
+                        f"[VISION ACK 失败] seq={params.get('seq', '-')} "
                         f"x={float(params.get('x_error', 0.0)):+.4f}m "
                         f"y={float(params.get('y_error', 0.0)):.4f}m "
                         f"错误={e}"
                     )
                 else:
-                    print(f"⚠️ [HTTP 发送失败] 无法连通机器鱼 ({self.base_url}): {e}")
+                    print(f"[HTTP 发送失败] 无法连通机器鱼 ({self.base_url}): {e}")
 
     def get_mcu_hz(self):
         if time.time() - self._last_send_t > 1.5:
@@ -666,7 +675,7 @@ class RoboFishComm:
             "hybrid": "mode_hybrid"
         }
         target_mode = mode_map.get(str(motion_mode).lower(), "mode_bionic")
-        print(f"⚙️ [HTTP 下发] 切换机器鱼模式为: {target_mode}")
+        print(f"[HTTP 下发] 切换机器鱼模式为: {target_mode}")
         self._send_async({"action": target_mode})
 
     def ensure_hybrid_mode(self):
@@ -679,15 +688,15 @@ class RoboFishComm:
         """
         try:
             self._request_control("servo_stop", timeout=0.5)
-            print("⚙️ [HTTP 视觉准备] 控制序号已复位，首包 PID 将直接进入 HYBRID")
+            print("[HTTP 视觉准备] 控制序号已复位，首包 PID 将直接进入 HYBRID")
             return True
         except Exception as error:
-            print(f"❌ [HTTP 视觉准备失败] {error}")
+            print(f"[HTTP 视觉准备失败] {error}")
             return False
 
     def send_command(self, cmd_str):
         if cmd_str in ["stop", "emergency_stop"]:
-            print(f"🚀 [HTTP 下发] 机器鱼急停/停止推进")
+            print(f"[HTTP 下发] 机器鱼急停/停止推进")
             self._send_async({"action": "stop"})
 
     def stop_now(self):
@@ -700,17 +709,17 @@ class RoboFishComm:
                 break
         try:
             self._request_control("servo_stop", timeout=0.5)
-            print("🛑 [HTTP 反馈] 推进已停止")
+            print("[HTTP 反馈] 推进已停止")
             return True
         except Exception as error:
-            print(f"⚠️ [HTTP 停止失败] {error}")
+            print(f"[HTTP 停止失败] {error}")
             return False
 
     def process_tracking_error(
         self, cross_m, along_m, dist_m, speed_mps=0.0,
         curve_severity=0.0, brake_request=False,
         cross_track_m=0.0, heading_error_deg=0.0,
-        path_curve_severity=0.0, steering_gain=1.0,
+        path_curvature_per_m=0.0, steering_demand=0.0,
     ):
         """发送标定后的误差；X/Y PID 均由 ESP32 的 VisionControl task 计算。"""
         self.vision_seq = (self.vision_seq + 1) & 0x7fffffff
@@ -725,11 +734,12 @@ class RoboFishComm:
         })
         if queued:
             print(
-                f"➡️ [VISION 入队] seq={self.vision_seq} "
+                f"[VISION 入队] seq={self.vision_seq} "
                 f"x={cross_m:+.3f}m y={dist_m:.3f}m "
                 f"v={speed_mps:.2f}m/s 离={cross_track_m:.2f}m "
                 f"角={heading_error_deg:+.0f}° "
-                f"曲={path_curve_severity:.2f} 增={steering_gain:.2f} "
+                f"曲率={path_curvature_per_m:+.2f}/m "
+                f"转向={steering_demand:+.2f} "
                 f"制动={'是' if brake_request else '否'}"
             )
 
@@ -739,7 +749,7 @@ class RoboFishComm:
             self.thread.join(timeout=1.0)
 
 # ==============================================================================
-# 🎬 异步录像写入类
+# 异步录像写入类
 # ==============================================================================
 class AsyncVideoRecorder:
     def __init__(self, path, fourcc, fps, frame_size, csv_path):
@@ -777,7 +787,7 @@ class AsyncVideoRecorder:
         self.video_out.release()
         self.csv_file.close()
         if self.dropped_frames > 0:
-            print(f"⚠️ 录制过程中磁盘写入跟不上，丢弃了 {self.dropped_frames} 帧")
+            print(f"录制过程中磁盘写入跟不上，丢弃了 {self.dropped_frames} 帧")
 
 
 # ==============================================================================
@@ -785,24 +795,24 @@ class AsyncVideoRecorder:
 # ==============================================================================
 def main():
     print("\n" + "=" * 60)
-    print("🚀 YOLO 仿生鱼追踪与 RoboFish HTTP PID 控制转发系统正在启动...")
-    print(f"📂 工作目录: {os.path.abspath(WORK_DIR)}")
-    print(f"📐 目标捕获: {TARGET_WIDTH}x{TARGET_HEIGHT} @ {TARGET_FPS}FPS")
+    print("YOLO 仿生鱼追踪与 RoboFish HTTP PID 控制转发系统正在启动...")
+    print(f"工作目录: {os.path.abspath(WORK_DIR)}")
+    print(f"目标捕获: {TARGET_WIDTH}x{TARGET_HEIGHT} @ {TARGET_FPS}FPS")
     print(
-        f"⏱️ 相机延迟补偿: {CAMERA_LATENCY_S * 1000:.0f} ms "
+        f"相机延迟补偿: {CAMERA_LATENCY_S * 1000:.0f} ms "
         f"(最大预测 {CAMERA_LATENCY_MAX_PREDICTION_M:.2f} m)"
     )
-    print(f"📱 平板有线 TCP 端口: {TABLET_TCP_PORT}")
-    print(f"🤖 RoboFish 机器鱼目标: http://{ROBOFISH_IP}:{ROBOFISH_PORT}")
+    print(f"平板有线 TCP 端口: {TABLET_TCP_PORT}")
+    print(f"RoboFish 机器鱼目标: http://{ROBOFISH_IP}:{ROBOFISH_PORT}")
     print("=" * 60 + "\n")
 
     cam = CameraStream(src=1).start()
     if not cam.ret:
-        print("❌ 无法打开相机！请检查 USB 接口是否松动，或尝试修改索引。")
+        print("无法打开相机！请检查 USB 接口是否松动，或尝试修改索引。")
         cam.release()
         return
 
-    print(f"✅ 相机流已就绪：{cam.real_width} x {cam.real_height}")
+    print(f"相机流已就绪：{cam.real_width} x {cam.real_height}")
 
     # 1. 启动平板 TCP 服务器
     tablet_server = TabletTCPServer(host=TABLET_TCP_HOST, port=TABLET_TCP_PORT)
@@ -828,14 +838,14 @@ def main():
         enable_rigid_body=False,
     )
     if reference_tracker.is_profiled:
-        print(f"✅ 已加载橙色鱼尾模型: {MARKER_PROFILE_PATH}")
+        print(f"已加载橙色鱼尾模型: {MARKER_PROFILE_PATH}")
     elif reference_tracker.profile_load_error:
         print(
-            "⚠️ 已忽略不合格的旧色标模型："
+            "已忽略不合格的旧色标模型："
             f"{reference_tracker.profile_load_error}。请点击【鱼尾标定】重新框选。"
         )
     else:
-        print("⚠️ 尚未标定固定色标：位置仅为 ESTIMATED_FALLBACK，不能用于 PWM—速度精标定。")
+        print("尚未标定固定色标：位置仅为 ESTIMATED_FALLBACK，不能用于 PWM—速度精标定。")
 
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     aruco_params = cv2.aruco.DetectorParameters()
@@ -858,20 +868,49 @@ def main():
         'segment': 0,
         'last_control_t': 0.0,
     }
+    try:
+        turn_calibration_results = load_turn_calibrations(
+            TURN_CALIBRATION_PATH
+        )
+    except (OSError, ValueError, TypeError) as error:
+        turn_calibration_results = {}
+        print(f"转圈标定文件无法使用，将回退 0.20m 估计半径：{error}")
+    left_turn_fit = turn_calibration_results.get("LEFT")
+    right_turn_fit = turn_calibration_results.get("RIGHT")
     path_guidance = PathGuidance(
         spacing_m=0.03,
         lookahead_m=0.24,
-        min_lookahead_m=0.14,
-        max_attraction_gain=1.25,
+        min_lookahead_m=0.10,
         full_attraction_error_m=0.18,
         curve_preview_m=0.32,
-        curve_feedforward_gain=0.35,
-        min_curve_steering_gain=0.55,
-        max_curve_steering_gain=1.35,
-        max_x_error_m=0.24,
+        estimated_min_turn_radius_m=0.20,
+        left_turn_radius_m=(
+            left_turn_fit.radius_m if left_turn_fit is not None else None
+        ),
+        right_turn_radius_m=(
+            right_turn_fit.radius_m if right_turn_fit is not None else None
+        ),
+        max_x_error_m=(1.0 / 3.0),
         arrival_radius_m=0.20,
         brake_radius_m=0.40,
     )
+    turn_calibration_session = TurnCalibrationSession()
+    for direction, fit in turn_calibration_results.items():
+        direction_name = "左转" if direction == "LEFT" else "右转"
+        print(
+            f"已加载{direction_name}实测半径 {fit.radius_m:.3f}m "
+            f"（直径 {fit.diameter_m:.3f}m，残差 {fit.rms_residual_m:.3f}m）"
+        )
+    missing_turns = [
+        "左转" if direction == "LEFT" else "右转"
+        for direction in ("LEFT", "RIGHT")
+        if direction not in turn_calibration_results
+    ]
+    if missing_turns:
+        print(
+            f"{'、'.join(missing_turns)}尚无实测转圈半径，"
+            "曲率前馈暂用 0.20m 估计值。"
+        )
 
     calib_state = {
         'H': None,
@@ -996,7 +1035,7 @@ def main():
                 marker_roi_state['dragging'] = False
                 marker_roi_state['start'] = None
                 marker_roi_state['end'] = None
-                print("⏹️ 已取消色标框选。")
+                print("已取消色标框选。")
             return
 
         if heading_state['selecting']:
@@ -1004,7 +1043,7 @@ def main():
                 pending_ui_actions.append(('APPLY_HEAD_DIRECTION', (rx, ry)))
             elif event == cv2.EVENT_RBUTTONDOWN:
                 heading_state['selecting'] = False
-                print("⏹️ 已取消鱼头方向标定，原有初始方向保持不变。")
+                print("已取消鱼头方向标定，原有初始方向保持不变。")
             return
 
         if event == cv2.EVENT_LBUTTONDOWN and calib_state['is_calibrating']:
@@ -1015,14 +1054,14 @@ def main():
                     calib_state['pts_raw'], cam.real_width, cam.real_height
                 )
                 if error:
-                    print(f"❌ 手动标定失败：{error}，请重新按左上→右上→右下→左下点击。")
+                    print(f"手动标定失败：{error}，请重新按左上→右上→右下→左下点击。")
                     calib_state['pts_raw'].clear()
                     calib_state['pts_disp'].clear()
                 else:
                     calib_state['H'] = homography
                     calib_state['manual_locked'] = True
                     calib_state['is_calibrating'] = False
-                    print("✅ 手动标定完成并锁定！")
+                    print("手动标定完成并锁定！")
 
         elif not calib_state['is_calibrating']:
             if event == cv2.EVENT_LBUTTONDOWN:
@@ -1049,8 +1088,8 @@ def main():
                 path_guidance.clear()
 
     cv2.setMouseCallback(window_name, mouse_callback)
-    print("\n🎥 鼠标与窗口尺寸已还原 Git 原版。")
-    print("👉 主要功能直接点击画面底部按钮；左键拖动画轨迹，右键清除。\n")
+    print("\n鼠标与窗口尺寸已还原 Git 原版。")
+    print("主要功能直接点击画面底部按钮；左键拖动画轨迹，右键清除。\n")
 
     # 先呈现相机画面，再让后台线程导入 Torch/Ultralytics 和预热 CUDA。
     startup_ret, startup_frame, _ = cam.read()
@@ -1305,18 +1344,19 @@ def main():
                         src_pts, cam.real_width, cam.real_height
                     )
                     if error:
-                        print(f"⚠️ 自动标定未锁定：{error}")
+                        print(f"自动标定未锁定：{error}")
                         calib_state['auto_stable_count'] = 0
                     else:
                         calib_state['H'] = homography
                         calib_state['auto_locked'] = True
-                        print("✅ 自动标定成功！四个场地角点已稳定并锁定。")
+                        print("自动标定成功！四个场地角点已稳定并锁定。")
             elif len(corner_pixels) < 4:
                 calib_state['auto_stable_count'] = 0
                 calib_state['auto_prev_points'] = None
 
             # 解算物理坐标与平滑滤波
             current_x, current_y = None, None
+            direct_marker_world_position = None
             control_reference_available = (
                 reference_observation.source == ReferenceSource.MARKER
                 or reference_observation.source == ReferenceSource.PREDICTED
@@ -1330,6 +1370,8 @@ def main():
                     np.float32([[[auv_pixel[0], auv_pixel[1]]]]), calib_state['H']
                 )
                 raw_x, raw_y = float(pt_real[0][0][0]), float(pt_real[0][0][1])
+                if reference_observation.source == ReferenceSource.MARKER:
+                    direct_marker_world_position = (raw_x, raw_y)
 
                 if pos_state['smooth_x'] is None or pos_state['smooth_y'] is None:
                     pos_state['smooth_x'] = raw_x
@@ -1346,6 +1388,16 @@ def main():
                 pos_state['smooth_x'] = None
                 pos_state['smooth_y'] = None
                 pos_state['frame_time'] = None
+
+            # 转圈测量只接收橙色色块的直接观测；PREDICTED/YOLO 降级位置
+            # 不进入圆拟合，避免“看起来连续”的假轨迹污染半径。
+            if (
+                turn_calibration_session.active
+                and direct_marker_world_position is not None
+            ):
+                turn_calibration_session.add(
+                    direct_marker_world_position, frame_time
+                )
 
             # 短窗口轨迹拟合速度：比逐帧差分更能抑制鱼尾摆动和单帧尖峰。
             speed = None
@@ -1521,7 +1573,7 @@ def main():
                         is_tracing_active = False
                         current_status_text = "ARRIVED"
                         print(
-                            "✅ 已进入终点 0.20 m 停止圈，"
+                            "已进入终点 0.20 m 停止圈，"
                             "已发送渐变 STOP。"
                         )
                     elif now - drawn_path_state['last_control_t'] >= 0.1:
@@ -1534,10 +1586,10 @@ def main():
                             brake_request=local_path_error['brake_request'],
                             cross_track_m=local_path_error['cross_track_m'],
                             heading_error_deg=local_path_error['heading_error_deg'],
-                            path_curve_severity=(
-                                local_path_error['path_curve_severity']
+                            path_curvature_per_m=(
+                                local_path_error['path_curvature_per_m']
                             ),
-                            steering_gain=local_path_error['steering_gain'],
+                            steering_demand=local_path_error['steering_demand'],
                         )
                         drawn_path_state['last_control_t'] = now
                         is_tracing_active = True
@@ -1555,7 +1607,13 @@ def main():
             # 统一中文 HUD：紧凑半透明卡片，不再用超大英文覆盖画面。
             display_error = local_path_error if local_path_error is not None else err_msg
             hud_prompt = None
-            if calib_state['is_calibrating']:
+            if turn_calibration_session.active:
+                hud_prompt = (
+                    "转圈测量：请在网页保持 HYBRID 满左或满右，"
+                    f"至少半圈；当前 {turn_calibration_session.sample_count} 点，"
+                    "再点【转圈测量】完成"
+                )
+            elif calib_state['is_calibrating']:
                 hud_prompt = (
                     f"场地标定 {len(calib_state['pts_raw'])}/4："
                     "依次点击 左上 → 右上 → 右下 → 左下"
@@ -1630,17 +1688,32 @@ def main():
                     "path_curve_angle_deg": round(
                         float(local_path_error['path_curve_angle_deg']), 2
                     ),
-                    "curve_steering_gain": round(
-                        float(local_path_error['curve_steering_gain']), 3
+                    "path_curvature_per_m": round(
+                        float(local_path_error['path_curvature_per_m']), 3
                     ),
-                    "steering_gain": round(
-                        float(local_path_error['steering_gain']), 3
+                    "curve_feedforward": round(
+                        float(local_path_error['curve_feedforward']), 3
                     ),
+                    "heading_feedback": round(
+                        float(local_path_error['heading_feedback']), 3
+                    ),
+                    "cross_track_feedback": round(
+                        float(local_path_error['cross_track_feedback']), 3
+                    ),
+                    "steering_demand": round(
+                        float(local_path_error['steering_demand']), 3
+                    ),
+                    "turn_radius_m": round(
+                        float(local_path_error['turn_radius_m']), 4
+                    ),
+                    "turn_radius_source": local_path_error[
+                        'turn_radius_source'
+                    ],
                     "cross_track_m": round(
                         float(local_path_error['cross_track_m']), 4
                     ),
-                    "attraction_gain": round(
-                        float(local_path_error['attraction_gain']), 3
+                    "signed_cross_track_error_m": round(
+                        float(local_path_error['signed_cross_track_error_m']), 4
                     ),
                     "off_path_ratio": round(
                         float(local_path_error['off_path_ratio']), 3
@@ -1688,6 +1761,14 @@ def main():
                     "angle_deg": heading_state['angle_deg'],
                     "world_unit": heading_state['world_unit_vector'],
                 },
+                "turn_calibration": {
+                    "active": turn_calibration_session.active,
+                    "samples": turn_calibration_session.sample_count,
+                    "saved": {
+                        direction: fit.to_dict()
+                        for direction, fit in turn_calibration_results.items()
+                    },
+                },
                 "guidance": guidance_json,
                 "yolo_bbox": [round(float(value), 2) for value in yolo_bbox] if yolo_bbox else None,
                 "physical": {
@@ -1726,6 +1807,7 @@ def main():
                 'MARKER_ROI': marker_roi_state['selecting'],
                 'HEAD_DIRECTION': heading_state['selecting'],
                 'POOL_CALIB': calib_state['is_calibrating'],
+                'TURN_CALIB': turn_calibration_session.active,
                 'RECORD': is_recording,
                 'CLAHE': use_clahe,
             })
@@ -1795,24 +1877,26 @@ def main():
                     current_status_text = "PATH CLEARED"
 
                 elif action == 'START':
-                    if calib_state['H'] is None:
-                        print("❌ 无法启动：请先点击【场地标定】完成四角标定。")
+                    if turn_calibration_session.active:
+                        print("无法启动循迹：请先再次点击【转圈测量】完成本次测量。")
+                    elif calib_state['H'] is None:
+                        print("无法启动：请先点击【场地标定】完成四角标定。")
                     elif len(drawn_path_state['pixels']) < 2:
-                        print("❌ 无法启动：请先用鼠标左键拖动画出轨迹。")
+                        print("无法启动：请先用鼠标左键拖动画出轨迹。")
                     elif current_x is None or current_y is None:
                         reasons = ','.join(reference_observation.gate_reasons) or '无'
                         print(
-                            "❌ 无法启动：橙色鱼尾未锁定。"
+                            "无法启动：橙色鱼尾未锁定。"
                             f"来源={reference_observation.source}，门控={reasons}。"
                             "请先重新框选【鱼尾标定】。"
                         )
                     elif heading_state['world_unit_vector'] is None:
-                        print("❌ 无法启动：请先点击【鱼头方向】并标定当前鱼头。")
+                        print("无法启动：请先点击【鱼头方向】并标定当前鱼头。")
                     else:
                         if reference_observation.source == ReferenceSource.MARKER:
-                            print("✅ 当前使用橙色鱼尾中心追踪。")
+                            print("当前使用橙色鱼尾中心追踪。")
                         if reference_observation.source == ReferenceSource.ESTIMATED_FALLBACK:
-                            print("⚠️ 当前是无色标降级位置，只允许测试，数据不能用于 PWM—速度精标定。")
+                            print("当前是无色标降级位置，只允许测试，数据不能用于 PWM—速度精标定。")
                         path_input = np.float32([[
                             [point[0], point[1]]
                             for point in drawn_path_state['pixels']
@@ -1838,7 +1922,7 @@ def main():
                             )
                         except (ValueError, RuntimeError) as error:
                             path_guidance.clear()
-                            print(f"❌ 无法准备轨迹：{error}")
+                            print(f"无法准备轨迹：{error}")
                         else:
                             start_distance = float(np.linalg.norm(
                                 np.asarray((control_x, control_y))
@@ -1847,7 +1931,7 @@ def main():
                             if start_distance > 0.40:
                                 path_guidance.clear()
                                 print(
-                                    f"❌ 无法启动：轨迹起点距离鱼 {start_distance:.2f}m，"
+                                    f"无法启动：轨迹起点距离鱼 {start_distance:.2f}m，"
                                     "请从鱼附近开始画。"
                                 )
                             elif fish_comm.ensure_hybrid_mode():
@@ -1858,11 +1942,11 @@ def main():
                                 is_tracing_active = True
                                 current_status_text = "HYBRID TRACKING"
                                 print(
-                                    "▶️ HYBRID 前视轨迹引导已启动："
+                                    "HYBRID 前视轨迹引导已启动："
                                     f"{len(path_guidance.path)} 个等距点，"
-                                    "预看 0.32 m 曲率，转向比例随曲率 "
-                                    "0.55~1.35 倍连续变化，"
-                                    "安全上限 ±0.24 m。"
+                                    "真实曲率前馈 + 航向/离轨反馈，"
+                                    "前视 0.10~0.24 m，"
+                                    "100% 转向限幅 ±0.333 m。"
                                 )
                                 first_error = float(
                                     initial_guidance['steering_error_deg']
@@ -1880,14 +1964,93 @@ def main():
                                     else '人工鱼头方向'
                                 )
                                 print(
-                                    f"🧭 起步使用{source_text}，"
+                                    f"起步使用{source_text}，"
                                     f"首个引导={first_turn} {abs(first_error):.1f}°。"
                                 )
                             else:
                                 path_guidance.clear()
-                                print("❌ 无法确认机器鱼进入 HYBRID 模式，未启动追踪。")
+                                print("无法确认机器鱼进入 HYBRID 模式，未启动追踪。")
+
+                elif action == 'TURN_CALIB':
+                    if turn_calibration_session.active:
+                        try:
+                            turn_fit = turn_calibration_session.finish()
+                        except TurnCalibrationError as error:
+                            current_status_text = "READY"
+                            print(f"转圈测量未通过：{error}")
+                            print("本次结果未保存，请重新点击【转圈测量】再测。")
+                        else:
+                            try:
+                                save_turn_calibration(
+                                    TURN_CALIBRATION_PATH, turn_fit
+                                )
+                            except OSError as error:
+                                current_status_text = "READY"
+                                print(f"转圈结果保存失败：{error}")
+                            else:
+                                turn_calibration_results[
+                                    turn_fit.direction
+                                ] = turn_fit
+                                path_guidance.set_turn_radius(
+                                    turn_fit.direction, turn_fit.radius_m
+                                )
+                                current_status_text = "TURN CALIBRATED"
+                                direction_name = (
+                                    "左转"
+                                    if turn_fit.direction == "LEFT"
+                                    else "右转"
+                                )
+                                print(
+                                    f"{direction_name}满转测量完成："
+                                    f"直径={turn_fit.diameter_m:.3f}m，"
+                                    f"半径={turn_fit.radius_m:.3f}m，"
+                                    f"曲率={turn_fit.curvature_per_m:.2f}/m"
+                                )
+                                print(
+                                    f"质量：有效点={turn_fit.inlier_count}/"
+                                    f"{turn_fit.sample_count}，"
+                                    f"圆弧={turn_fit.arc_coverage_deg:.1f}°，"
+                                    f"RMS残差={turn_fit.rms_residual_m:.3f}m。"
+                                )
+                                print(
+                                    "该方向的曲率前馈已改用实测半径；"
+                                    "另一方向仍保持原实测值或 0.20m 估计值。"
+                                )
+                    elif calib_state['H'] is None:
+                        print("无法测量：请先点击【场地标定】完成四角标定。")
+                    elif (
+                        direct_marker_world_position is None
+                    ):
+                        print(
+                            "无法测量：当前必须直接锁定橙色鱼尾；"
+                            "PREDICTED 和 YOLO 降级位置不会用于拟合。"
+                        )
+                    else:
+                        if drawn_path_state['active'] or is_tracing_active:
+                            drawn_path_state['active'] = False
+                            is_tracing_active = False
+                            fish_comm.stop_now()
+                            print("已结束视觉循迹，准备被动测量转圈轨迹。")
+                        calib_state['is_calibrating'] = False
+                        marker_roi_state['selecting'] = False
+                        heading_state['selecting'] = False
+                        turn_calibration_session.start(
+                            direct_marker_world_position, frame_time
+                        )
+                        current_status_text = "TURN CALIBRATING"
+                        print(
+                            "转圈测量已开始：请在网页端选择 HYBRID，"
+                            "持续满左或满右转至少半圈。"
+                        )
+                        print(
+                            "程序只记录橙色色块直接观测，不会自动控制鱼；"
+                            "完成后再次点击【转圈测量】。"
+                        )
 
                 elif action == 'MARKER_ROI':
+                    if turn_calibration_session.active:
+                        turn_calibration_session.cancel()
+                        print("已取消未完成的转圈测量。")
                     drawn_path_state['active'] = False
                     is_tracing_active = False
                     calib_state['is_calibrating'] = False
@@ -1898,10 +2061,10 @@ def main():
                     marker_roi_state['end'] = None
                     if marker_roi_state['selecting']:
                         current_status_text = "SELECT MARKER ROI"
-                        print("🎯 请框住鱼尾附近区域，程序会自动寻找橙色中心；右键或再次点击【鱼尾标定】取消。")
+                        print("请框住鱼尾附近区域，程序会自动寻找橙色中心；右键或再次点击【鱼尾标定】取消。")
                     else:
                         current_status_text = "READY"
-                        print("⏹️ 已取消色标框选，原有色标模型保持不变。")
+                        print("已取消色标框选，原有色标模型保持不变。")
 
                 elif action == 'APPLY_MARKER_ROI':
                     latest_frame = frame_state['latest']
@@ -1919,7 +2082,7 @@ def main():
                         marker_roi_state['confirmed_until'] = time.time() + 3.0
                         current_status_text = "MARKER READY"
                         print(
-                            "✅ 已自动找到橙色鱼尾中心并保存模型："
+                            "已自动找到橙色鱼尾中心并保存模型："
                             f"center=({calibration_result['marker_center'][0]:.1f},"
                             f"{calibration_result['marker_center'][1]:.1f}), "
                             f"H={profile.hue_center:.1f}±{profile.hue_tolerance:.1f}, "
@@ -1931,9 +2094,12 @@ def main():
                         marker_roi_state['start'] = None
                         marker_roi_state['end'] = None
                         current_status_text = "MARKER ROI RETRY"
-                        print(f"❌ 色标框选失败：{error}。请调整范围后重新框选。")
+                        print(f"色标框选失败：{error}。请调整范围后重新框选。")
 
                 elif action == 'HEAD_DIRECTION':
+                    if turn_calibration_session.active:
+                        turn_calibration_session.cancel()
+                        print("已取消未完成的转圈测量。")
                     drawn_path_state['active'] = False
                     is_tracing_active = False
                     calib_state['is_calibrating'] = False
@@ -1941,21 +2107,21 @@ def main():
                     heading_state['selecting'] = not heading_state['selecting']
                     if heading_state['selecting']:
                         current_status_text = "SELECT HEAD DIRECTION"
-                        print("🧭 鱼尾中心将自动获取，请直接点击鱼头中心；右键或再次点击【鱼头方向】取消。")
+                        print("鱼尾中心将自动获取，请直接点击鱼头中心；右键或再次点击【鱼头方向】取消。")
                     else:
                         current_status_text = "READY"
-                        print("⏹️ 已取消鱼头方向标定，原有初始方向保持不变。")
+                        print("已取消鱼头方向标定，原有初始方向保持不变。")
 
                 elif action == 'APPLY_HEAD_DIRECTION':
                     tail_point = frame_state['tail_marker_position']
                     if calib_state['H'] is None:
                         current_status_text = "SELECT HEAD DIRECTION"
-                        print("❌ 请先完成场地标定，再标定鱼头方向。")
+                        print("请先完成场地标定，再标定鱼头方向。")
                     elif (
                         tail_point is None
                     ):
                         current_status_text = "SELECT HEAD DIRECTION"
-                        print("❌ 当前没有可靠的橙色鱼尾中心，请先完成鱼尾标定并让鱼尾保持可见。")
+                        print("当前没有可靠的橙色鱼尾中心，请先完成鱼尾标定并让鱼尾保持可见。")
                     else:
                         head_point = tuple(float(value) for value in action_payload)
                         tail_point = tuple(float(value) for value in tail_point)
@@ -1964,7 +2130,7 @@ def main():
                         length = float(np.hypot(dx, dy))
                         if length < 15.0:
                             current_status_text = "SELECT HEAD DIRECTION"
-                            print("❌ 鱼头点离鱼尾太近，请准确点击鱼头中心。")
+                            print("鱼头点离鱼尾太近，请准确点击鱼头中心。")
                         else:
                             world_points = cv2.perspectiveTransform(
                                 np.float32([[tail_point, head_point]]),
@@ -1974,7 +2140,7 @@ def main():
                             world_length = float(np.linalg.norm(world_delta))
                             if world_length <= 1e-6:
                                 current_status_text = "SELECT HEAD DIRECTION"
-                                print("❌ 鱼头方向映射失败，请重新点击。")
+                                print("鱼头方向映射失败，请重新点击。")
                             else:
                                 world_unit = world_delta / world_length
                                 heading_state['tail_point'] = tail_point
@@ -1997,13 +2163,16 @@ def main():
                                 heading_state['selecting'] = False
                                 current_status_text = "HEAD DIRECTION READY"
                                 print(
-                                    "✅ 初始鱼头方向标定完成："
+                                    "初始鱼头方向标定完成："
                                     f"尾点=({tail_point[0]:.1f},{tail_point[1]:.1f})，"
                                     f"头点=({head_point[0]:.1f},{head_point[1]:.1f})，"
                                     f"方向={heading_state['angle_deg']:.1f}°（右为 0°，上为 90°）。"
                                 )
 
                 elif action == 'POOL_CALIB':
+                    if turn_calibration_session.active:
+                        turn_calibration_session.cancel()
+                        print("已取消未完成的转圈测量。")
                     calib_state['is_calibrating'] = not calib_state['is_calibrating']
                     marker_roi_state['selecting'] = False
                     heading_state['selecting'] = False
@@ -2027,12 +2196,12 @@ def main():
                         calib_state['pts_disp'].clear()
                         pos_state['smooth_x'] = None
                         pos_state['smooth_y'] = None
-                        print("🔧 请按左上→右上→右下→左下依次点击四个场地角点。")
+                        print("请按左上→右上→右下→左下依次点击四个场地角点。")
                     else:
                         calib_state['pts_raw'].clear()
                         calib_state['pts_disp'].clear()
                         current_status_text = "UNCALIBRATED"
-                        print("⏹️ 已取消场地标定；当前没有有效标定矩阵。")
+                        print("已取消场地标定；当前没有有效标定矩阵。")
 
                 elif action == 'RECORD':
                     is_recording = not is_recording
@@ -2046,22 +2215,22 @@ def main():
                             frame_size=(cam.real_width, cam.real_height),
                             csv_path=f'{WORK_DIR}/auv_data_{timestamp_str}.csv'
                         )
-                        print(f"🔴 开始录制... 帧率: {record_fps}fps  数据保存在: {WORK_DIR}")
+                        print(f"开始录制... 帧率: {record_fps}fps  数据保存在: {WORK_DIR}")
                     else:
                         if recorder:
                             recorder.close()
                             recorder = None
-                        print("⏹️ 停止录制并保存文件。")
+                        print("停止录制并保存文件。")
 
                 elif action == 'SNAPSHOT':
                     ms = int((time.time() * 1000) % 1000)
                     img_filename = f"{WORK_DIR}/auv_frame_{time.strftime('%Y%m%d_%H%M%S')}_{ms:03d}.jpg"
                     cv2.imwrite(img_filename, img_show)
-                    print(f"📸 抓拍成功！已保存为: {img_filename}")
+                    print(f"抓拍成功！已保存为: {img_filename}")
 
                 elif action == 'CLAHE':
                     use_clahe = not use_clahe
-                    print(f"🔄 CLAHE 状态切换: {'【开启】' if use_clahe else '【关闭】'}")
+                    print(f"CLAHE 状态切换: {'【开启】' if use_clahe else '【关闭】'}")
 
                 elif action == 'EXP_DOWN':
                     cam.adjust_exposure(-1)
@@ -2073,12 +2242,12 @@ def main():
                 break
 
     except Exception as e:
-        print(f"❌ 运行过程中发生未捕获异常: {e}")
+        print(f"运行过程中发生未捕获异常: {e}")
         import traceback
         traceback.print_exc()
 
     finally:
-        print("\n🧹 正在清理系统资源并关闭网络服务...")
+        print("\n正在清理系统资源并关闭网络服务...")
         fish_comm.close()
         tablet_server.close()
         fish_detector.close()
@@ -2086,7 +2255,7 @@ def main():
         if recorder:
             recorder.close()
         cv2.destroyAllWindows()
-        print("✅ 所有通信接口与相机资源已安全释放，程序优雅退出。")
+        print("所有通信接口与相机资源已安全释放，程序优雅退出。")
 
 if __name__ == "__main__":
     main()

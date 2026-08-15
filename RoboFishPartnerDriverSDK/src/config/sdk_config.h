@@ -101,7 +101,7 @@
 // MCU-side visual control tuning. Inputs are metres.  The LOS heading error
 // is already filtered and latency-compensated on the PC, so X uses P only;
 // adding I/D here amplifies fish-tail marker swing and delayed samples.
-// 300 %/m maps the visual +/-0.18 m limit to about +/-54% steering.
+// 300 %/m maps the visual +/-0.333 m limit to +/-100% steering.
 #define RF_VISION_X_KP 300.0f
 #define RF_VISION_X_KI   0.0f
 #define RF_VISION_X_KD   0.0f
@@ -113,15 +113,19 @@
 #define RF_VISION_PID_INTEGRAL_LIMIT 0.50f
 #define RF_VISION_PID_DEADBAND_M     0.006f
 
-// Vision HYBRID open-loop curve slowdown.  Full bends reduce both propulsion
-// sources; measured camera speed is deliberately not closed around throttle
-// because its latency would create another oscillating loop.  Tail steering
-// bias remains active at 60% power.  Terminal braking keeps the existing
-// neutral/dwell/current-limited reverse sequence.
+// Vision HYBRID open-loop turn mixing.  The PC sends total turn demand after
+// combining curvature feedforward, heading error and cross-track error.  At
+// 100% demand the power endpoints intentionally match the web HYBRID full-turn
+// profile (tail 75%, propeller 75%), whose observed circle diameter is roughly
+// 0.40 m.  That observation is an initial estimate, not a precision calibration.
+// Measured camera speed is deliberately not closed around throttle because its
+// latency would create another oscillating loop.  Terminal braking keeps the
+// existing neutral/dwell/current-limited reverse sequence.
 #define RF_VISION_TAIL_STRAIGHT_POWER_PERCENT       74
-#define RF_VISION_TAIL_TURN_POWER_PERCENT           60
-#define RF_VISION_PROP_CURVE_MIN_POWER_PERCENT      20
+#define RF_VISION_TAIL_TURN_POWER_PERCENT           75
+#define RF_VISION_PROP_CURVE_MIN_POWER_PERCENT      75
 #define RF_VISION_BRAKE_REVERSE_POWER_PERCENT       26
+#define RF_VISION_BRAKE_REAPPROACH_POWER_PERCENT    26
 #define RF_VISION_BRAKE_NEUTRAL_TOLERANCE_DEG        1
 #define RF_VISION_BRAKE_NEUTRAL_DWELL_MS           160
 #define RF_VISION_BRAKE_REVERSE_MIN_MS              120

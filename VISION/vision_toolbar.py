@@ -438,6 +438,7 @@ class VisionToolbar:
             ToolbarButton("POOL_CALIB", "场地标定", "primary"),
         ),
         (
+            ToolbarButton("TURN_CALIB", "转圈测量", "primary"),
             ToolbarButton("RECORD", "录像"),
             ToolbarButton("SNAPSHOT", "截图"),
             ToolbarButton("CLAHE", "画面增强"),
@@ -545,6 +546,8 @@ class VisionHud:
         "MARKER ROI RETRY": "色标需重选",
         "SELECT HEAD DIRECTION": "鱼头方向标定",
         "HEAD DIRECTION READY": "初始方向已标定",
+        "TURN CALIBRATING": "转圈测量中",
+        "TURN CALIBRATED": "转圈测量完成",
         "PATH CLEARED": "轨迹已清除",
         "CAMERA PAUSED": "相机等待中",
     }

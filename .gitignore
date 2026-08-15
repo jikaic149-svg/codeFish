@@ -37,6 +37,7 @@ Ultralytics/
 VISION/Ultralytics/
 VISION/marker_profile.local.json
 VISION/.marker_profile.test.json
+VISION/turn_calibration.local.json
 
 # Local reverse-engineering tool environment
 reverse_analysis/.tools/

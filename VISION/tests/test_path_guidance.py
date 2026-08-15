@@ -78,8 +78,12 @@ class PathGuidanceTests(unittest.TestCase):
         negative_noise = guidance.update(
             (0.0, -1e-10), 0.2, allow_course_update=False
         )
-        self.assertAlmostEqual(positive_noise["x_error_m"], 0.15, places=6)
-        self.assertAlmostEqual(negative_noise["x_error_m"], 0.15, places=6)
+        self.assertAlmostEqual(
+            positive_noise["x_error_m"], positive_noise["max_x_error_m"], places=6
+        )
+        self.assertAlmostEqual(
+            negative_noise["x_error_m"], negative_noise["max_x_error_m"], places=6
+        )
         self.assertAlmostEqual(
             abs(negative_noise["heading_error_deg"]), 180.0, places=6
         )
@@ -109,44 +113,42 @@ class PathGuidanceTests(unittest.TestCase):
         backward = guidance.update((0.12, 0.0), 0.6, allow_course_update=False)
         self.assertGreaterEqual(backward["along_m"], forward["along_m"])
 
-    def test_off_path_distance_shortens_lookahead_and_raises_gain(self):
+    def test_off_path_distance_shortens_lookahead_and_adds_cross_feedback(self):
         guidance = PathGuidance(
             lookahead_m=0.24,
             min_lookahead_m=0.10,
-            max_attraction_gain=1.65,
             full_attraction_error_m=0.12,
         )
         result = guidance.start(
             [(0.0, 0.0), (1.0, 0.0)], (0.0, 0.0), 0.0, (1.0, 0.0)
         )
         self.assertAlmostEqual(result["lookahead_m"], 0.24)
-        self.assertAlmostEqual(result["attraction_gain"], 1.0)
         np.testing.assert_allclose(result["lookahead_point"], [0.24, 0.0])
 
         halfway = guidance.update(
             (0.10, 0.06), 0.1, allow_course_update=False
         )
         self.assertAlmostEqual(halfway["lookahead_m"], 0.17)
-        self.assertAlmostEqual(halfway["attraction_gain"], 1.325)
+        self.assertGreater(halfway["cross_track_feedback"], 0.0)
 
         far = guidance.update(
             (0.10, 0.12), 0.2, allow_course_update=False
         )
         self.assertAlmostEqual(far["lookahead_m"], 0.10)
-        self.assertAlmostEqual(far["attraction_gain"], 1.65)
         self.assertAlmostEqual(far["off_path_ratio"], 1.0)
         self.assertGreater(far["x_error_m"], 0.0)
         self.assertGreater(far["control_severity"], 0.4)
 
-    def test_corner_uses_same_fixed_lookahead_and_direct_heading_error(self):
+    def test_corner_shortens_lookahead_before_fish_leaves_path(self):
         guidance = PathGuidance(lookahead_m=0.15)
         guidance.start(
             [(0.0, 0.0), (0.30, 0.0), (0.30, -0.50)],
             (0.20, 0.0), 0.0, (1.0, 0.0),
         )
         result = guidance.update((0.20, 0.0), 0.1, allow_course_update=False)
-        self.assertAlmostEqual(result["lookahead_m"], 0.15)
+        self.assertLess(result["lookahead_m"], 0.15)
         self.assertEqual(result["curve_direction"], "LEFT")
+        self.assertGreater(result["curve_feedforward"], 0.0)
         self.assertGreater(result["x_error_m"], 0.0)
 
     def test_curve_preview_reports_left_right_and_straight(self):
@@ -156,6 +158,7 @@ class PathGuidanceTests(unittest.TestCase):
         )
         self.assertEqual(left["curve_direction"], "LEFT")
         self.assertGreater(left["path_curve_angle_deg"], 0.0)
+        self.assertGreater(left["path_curvature_per_m"], 0.0)
         self.assertGreater(left["curve_feedforward"], 0.0)
 
         right = PathGuidance().start(
@@ -164,6 +167,7 @@ class PathGuidanceTests(unittest.TestCase):
         )
         self.assertEqual(right["curve_direction"], "RIGHT")
         self.assertLess(right["path_curve_angle_deg"], 0.0)
+        self.assertLess(right["path_curvature_per_m"], 0.0)
         self.assertLess(right["curve_feedforward"], 0.0)
 
         straight = PathGuidance().start(
@@ -182,23 +186,25 @@ class PathGuidanceTests(unittest.TestCase):
         self.assertAlmostEqual(result["heading_error_deg"], 0.0, places=6)
         self.assertGreater(result["path_curve_severity"], 0.0)
         self.assertGreater(result["curve_severity"], 0.0)
+        self.assertLess(result["lookahead_m"], 0.24)
         self.assertGreater(result["x_error_m"], 0.0)
 
     def test_off_path_ratio_no_longer_forces_full_turn_when_aligned(self):
         position = np.asarray([0.0, 0.30])
-        return_heading = np.asarray([0.14, -0.30])
+        return_heading = np.asarray([0.10, -0.30])
         return_heading /= np.linalg.norm(return_heading)
         result = PathGuidance().start(
             [(0.0, 0.0), (1.0, 0.0)],
             position, 0.0, return_heading,
         )
         self.assertAlmostEqual(result["off_path_ratio"], 1.0)
-        self.assertAlmostEqual(result["heading_error_deg"], 0.0, places=6)
+        self.assertLess(result["heading_feedback"], 0.0)
+        self.assertGreater(result["cross_track_feedback"], 0.0)
         self.assertAlmostEqual(result["x_error_m"], 0.0, places=6)
         self.assertAlmostEqual(result["control_severity"], 0.0, places=6)
         self.assertAlmostEqual(result["curve_severity"], 0.0, places=6)
 
-    def test_small_straight_error_uses_reduced_curve_gain(self):
+    def test_small_straight_heading_error_has_direct_geometric_feedback(self):
         heading_angle = math.radians(5.0)
         result = PathGuidance().start(
             [(0.0, 0.0), (1.0, 0.0)],
@@ -206,55 +212,95 @@ class PathGuidanceTests(unittest.TestCase):
             (math.cos(heading_angle), math.sin(heading_angle)),
         )
         self.assertAlmostEqual(result["path_curve_severity"], 0.0)
-        self.assertAlmostEqual(result["curve_steering_gain"], 0.55)
-        self.assertGreater(result["steering_gain"], 0.55)
-        self.assertLess(result["steering_gain"], 0.60)
-        self.assertLess(abs(result["x_error_m"]), 0.01)
+        self.assertAlmostEqual(result["heading_feedback"], 5.0 / 90.0)
+        self.assertAlmostEqual(result["cross_track_feedback"], 0.0)
+        self.assertAlmostEqual(
+            result["x_error_m"], result["max_x_error_m"] * 5.0 / 90.0
+        )
 
-    def test_same_heading_error_turns_more_on_larger_curvature(self):
-        desired_error = math.radians(30.0)
+    def test_total_turn_is_sum_of_three_independent_terms(self):
+        result = PathGuidance().start(
+            [(0.0, 0.0), (0.28, 0.0), (0.28, -0.50)],
+            (0.0, 0.03), 0.0,
+            (math.cos(math.radians(10.0)), math.sin(math.radians(10.0))),
+        )
+        expected = np.clip(
+            result["curve_feedforward"]
+            + result["heading_feedback"]
+            + result["cross_track_feedback"],
+            -1.0,
+            1.0,
+        )
+        self.assertAlmostEqual(result["steering_demand"], expected)
+        self.assertAlmostEqual(
+            result["x_error_m"], expected * result["max_x_error_m"]
+        )
 
-        straight = PathGuidance().start(
+    def test_low_curve_large_heading_error_reaches_full_turn(self):
+        heading_angle = math.radians(90.0)
+        result = PathGuidance().start(
             [(0.0, 0.0), (1.0, 0.0)],
             (0.0, 0.0), 0.0,
-            (math.cos(desired_error), math.sin(desired_error)),
+            (math.cos(heading_angle), math.sin(heading_angle)),
+        )
+        self.assertAlmostEqual(result["path_curve_severity"], 0.0)
+        self.assertAlmostEqual(result["heading_feedback"], 1.0)
+        self.assertAlmostEqual(
+            abs(result["x_error_m"]), result["max_x_error_m"]
         )
 
-        curved_path = [
-            (0.0, 0.0), (0.10, 0.0), (0.18, -0.06), (0.22, -0.22)
-        ]
-        probe = PathGuidance().start(
-            curved_path, (0.0, 0.0), 0.0, (1.0, 0.0)
-        )
-        target = probe["lookahead_point"]
-        target_angle = math.atan2(float(target[1]), float(target[0]))
-        curved_heading = target_angle + desired_error
-        curved = PathGuidance().start(
-            curved_path,
-            (0.0, 0.0), 0.0,
-            (math.cos(curved_heading), math.sin(curved_heading)),
-        )
+    def test_rough_040_m_circle_sets_5_per_m_reference_curvature(self):
+        guidance = PathGuidance()
+        self.assertAlmostEqual(guidance.estimated_min_turn_radius_m, 0.20)
+        self.assertAlmostEqual(guidance.max_path_curvature_per_m, 5.0)
 
-        self.assertAlmostEqual(straight["heading_error_deg"], 30.0, places=5)
-        self.assertAlmostEqual(curved["heading_error_deg"], 30.0, places=5)
-        self.assertGreater(
-            curved["path_curve_severity"], straight["path_curve_severity"]
-        )
-        self.assertGreater(
-            curved["curve_steering_gain"], straight["curve_steering_gain"]
-        )
-        self.assertGreater(curved["x_error_m"], straight["x_error_m"])
-
-    def test_steering_safety_limit_is_024_m(self):
-        result = PathGuidance(
-            min_curve_steering_gain=2.0,
-            max_curve_steering_gain=2.0,
+    def test_curve_feedforward_uses_independent_measured_turn_radii(self):
+        left = PathGuidance(
+            estimated_min_turn_radius_m=0.20,
+            left_turn_radius_m=0.16,
+            right_turn_radius_m=0.27,
         ).start(
+            [(0.0, 0.0), (0.28, 0.0), (0.28, -0.50)],
+            (0.0, 0.0), 0.0, (1.0, 0.0),
+        )
+        right = PathGuidance(
+            estimated_min_turn_radius_m=0.20,
+            left_turn_radius_m=0.16,
+            right_turn_radius_m=0.27,
+        ).start(
+            [(0.0, 0.0), (0.28, 0.0), (0.28, 0.50)],
+            (0.0, 0.0), 0.0, (1.0, 0.0),
+        )
+        self.assertEqual(left["turn_radius_source"], "MEASURED_LEFT")
+        self.assertAlmostEqual(left["turn_radius_m"], 0.16)
+        self.assertEqual(right["turn_radius_source"], "MEASURED_RIGHT")
+        self.assertAlmostEqual(right["turn_radius_m"], 0.27)
+        self.assertAlmostEqual(
+            left["curve_feedforward"],
+            left["path_curvature_per_m"] * 0.16,
+        )
+        self.assertAlmostEqual(
+            right["curve_feedforward"],
+            right["path_curvature_per_m"] * 0.27,
+        )
+
+    def test_steering_limit_is_exact_full_scale_for_300_percent_per_m(self):
+        result = PathGuidance().start(
             [(0.0, 0.0), (1.0, 0.0)],
             (0.0, 0.0), 0.0, (-1.0, 0.0),
         )
-        self.assertAlmostEqual(result["x_error_m"], 0.24, places=6)
+        self.assertAlmostEqual(result["max_x_error_m"], 1.0 / 3.0, places=6)
+        self.assertAlmostEqual(result["x_error_m"], 1.0 / 3.0, places=6)
         self.assertLessEqual(abs(result["x_error_m"]), result["max_x_error_m"])
+
+    def test_power_mixing_severity_matches_actual_total_turn_demand(self):
+        result = PathGuidance().start(
+            [(0.0, 0.0), (0.28, 0.0), (0.28, -0.50)],
+            (0.0, 0.0), 0.0, (1.0, 0.0),
+        )
+        self.assertAlmostEqual(
+            result["curve_severity"], abs(result["steering_demand"])
+        )
 
     def test_terminal_brake_and_stop_use_only_fixed_distance(self):
         guidance = PathGuidance(

@@ -211,20 +211,19 @@ class HeadingEstimator:
 
 
 class PathGuidance:
-    """等距路径、单向进度、前视点和鱼体左右误差的统一 owner。"""
+    """等距路径、单向进度和曲率前馈循迹的统一 owner。"""
 
     def __init__(
         self,
         spacing_m=0.03,
         lookahead_m=0.24,
-        min_lookahead_m=0.14,
-        max_attraction_gain=1.25,
+        min_lookahead_m=0.10,
         full_attraction_error_m=0.18,
         curve_preview_m=0.32,
-        curve_feedforward_gain=0.35,
-        min_curve_steering_gain=0.55,
-        max_curve_steering_gain=1.35,
-        max_x_error_m=0.24,
+        estimated_min_turn_radius_m=0.20,
+        left_turn_radius_m=None,
+        right_turn_radius_m=None,
+        max_x_error_m=(1.0 / 3.0),
         arrival_radius_m=0.20,
         brake_radius_m=0.40,
         search_ahead_m=0.45,
@@ -234,23 +233,25 @@ class PathGuidance:
         self.min_lookahead_m = min(
             self.lookahead_m, float(min_lookahead_m)
         )
-        self.max_attraction_gain = max(1.0, float(max_attraction_gain))
         self.full_attraction_error_m = max(
             1e-6, float(full_attraction_error_m)
         )
         self.curve_preview_m = max(self.spacing_m, float(curve_preview_m))
-        self.curve_feedforward_gain = max(
-            0.0, float(curve_feedforward_gain)
+        # 网页 HYBRID 满转实测直径约 0.40 m。它只作为第一版曲率映射
+        # 的可替换参考，不伪装成精确水动力标定值。
+        self.estimated_min_turn_radius_m = max(
+            0.01, float(estimated_min_turn_radius_m)
         )
-        self.min_curve_steering_gain = max(
-            0.0, float(min_curve_steering_gain)
+        self.max_path_curvature_per_m = (
+            1.0 / self.estimated_min_turn_radius_m
         )
-        self.max_curve_steering_gain = max(
-            self.min_curve_steering_gain, float(max_curve_steering_gain)
+        self.left_turn_radius_m = self._validated_turn_radius(
+            left_turn_radius_m
         )
-        self.max_x_error_m = min(
-            self.lookahead_m, max(0.01, float(max_x_error_m))
+        self.right_turn_radius_m = self._validated_turn_radius(
+            right_turn_radius_m
         )
+        self.max_x_error_m = max(0.01, float(max_x_error_m))
         self.arrival_radius_m = float(arrival_radius_m)
         self.brake_radius_m = max(
             self.arrival_radius_m, float(brake_radius_m)
@@ -258,6 +259,33 @@ class PathGuidance:
         self.search_ahead_m = float(search_ahead_m)
         self.heading_estimator = HeadingEstimator()
         self.clear()
+
+    @staticmethod
+    def _validated_turn_radius(radius_m):
+        if radius_m is None:
+            return None
+        radius_m = float(radius_m)
+        if not math.isfinite(radius_m) or radius_m <= 0.0:
+            raise ValueError("实测转圈半径必须大于零")
+        return radius_m
+
+    def set_turn_radius(self, direction, radius_m):
+        """运行中更新一侧 HYBRID 满转实测半径。"""
+        direction = str(direction).upper()
+        radius_m = self._validated_turn_radius(radius_m)
+        if direction == "LEFT":
+            self.left_turn_radius_m = radius_m
+        elif direction == "RIGHT":
+            self.right_turn_radius_m = radius_m
+        else:
+            raise ValueError(f"未知转向方向：{direction}")
+
+    def _turn_radius_for_curvature(self, curvature_per_m):
+        if curvature_per_m > 0.0 and self.left_turn_radius_m is not None:
+            return self.left_turn_radius_m, "MEASURED_LEFT"
+        if curvature_per_m < 0.0 and self.right_turn_radius_m is not None:
+            return self.right_turn_radius_m, "MEASURED_RIGHT"
+        return self.estimated_min_turn_radius_m, "ESTIMATED"
 
     def clear(self):
         self.path = None
@@ -297,29 +325,20 @@ class PathGuidance:
         off_path_ratio = float(np.clip(
             cross_track_m / self.full_attraction_error_m, 0.0, 1.0
         ))
-        active_lookahead_m = (
-            self.lookahead_m
-            - (self.lookahead_m - self.min_lookahead_m) * off_path_ratio
-        )
-        attraction_gain = 1.0 + (
-            self.max_attraction_gain - 1.0
-        ) * off_path_ratio
-        lookahead_distance = min(
-            float(self.cumulative[-1]), self.progress_m + active_lookahead_m
-        )
-        lookahead = self._point_at(lookahead_distance)
+
         # 用两段路径弦线而不是单个 3 cm 小段估算前方曲率，避免手绘轨迹
         # 的像素锯齿被放大成连续左右修舵。默认分别观察 4~12 cm 和
         # 20~32 cm 两个区间；临近终点时自动退化为末段切向。
-        near_tangent = self._chord_direction(
-            self.progress_m + 0.04,
-            self.progress_m + 0.12,
-        )
-        far_end_m = self.progress_m + self.curve_preview_m
-        far_tangent = self._chord_direction(
-            max(self.progress_m + 0.12, far_end_m - 0.12),
+        total_path_m = float(self.cumulative[-1])
+        near_start_m = min(total_path_m, self.progress_m + 0.04)
+        near_end_m = min(total_path_m, self.progress_m + 0.12)
+        far_end_m = min(total_path_m, self.progress_m + self.curve_preview_m)
+        far_start_m = min(
             far_end_m,
+            max(self.progress_m + 0.12, far_end_m - 0.12),
         )
+        near_tangent = self._chord_direction(near_start_m, near_end_m)
+        far_tangent = self._chord_direction(far_start_m, far_end_m)
         tangent_dot = float(np.clip(
             np.dot(near_tangent, far_tangent), -1.0, 1.0
         ))
@@ -329,86 +348,95 @@ class PathGuidance:
             - near_tangent[0] * far_tangent[1],
             tangent_dot,
         ))
-        path_curve_severity = float(np.clip(
-            abs(path_curve_angle_rad) / (math.pi / 2.0), 0.0, 1.0
+        near_centre_m = 0.5 * (near_start_m + near_end_m)
+        far_centre_m = 0.5 * (far_start_m + far_end_m)
+        curve_measure_span_m = max(
+            self.spacing_m, far_centre_m - near_centre_m
+        )
+        path_curvature_per_m = path_curve_angle_rad / curve_measure_span_m
+        turn_radius_m, turn_radius_source = self._turn_radius_for_curvature(
+            path_curvature_per_m
+        )
+        curve_feedforward = float(np.clip(
+            path_curvature_per_m * turn_radius_m,
+            -1.0,
+            1.0,
         ))
+        path_curve_severity = abs(curve_feedforward)
+
+        # 前视必须在离轨前由前方曲率缩短；离轨只提供额外收紧。直线
+        # 使用 0.24 m，接近估计最小半径时连续缩至 0.10 m。
+        lookahead_demand = max(path_curve_severity, off_path_ratio)
+        active_lookahead_m = (
+            self.lookahead_m
+            - (self.lookahead_m - self.min_lookahead_m) * lookahead_demand
+        )
+        lookahead_distance = min(
+            total_path_m, self.progress_m + active_lookahead_m
+        )
+        lookahead = self._point_at(lookahead_distance)
         heading, heading_source = self.heading_estimator.update(
             current, timestamp, allow_course_update=allow_course_update
         )
 
+        # body_left_m 保留为鱼体到前视点的左右诊断值；闭环航向误差
+        # 单独使用轨迹切线，避免把离轨误差重复藏进 LOS 航向误差。
         target = lookahead - current
         body_forward_m = float(np.dot(heading, target))
         # y 向下坐标中，鱼体左法向量为 (heading_y, -heading_x)。
         body_left_m = float(heading[1] * target[0] - heading[0] * target[1])
-        target_distance = float(np.linalg.norm(target))
-        if target_distance <= 1e-9:
-            heading_error_rad = 0.0
-        else:
-            raw_heading_error_rad = float(math.atan2(
-                body_left_m, body_forward_m
-            ))
-            if (
-                body_forward_m < 0.0
-                and abs(raw_heading_error_rad) >= math.radians(120.0)
-            ):
-                # 后方目标跨过 atan2 的 +/-180° 边界时，保持首次选定的
-                # 掉头方向，避免相邻帧在满左/满右之间翻转。离开后方
-                # 120°锥区后恢复普通最短角闭环。
-                if self._turn_sign == 0.0:
+        tangent_body_forward = float(np.dot(heading, near_tangent))
+        tangent_body_left = float(
+            heading[1] * near_tangent[0]
+            - heading[0] * near_tangent[1]
+        )
+        raw_heading_error_rad = float(math.atan2(
+            tangent_body_left, tangent_body_forward
+        ))
+        if tangent_body_forward < 0.0:
+            # 轨迹切线在鱼身后方时只锁住掉头方向，不再切换另一套增益，
+            # 因而跨越旧 120°边界时转向幅度保持连续。
+            if self._turn_sign == 0.0:
+                if abs(raw_heading_error_rad) < math.pi - 1e-6:
                     self._turn_sign = (
                         1.0 if raw_heading_error_rad >= 0.0 else -1.0
                     )
-                heading_error_rad = (
-                    self._turn_sign * abs(raw_heading_error_rad)
-                )
-            else:
-                heading_error_rad = raw_heading_error_rad
-                if abs(body_left_m) >= 0.005:
+                elif abs(curve_feedforward) > 1e-6:
+                    self._turn_sign = 1.0 if curve_feedforward > 0.0 else -1.0
+                elif abs(body_left_m) > 1e-6:
                     self._turn_sign = 1.0 if body_left_m > 0.0 else -1.0
+                else:
+                    self._turn_sign = 1.0
+            heading_error_rad = self._turn_sign * abs(raw_heading_error_rad)
+        else:
+            heading_error_rad = raw_heading_error_rad
+            if abs(raw_heading_error_rad) >= math.radians(2.0):
+                self._turn_sign = 1.0 if raw_heading_error_rad > 0.0 else -1.0
 
-        # 曲率连续决定闭环转向比例：小曲率降低轻微纠偏，抑制画龙；
-        # 大曲率提高转向比例，减小转弯半径。max_x_error_m 仅作安全兜底，
-        # 不再用固定 ±0.18 m 充当常规控制量。
-        normalized_heading_error = float(np.clip(
+        heading_feedback = float(np.clip(
             heading_error_rad / (math.pi / 2.0),
             -1.0,
             1.0,
         ))
-        curve_steering_gain = (
-            self.min_curve_steering_gain
-            + (
-                self.max_curve_steering_gain
-                - self.min_curve_steering_gain
-            ) * path_curve_severity
+        path_to_fish = current - closest
+        fish_left_of_path_m = float(
+            near_tangent[1] * path_to_fish[0]
+            - near_tangent[0] * path_to_fish[1]
         )
-        # 即使路径本身近似直线，鱼头已经严重偏转时也不能变成软弱掉头。
-        # 仅在曲率增益低于 1 时，按航向误差连续恢复到基础转向比例；
-        # 小误差仍保持低增益，大误差则不会因直线路径而失去纠偏能力。
-        steering_gain = curve_steering_gain
-        if steering_gain < 1.0:
-            steering_gain += (
-                1.0 - steering_gain
-            ) * abs(normalized_heading_error)
-        curve_feedforward = float(np.clip(
-            path_curve_angle_rad / (math.pi / 2.0), -1.0, 1.0
-        )) * self.curve_feedforward_gain * (1.0 - off_path_ratio)
-        x_error_m = float(np.clip(
-            self.lookahead_m * (
-                normalized_heading_error
-                * attraction_gain
-                * steering_gain
-                + curve_feedforward
-            ),
-            -self.max_x_error_m,
-            self.max_x_error_m,
+        signed_cross_track_error_m = -fish_left_of_path_m
+        cross_track_feedback = float(np.clip(
+            math.atan2(signed_cross_track_error_m, active_lookahead_m)
+            / (math.pi / 2.0),
+            -1.0,
+            1.0,
         ))
-        control_severity = float(np.clip(
-            abs(x_error_m) / max(self.max_x_error_m, 1e-6), 0.0, 1.0
+        steering_demand = float(np.clip(
+            curve_feedforward + heading_feedback + cross_track_feedback,
+            -1.0,
+            1.0,
         ))
-        slowdown_severity = float(np.clip(max(
-            path_curve_severity,
-            control_severity,
-        ), 0.0, 1.0))
+        x_error_m = steering_demand * self.max_x_error_m
+        control_severity = abs(steering_demand)
         endpoint_distance = float(np.linalg.norm(current - self.path[-1]))
         remaining = max(0.0, float(self.cumulative[-1]) - self.progress_m)
         drive_distance = max(remaining, endpoint_distance)
@@ -430,13 +458,22 @@ class PathGuidance:
             "body_forward_m": body_forward_m,
             "heading_error_deg": math.degrees(heading_error_rad),
             "steering_error_deg": math.degrees(heading_error_rad),
-            "curve_severity": slowdown_severity,
+            # 固件用这一无量纲量连续混合直线/满转动力；它与本次真正
+            # 下发的总转向需求一致，不再单独用曲率把推进削到 20%。
+            "curve_severity": control_severity,
             "path_curve_severity": path_curve_severity,
             "path_curve_angle_deg": math.degrees(path_curve_angle_rad),
+            "path_curvature_per_m": path_curvature_per_m,
+            "curve_measure_span_m": curve_measure_span_m,
             "curve_feedforward": curve_feedforward,
-            "curve_steering_gain": curve_steering_gain,
-            "steering_gain": steering_gain,
+            "heading_feedback": heading_feedback,
+            "cross_track_feedback": cross_track_feedback,
+            "steering_demand": steering_demand,
+            "estimated_min_turn_radius_m": self.estimated_min_turn_radius_m,
+            "turn_radius_m": turn_radius_m,
+            "turn_radius_source": turn_radius_source,
             "cross_track_m": cross_track_m,
+            "signed_cross_track_error_m": signed_cross_track_error_m,
             "control_severity": control_severity,
             "curve_direction": (
                 "LEFT" if path_curve_angle_rad > math.radians(3.0)
@@ -446,7 +483,7 @@ class PathGuidance:
             "heading": heading.copy(),
             "heading_source": heading_source,
             "lookahead_m": active_lookahead_m,
-            "attraction_gain": attraction_gain,
+            "lookahead_demand": lookahead_demand,
             "off_path_ratio": off_path_ratio,
             "max_x_error_m": self.max_x_error_m,
             "lookahead_point": lookahead.copy(),

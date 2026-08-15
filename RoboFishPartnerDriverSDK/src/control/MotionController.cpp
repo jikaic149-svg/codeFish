@@ -814,7 +814,7 @@ void MotionController::visionTick(uint32_t now) {
     const int propellerLimitPercent = static_cast<int>(std::lround(
         100.0f -
         (100.0f - RF_VISION_PROP_CURVE_MIN_POWER_PERCENT) *
-            state_.visionCurveSeverity));
+            turnDemand));
     const int propellerPowerPercent =
         std::min(requestedPowerPercent, propellerLimitPercent);
     state_.visionTailPowerPercent = static_cast<uint8_t>(
@@ -852,8 +852,6 @@ void MotionController::visionTick(uint32_t now) {
       state_.visionTailPowerPercent = 0;
       state_.visionPropPowerPercent = 0;
       state_.powerPercent = 0;
-      state_.turnStrengthPercent = 0;
-      state_.action = MotionAction::Stopped;
       state_.visionPropReverse = false;
 
       switch (state_.visionBrakePhase) {
@@ -890,6 +888,16 @@ void MotionController::visionTick(uint32_t now) {
           break;
         }
         case VisionBrakePhase::Hold:
+          // Reverse braking may settle outside the final stop circle. Keep the
+          // latest visual steering command and crawl forward at the same
+          // current-limited power until the PC reports arrival and sends STOP.
+          state_.visionTailPowerPercent =
+              RF_VISION_BRAKE_REAPPROACH_POWER_PERCENT;
+          state_.visionPropPowerPercent =
+              RF_VISION_BRAKE_REAPPROACH_POWER_PERCENT;
+          state_.powerPercent = state_.visionPropPowerPercent;
+          state_.visionPropReverse = false;
+          break;
         case VisionBrakePhase::Cruise:
           break;
       }
@@ -927,8 +935,12 @@ void MotionController::controlTick(uint32_t now) {
   const bool propMoving = visionManaged ? propPowerPercent > 0 : moving;
   const bool reverse = visionManaged ? state_.visionPropReverse
                                      : state_.action == MotionAction::Backward;
-  const bool turning = state_.action == MotionAction::Left ||
-                       state_.action == MotionAction::Right;
+  // Reverse braking uses centred thrust; applying the forward steering sign
+  // while the propeller reverses would create the opposite yaw moment.
+  const bool turning =
+      (state_.action == MotionAction::Left ||
+       state_.action == MotionAction::Right) &&
+      !(visionManaged && reverse);
   float turnSign = state_.action == MotionAction::Left ? -1.0f : 1.0f;
   if (state_.tailReversed) turnSign = -turnSign;
 
