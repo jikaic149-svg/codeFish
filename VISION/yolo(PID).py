@@ -75,7 +75,7 @@ MARKER_BL = 3
 # ==============================================================================
 # [配置区] YOLO 仿生鱼检测
 # ==============================================================================
-YOLO_MODEL_PATH = os.path.join(WORK_DIR, "best.pt")
+YOLO_MODEL_PATH = os.path.join(WORK_DIR, "last.pt")
 YOLO_CONF_THRESHOLD = 0.18
 YOLO_IMG_SIZE = 640
 YOLO_DEVICE = 0             # 0 = GPU，无显卡改为 "cpu"
