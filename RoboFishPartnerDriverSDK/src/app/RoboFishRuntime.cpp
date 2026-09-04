@@ -26,7 +26,8 @@ RoboFishRuntime::RoboFishRuntime()
       camera_(),
       rgb_(),
       partner_({partnerCommand, partnerFailsafe, this}),
-      web_(motion_, partner_, camera_) {}
+      web_(motion_, partner_, camera_),
+      visionUdp_(motion_) {}
 
 bool RoboFishRuntime::begin() {
   activeRuntime_ = this;
@@ -115,13 +116,17 @@ bool RoboFishRuntime::begin() {
   if (routesReady) routesReady = web_.registerRoutes(server) == ESP_OK;
   if (!routesReady) ESP_LOGE(kTag, "Recovered product routes failed to start");
 
+  const bool visionUdpReady = motionReady && visionUdp_.begin(RF_VISION_UDP_PORT);
+  if (!visionUdpReady) ESP_LOGE(kTag, "Vision UDP service failed to start");
+
   const bool streamReady = cameraError == ESP_OK &&
                            camera_.startStreamServer(80) == ESP_OK;
   if (!streamReady) ESP_LOGE(kTag, "Camera stream server is unavailable");
 
   const bool runtimeReady =
       nvsReady && cameraError == ESP_OK && driverReady && motionReady &&
-      rgbReady && partnerReady && otaReady && routesReady && streamReady;
+      rgbReady && partnerReady && otaReady && routesReady && streamReady &&
+      visionUdpReady;
   rgbStartupFailed_ = !runtimeReady;
   rgbStateKnown_ = false;
   if (rgbStartupFailed_) {
@@ -150,6 +155,7 @@ bool RoboFishRuntime::stopActiveRuntimeForOta() {
   activeRuntime_->partner_.stop();
   activeRuntime_->motion_.cancelDemo(false);
   activeRuntime_->motion_.automationSafeStop();
+  activeRuntime_->visionUdp_.stop();
   return activeRuntime_->driver_.prepareForOta();
 }
 

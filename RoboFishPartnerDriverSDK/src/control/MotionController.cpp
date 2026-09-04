@@ -132,7 +132,8 @@ MotionController::MotionController(RoboFishDriver &driver)
               false,
               VisionBrakePhase::Cruise,
               0,
-              false} {}
+              false,
+              0} {}
 
 bool MotionController::begin() {
   if (started_.load()) return true;
@@ -470,16 +471,62 @@ bool MotionController::automationSafeStop() {
 }
 
 VisionControlResult MotionController::applyVisionControl(
-    uint32_t sequence, uint8_t powerPercent, int steeringPercent) {
-  if (!commandAllowed() || powerPercent > 100 || steeringPercent < -100 ||
-      steeringPercent > 100 || !takeState(kCommandLockTimeout)) {
+    uint32_t sequence, uint8_t powerPercent, int steeringPercent,
+    bool brakeRequested) {
+  if (!commandAllowed() || !takeState(kCommandLockTimeout)) {
     return VisionControlResult::Rejected;
   }
+  const VisionControlResult result = applyVisionCommandLocked(
+      sequence, powerPercent, steeringPercent, brakeRequested);
+  giveState();
+  return result;
+}
 
+VisionControlResult MotionController::applyVisionUdp(
+    uint32_t sequence, uint8_t powerPercent, int steeringPercent,
+    bool brakeRequested) {
+  if (!commandAllowed() || !takeState(kCommandLockTimeout)) {
+    return VisionControlResult::Rejected;
+  }
+  const uint32_t now = nowMs();
+  if (state_.failsafeActive ||
+      static_cast<int32_t>(state_.visionHttpPriorityUntilMs - now) > 0) {
+    giveState();
+    return VisionControlResult::Rejected;
+  }
+  // The fixed-period UDP protocol follows the PC path-guidance convention:
+  // positive steering means a left correction.  The recovered HTTP actuator
+  // contract uses the opposite sign, so translate exactly once at this
+  // boundary and keep the shared actuator mixer unchanged.
+  const VisionControlResult result = applyVisionCommandLocked(
+      sequence, powerPercent, -steeringPercent, brakeRequested);
+  giveState();
+  return result;
+}
+
+void MotionController::noteHttpPriority() {
+  if (!started_.load() || !takeState(kCommandLockTimeout)) return;
+  state_.visionHttpPriorityUntilMs =
+      nowMs() + RF_VISION_HTTP_PRIORITY_HOLD_MS;
+  // Invalidate any in-flight UDP lease immediately.  The HTTP handler will
+  // install a new command after this call when appropriate.
+  state_.visionControlActive = false;
+  state_.visionPidEnabled = false;
+  state_.visionPidPending = false;
+  stopMotionLocked();
+  giveState();
+}
+
+VisionControlResult MotionController::applyVisionCommandLocked(
+    uint32_t sequence, uint8_t powerPercent, int steeringPercent,
+    bool brakeRequested) {
+  if (powerPercent > 100 || steeringPercent < -100 ||
+      steeringPercent > 100) {
+    return VisionControlResult::Rejected;
+  }
   if (state_.visionControlActive) {
     const uint32_t delta = sequence - state_.visionSequence;
     if (delta == 0 || delta >= 0x80000000u) {
-      giveState();
       return VisionControlResult::StaleSequence;
     }
   }
@@ -488,12 +535,16 @@ VisionControlResult MotionController::applyVisionControl(
   resetVisionBrakeLocked();
   state_.visionControlActive = true;
   state_.visionPidEnabled = false;
+  state_.visionPidPending = false;
   state_.visionSequence = sequence;
   state_.lastVisionCommandMs = nowMs();
   state_.mode = DriveMode::Hybrid;
   state_.powerPercent = powerPercent;
   state_.visionTailPowerPercent = powerPercent;
   state_.visionPropPowerPercent = powerPercent;
+  state_.visionSpeedMps = 0.0f;
+  state_.visionCurveSeverity = 0.0f;
+  state_.visionBrakeRequested = brakeRequested;
   state_.turnStrengthPercent =
       static_cast<uint8_t>(std::abs(steeringPercent));
 
@@ -506,7 +557,6 @@ VisionControlResult MotionController::applyVisionControl(
   } else {
     state_.action = MotionAction::Forward;
   }
-  giveState();
   return VisionControlResult::Accepted;
 }
 
@@ -838,7 +888,7 @@ void MotionController::visionTick(uint32_t now) {
     state_.visionAppliedSequence = state_.visionSequence;
   }
 
-  if (state_.visionControlActive && state_.visionPidEnabled) {
+  if (state_.visionControlActive) {
     if (!state_.visionBrakeRequested) {
       state_.visionBrakePhase = VisionBrakePhase::Cruise;
       state_.visionBrakePhaseStartedMs = 0;

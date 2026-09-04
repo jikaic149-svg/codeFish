@@ -24,6 +24,7 @@ idf_component_register(
         "../src/service/OtaService.cpp"
         "../src/web/WebAssets.cpp"
         "../src/web/ProductWebService.cpp"
+        "../src/web/VisionUdpService.cpp"
     INCLUDE_DIRS
         "../src"
     PRIV_REQUIRES
@@ -32,6 +33,7 @@ idf_component_register(
         esp_driver_ledc
         esp_driver_rmt
         esp_http_server
+        lwip
         esp_netif
         esp_timer
         esp_wifi

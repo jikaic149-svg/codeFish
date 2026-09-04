@@ -6,6 +6,7 @@
 #include "device/RoboFishDriver.h"
 #include "partner/PartnerScriptEngine.h"
 #include "web/ProductWebService.h"
+#include "web/VisionUdpService.h"
 
 class RoboFishRuntime {
  public:
@@ -32,6 +33,7 @@ class RoboFishRuntime {
   RgbStatusStrip rgb_;
   robofish::partner::ScriptEngine partner_;
   ProductWebService web_;
+  VisionUdpService visionUdp_;
   bool rgbStateKnown_ = false;
   bool rgbStartupFailed_ = false;
   bool rgbConnected_ = false;

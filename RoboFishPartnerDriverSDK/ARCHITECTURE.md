@@ -35,6 +35,21 @@ app_main
 - 新 OTA 只有在核心运行时成功后才标记有效，否则保留 pending 供 bootloader rollback；
 - 摄像头初始化失败时不武装运动任务，但端口 80 仍用于故障观察与恢复 OTA。
 
+## Vision tracking data plane
+
+`ProductWebService` remains the owner of the existing HTTP routes and marks
+each management/manual request as higher priority than tracking datagrams.
+`VisionUdpService` owns only the UDP socket, frame validation and dispatch to
+`MotionController`; it uses a static FreeRTOS task and never writes hardware.
+`MotionController` remains the single actuator owner. The PC sends the final
+steering/power demand at a fixed 20 Hz cadence; sequence numbers and the
+existing command timeout reject stale or missing frames.
+
+The UDP `steering_percent` field is positive for a left correction (the same
+sign used by the PC path law). `MotionController::applyVisionUdp()` translates
+that sign once when it enters the legacy HTTP actuator mixer. Existing HTTP
+route polarity and URI contracts are unchanged.
+
 ## 构建边界
 
 顶层固定 ESP32-S3，官方摄像头依赖由 Component Manager 解析。QIO 配置生成的 ESP 镜像头和烧录参数显示为 DIO 是 ESP-IDF 的预期行为：ROM/一级加载阶段使用 DIO，二级 bootloader 再切换 QIO。

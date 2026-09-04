@@ -1,0 +1,6 @@
+has_visible: true
+classes:
+  fish:
+    - rigid_rear
+    - head
+

@@ -14,5 +14,6 @@
     "*.h": "c",
     "*.cpp": "cpp"
   },
-  "task.allowAutomaticTasks": "off"
+  "task.allowAutomaticTasks": "off",
+  "git.ignoreLimitWarning": true
 }

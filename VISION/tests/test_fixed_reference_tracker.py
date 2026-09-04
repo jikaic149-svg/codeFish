@@ -253,6 +253,32 @@ class FixedReferenceTrackerTests(unittest.TestCase):
         self.assertEqual(reacquired.source, ReferenceSource.MARKER)
         self.assertLess(np.linalg.norm(np.asarray(reacquired.position) - (220.0, 120.0)), 0.8)
 
+    def test_union_roi_does_not_accept_marker_outside_confirmed_yolo_region(self):
+        """A static orange pool corner must not replace the fish tail.
+
+        The tracker keeps the previous-marker ROI and YOLO reacquisition ROI
+        as a union.  This is necessary for short detector gaps, but without a
+        second spatial gate an orange corner marker inside that union could be
+        reported as the fish tail.
+        """
+        tracker = self.make_tracker()
+        tracker.update(make_frame(marker=(150, 120)), 6.0, (100, 90, 220, 170), 0.95, 6)
+        rejected = tracker.update(
+            make_frame(marker=(190, 120)),
+            6.04,
+            (100, 90, 130, 150),
+            0.95,
+            6,
+        )
+        self.assertIn("YOLO_REGION_GATE", rejected.gate_reasons)
+        # The previous valid marker may be returned as a short prediction, but
+        # the newly observed contour itself must not become the tail endpoint.
+        if rejected.position is not None:
+            self.assertLess(
+                np.linalg.norm(np.asarray(rejected.position) - (150.0, 120.0)),
+                10.0,
+            )
+
     def test_marker_keeps_tracking_after_yolo_hold_expires(self):
         tracker = self.make_tracker()
         tracker.update(make_frame(), 5.0, (60, 60, 260, 180), 0.95, 4)

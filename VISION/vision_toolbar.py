@@ -51,6 +51,18 @@ def _find_font(candidates: Tuple[str, ...]) -> Optional[str]:
 
 REGULAR_FONT_PATH = _find_font(FONT_CANDIDATES)
 BOLD_FONT_PATH = _find_font(BOLD_FONT_CANDIDATES) or REGULAR_FONT_PATH
+_TEXT_RENDER_ENABLED = True
+
+
+def set_text_render_enabled(enabled: bool) -> None:
+    """Enable/disable PIL text rasterization for a preview iteration.
+
+    Drawing shapes can remain at camera rate while the UI text follows the
+    display rate.  This is deliberately a rendering switch only; it has no
+    effect on tracking, control, or the data sent over the network.
+    """
+    global _TEXT_RENDER_ENABLED
+    _TEXT_RENDER_ENABLED = bool(enabled)
 
 
 @lru_cache(maxsize=32)
@@ -78,6 +90,8 @@ def draw_unicode_text(
     stroke_color: Color = (0, 0, 0),
 ) -> None:
     """Draw Chinese text by converting only its small bounding ROI through PIL."""
+    if not _TEXT_RENDER_ENABLED:
+        return
     text = str(text)
     if not text:
         return
@@ -549,6 +563,7 @@ class VisionHud:
         "TURN CALIBRATING": "转圈测量中",
         "TURN CALIBRATED": "转圈测量完成",
         "PATH CLEARED": "轨迹已清除",
+        "DEBUG OVERLAY": "调试叠加层",
         "CAMERA PAUSED": "相机等待中",
     }
     GATE_NAMES = {

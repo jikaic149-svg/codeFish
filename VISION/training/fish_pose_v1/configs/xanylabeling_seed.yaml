@@ -1,0 +1,14 @@
+auto_save: true
+store_data: false
+display_label_popup: true
+keep_prev: false
+auto_use_last_label: false
+auto_use_last_gid: true
+show_groups: true
+sort_labels: false
+validate_label: exact
+labels:
+  - fish
+  - rigid_rear
+  - head
+

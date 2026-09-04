@@ -22,6 +22,8 @@ RoboFishPartnerDriverSDK/managed_components/
 *.tmp
 *.log
 .codex_camera_probe.jpg
+.codex_tmp/
+output/
 
 # Local Python/YOLO environments and generated caches
 .env
@@ -36,8 +38,21 @@ __pycache__/
 Ultralytics/
 VISION/Ultralytics/
 VISION/marker_profile.local.json
+VISION/head_color_profile.local.json
 VISION/.marker_profile.test.json
 VISION/turn_calibration.local.json
+VISION/pool_calibration.local.json
+VISION/configs/*.local.json
+
+# Local vision recordings, datasets, model artifacts, and training outputs
+VISION/auv_data_*.csv
+VISION/auv_record_*.mp4
+VISION/data/
+VISION/models/
+VISION/training/**/dataset*/
+VISION/training/**/seed_dataset/
+VISION/training/**/review/
+VISION/training/**/runs/
 
 # Local reverse-engineering tool environment
 reverse_analysis/.tools/

@@ -75,12 +75,26 @@ class MarkerTrackerConfig:
     forbidden_pool_hue_min: int = 86
     forbidden_pool_hue_max: int = 129
     calibration_ambiguity_ratio: float = 0.65
-    min_yolo_confidence: float = 0.15
+    # Match the runtime YOLO gate so a low-score frame can still seed the
+    # local orange-marker search; the highest-confidence fish is retained.
+    min_yolo_confidence: float = 0.10
     yolo_hold_s: float = 0.90
     search_expand_ratio: float = 0.30
+    # The local marker ROI is intentionally a union of the previous marker
+    # prediction and the YOLO box so a brief detector miss does not interrupt
+    # tracking.  Once a YOLO identity is confirmed, however, an accepted
+    # orange contour must still lie close to that fish box; otherwise a pool
+    # corner marker/reflection can win the colour score and become a false
+    # tail endpoint.  This gate is wider than ``search_expand_ratio`` because
+    # the physical tail LED may sit just outside the detector box.
+    yolo_gate_expand_ratio: float = 0.80
     local_search_radius_scale: float = 4.0
     min_local_search_radius_px: float = 50.0
-    min_area_ratio: float = 0.20
+    # The orange tail LED can occupy only 8--16 px² at the far side of the
+    # pool view.  Keep the absolute contour floor below, but do not
+    # reject those valid small observations solely because the calibration
+    # sample was larger.
+    min_area_ratio: float = 0.08
     max_area_ratio: float = 4.50
     max_circularity_delta: float = 0.60
     max_extent_delta: float = 0.60
@@ -298,6 +312,19 @@ class FixedReferenceTracker:
         with open(target, "r", encoding="utf-8") as profile_file:
             data = json.load(profile_file)
         profile = MarkerProfile.from_dict(data)
+        # Upper saturation/value limits change with exposure and gain.  Keep
+        # the calibrated lower bounds but allow bright marker pixels through.
+        profile.sat_max = 255
+        profile.val_max = 255
+        # Widen the persisted orange profile for the current camera's exposure
+        # variation.  The marker is still constrained by its local ROI and
+        # contour/temporal gates, so this does not enable full-frame orange
+        # matching.
+        profile.hue_tolerance = float(np.clip(
+            max(float(profile.hue_tolerance), 20.0), 4.0, 35.0
+        ))
+        profile.sat_min = int(min(int(profile.sat_min), 45))
+        profile.val_min = int(min(int(profile.val_min), 40))
         if profile.version != 1 or profile.expected_area <= 0:
             raise ValueError("色标模型版本或面积无效")
         validation_errors = self.profile_validation_errors(profile)
@@ -451,9 +478,12 @@ class FixedReferenceTracker:
                 self.config.min_profile_saturation,
                 np.clip(np.percentile(marker_pixels[:, 1], 2) - 20, 0, 255),
             )),
-            sat_max=int(np.clip(np.percentile(marker_pixels[:, 1], 99) + 15, 0, 255)),
+            # Saturation/brightness upper bounds are not stable across the
+            # camera's exposure compensation; use only lower bounds for the
+            # persistent orange-light profile.
+            sat_max=255,
             val_min=int(np.clip(np.percentile(marker_pixels[:, 2], 2) - 20, 0, 255)),
-            val_max=int(np.clip(np.percentile(marker_pixels[:, 2], 99) + 15, 0, 255)),
+            val_max=255,
             expected_area=geometry["area"],
             expected_circularity=geometry["circularity"],
             expected_extent=geometry["extent"],
@@ -524,7 +554,13 @@ class FixedReferenceTracker:
         yolo_confirmed: bool,
         timestamp: float,
     ) -> Optional[Tuple[int, int, int, int]]:
-        """Build the orange-marker ROI without making YOLO a hard gate."""
+        """Build the union ROI used for local tracking and reacquisition.
+
+        YOLO is deliberately not the only source of pixels in this window;
+        the candidate-level gate below still requires an accepted contour to
+        be near the confirmed fish box, which prevents an unrelated corner
+        marker from winning the union search.
+        """
         frame_height, frame_width = frame_shape[:2]
         regions = []
 
@@ -622,6 +658,23 @@ class FixedReferenceTracker:
             if not reacquire:
                 jump_score = float(np.clip(1.0 - jump_px / max(jump_limit_px, 1e-6), 0.0, 1.0))
 
+        # ``_build_search_roi`` is a union by design: it has to include the
+        # previous marker prediction while also allowing YOLO-assisted
+        # reacquisition.  Treating every contour in that union as a valid
+        # tail would let a static orange pool corner replace the fish marker.
+        # Keep the gate wide enough for a marker mounted just beyond a tight
+        # YOLO box, but reject contours that are clearly from another object.
+        yolo_region_gate = False
+        if yolo_confirmed and self._last_yolo_bbox is not None:
+            yolo_x1, yolo_y1, yolo_x2, yolo_y2 = self._last_yolo_bbox
+            expand = max(0.0, float(config.yolo_gate_expand_ratio))
+            gate_margin_x = max(8.0, (yolo_x2 - yolo_x1) * expand)
+            gate_margin_y = max(8.0, (yolo_y2 - yolo_y1) * expand)
+            yolo_region_gate = not (
+                yolo_x1 - gate_margin_x <= global_position[0] <= yolo_x2 + gate_margin_x
+                and yolo_y1 - gate_margin_y <= global_position[1] <= yolo_y2 + gate_margin_y
+            )
+
         bx = int(geometry["bbox_x"])
         by = int(geometry["bbox_y"])
         bw = int(geometry["bbox_w"])
@@ -657,6 +710,8 @@ class FixedReferenceTracker:
             reasons.append("COLOR_GATE")
         if boundary_cropped:
             reasons.append("BOUNDARY_CROP_GATE")
+        if yolo_region_gate:
+            reasons.append("YOLO_REGION_GATE")
         if jump_px > jump_limit_px and not reacquire:
             reasons.append("POSITION_JUMP_GATE")
         if quality < config.min_quality:
@@ -664,6 +719,15 @@ class FixedReferenceTracker:
 
         metrics: Dict[str, object] = {
             "position": (float(global_position[0]), float(global_position[1])),
+            # Global contour box, retained for endpoint diagnostics.  This is
+            # the actual orange component accepted by the marker gates, not
+            # the broad search ROI or the YOLO fish box.
+            "bbox": (
+                int(search_roi[0] + bx),
+                int(search_roi[1] + by),
+                int(search_roi[0] + bx + bw),
+                int(search_roi[1] + by + bh),
+            ),
             "area": round(geometry["area"], 3),
             "area_ratio": round(area_ratio, 4),
             "circularity": round(geometry["circularity"], 4),
@@ -997,6 +1061,8 @@ class FixedReferenceTracker:
                         "tail_marker_position": (
                             float(position[0]), float(position[1])
                         ),
+                        "tail_marker_bbox": marker.get("bbox"),
+                        "tail_marker_area": marker.get("area"),
                         "tail_marker_quality": round(quality, 4),
                     },
                     search_roi=search_roi,
@@ -1045,6 +1111,8 @@ class FixedReferenceTracker:
                 metrics={
                     **marker,
                     "reference_role": self.profile.reference_role,
+                    "tail_marker_area": marker.get("area"),
+                    "tail_marker_quality": round(quality, 4),
                     "tail_marker_position": (
                         float(position[0]), float(position[1])
                     ),

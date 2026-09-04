@@ -123,6 +123,7 @@ esp_err_t ProductWebService::dispatchMotionControl(httpd_req_t *request,
 
   // Match the recovered contract: a valid manual command stops automation
   // before it changes actuator state.
+  motion_.noteHttpPriority();
   stopPartnerForManualControl();
 
   bool accepted = false;
@@ -257,6 +258,7 @@ esp_err_t ProductWebService::applyVisionPid(httpd_req_t *request) {
                          "Invalid vision PID value range");
   }
 
+  motion_.noteHttpPriority();
   stopPartnerForManualControl();
   const VisionControlResult result =
       motion_.applyVisionPid(sequence, xError, yError, speedMps,
@@ -332,6 +334,7 @@ esp_err_t ProductWebService::applyVisionControl(httpd_req_t *request) {
                          "seq=0..2147483647, power=0..100, steering=-100..100");
   }
 
+  motion_.noteHttpPriority();
   stopPartnerForManualControl();
   const VisionControlResult result = motion_.applyVisionControl(
       static_cast<uint32_t>(sequence), static_cast<uint8_t>(power),
@@ -412,6 +415,7 @@ esp_err_t ProductWebService::partnerRunHandler(httpd_req_t *request) {
 }
 
 esp_err_t ProductWebService::runPartner(httpd_req_t *request) {
+  motion_.noteHttpPriority();
   std::array<char, 192> error = {};
   const auto result = partner_.start(error.data(), error.size());
   if (result != robofish::partner::Result::kOk) {
@@ -438,6 +442,7 @@ esp_err_t ProductWebService::partnerStopHandler(httpd_req_t *request) {
 }
 
 esp_err_t ProductWebService::stopPartner(httpd_req_t *request) {
+  motion_.noteHttpPriority();
   partner_.stop();
   return send(request, "200 OK", "application/json; charset=utf-8",
               "{\"success\":true,\"message\":\"Script safely stopped\"}");

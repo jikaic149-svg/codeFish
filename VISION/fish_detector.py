@@ -8,8 +8,11 @@
 from __future__ import annotations
 
 import threading
+import math
 import time
 from typing import Callable, Optional
+
+import numpy as np
 
 
 def _default_model_factory(model_path: str):
@@ -49,6 +52,12 @@ class FishDetector:
             "bbox": None,
             "confidence": 0.0,
             "track_id": None,
+            "tail_pixel": None,
+            "head_pixel": None,
+            "tail_confidence": 0.0,
+            "head_confidence": 0.0,
+            "pose_valid": False,
+            "pose_rejection_reason": None,
             "frame_time": 0.0,
             "infer_fps": 0.0,
         }
@@ -184,13 +193,18 @@ class FishDetector:
             with self._status_lock:
                 self._status["last_inference_error"] = None
 
-    @staticmethod
-    def _parse_result(results, frame_time):
+    def _parse_result(self, results, frame_time):
         parsed = {
             "pixel": None,
             "bbox": None,
             "confidence": 0.0,
             "track_id": None,
+            "tail_pixel": None,
+            "head_pixel": None,
+            "tail_confidence": 0.0,
+            "head_confidence": 0.0,
+            "pose_valid": False,
+            "pose_rejection_reason": None,
             "frame_time": frame_time,
             "infer_fps": 0.0,
         }
@@ -210,4 +224,47 @@ class FishDetector:
             track_ids = boxes.id.cpu().numpy()
             if len(track_ids) > best_idx:
                 parsed["track_id"] = int(track_ids[best_idx])
+
+        # Pose weights expose two semantic keypoints in fixed order:
+        # [rigid_rear, head].  Keep them structured here and leave the
+        # pixel->world transform and yaw filtering to the runtime orchestrator.
+        keypoints = getattr(results[0], "keypoints", None)
+        if keypoints is None:
+            # Keep detector-only frames distinguishable from a pose model
+            # frame whose keypoints failed confidence/geometry checks.
+            parsed["pose_rejection_reason"] = "keypoints_missing"
+        else:
+            try:
+                data = keypoints.data[best_idx].detach().cpu().numpy()
+                if data.shape[0] >= 2 and data.shape[1] >= 2:
+                    rear = data[0]
+                    head = data[1]
+                    rear_xy = np.asarray(rear[:2], dtype=np.float64)
+                    head_xy = np.asarray(head[:2], dtype=np.float64)
+                    rear_conf = float(rear[2]) if data.shape[1] >= 3 else 1.0
+                    head_conf = float(head[2]) if data.shape[1] >= 3 else 1.0
+                    valid = (
+                        np.isfinite(rear_xy).all()
+                        and np.isfinite(head_xy).all()
+                        and math.isfinite(rear_conf)
+                        and math.isfinite(head_conf)
+                        and rear_conf > 0.05
+                        and head_conf > 0.05
+                    )
+                    if valid:
+                        parsed["tail_pixel"] = rear_xy.tolist()
+                        parsed["head_pixel"] = head_xy.tolist()
+                        parsed["tail_confidence"] = rear_conf
+                        parsed["head_confidence"] = head_conf
+                        parsed["pose_valid"] = True
+                    elif rear_conf <= 0.05 or head_conf <= 0.05:
+                        parsed["pose_rejection_reason"] = "keypoint_confidence_low"
+                    else:
+                        parsed["pose_rejection_reason"] = "keypoint_nonfinite"
+                else:
+                    parsed["pose_rejection_reason"] = "keypoints_shape_invalid"
+            except (AttributeError, IndexError, TypeError, ValueError):
+                # A detector-only weight is still a valid position source;
+                # it simply does not provide a body-yaw measurement.
+                parsed["pose_rejection_reason"] = "keypoints_parse_error"
         return parsed

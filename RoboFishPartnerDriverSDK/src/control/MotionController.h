@@ -120,12 +120,23 @@ class MotionController {
   // preserving pitch, Demo ownership and failsafe state.
   bool automationSafeStop();
 
-  // Applies the latest PC vision command in HYBRID mode. powerPercent drives
-  // both tail amplitude and propeller power; signed steeringPercent drives
-  // tail bias and propeller steering together (left..right).
+  // Applies the legacy HTTP vision command in HYBRID mode. powerPercent drives
+  // both tail amplitude and propeller power; signed steeringPercent keeps the
+  // recovered HTTP polarity (negative=left, positive=right).
   VisionControlResult applyVisionControl(uint32_t sequence,
                                          uint8_t powerPercent,
-                                         int steeringPercent);
+                                         int steeringPercent,
+                                         bool brakeRequested = false);
+
+  // UDP tracking uses the same actuator mixer as the legacy HTTP command, but
+  // its wire polarity is positive=left to match the PC path-control law. The
+  // sign translation is performed here and UDP is rejected while an
+  // HTTP/manual priority lease is active.
+  VisionControlResult applyVisionUdp(uint32_t sequence,
+                                     uint8_t powerPercent,
+                                     int steeringPercent,
+                                     bool brakeRequested);
+  void noteHttpPriority();
 
   // Enqueues the latest calibrated visual errors for the VisionControl task.
   // xErrorM is signed lateral error; yErrorM is remaining forward distance.
@@ -201,6 +212,7 @@ class MotionController {
     VisionBrakePhase visionBrakePhase;
     uint32_t visionBrakePhaseStartedMs;
     bool visionPropReverse;
+    uint32_t visionHttpPriorityUntilMs;
   };
 
   static constexpr uint32_t kControlTaskStackBytes = 4096;
@@ -222,6 +234,10 @@ class MotionController {
                  uint8_t strengthPercent);
   bool onOperatorCommandLocked();
   bool automationAllowedLocked() const;
+  VisionControlResult applyVisionCommandLocked(uint32_t sequence,
+                                               uint8_t powerPercent,
+                                               int steeringPercent,
+                                               bool brakeRequested);
   void stopMotionLocked();
   void resetVisionBrakeLocked();
   void cancelDemoLocked(bool returnToSafePose);

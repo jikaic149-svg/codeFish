@@ -20,6 +20,11 @@ def _unit(vector):
     return value / length
 
 
+def wrap_to_pi(angle):
+    """Return a scalar angle in the half-open interval [-pi, pi)."""
+    return (float(angle) + math.pi) % (2.0 * math.pi) - math.pi
+
+
 def compensate_camera_latency(
     position, velocity, latency_s, max_prediction_m=0.12
 ):
@@ -147,6 +152,9 @@ class VelocityEstimator:
         return self.velocity.copy()
 
 
+# Position-derived course estimator used by the restored desktop guidance
+# mode.  A manual tail→head seed removes the initial 180° ambiguity, then a
+# short motion window follows stable turns without trusting a single frame.
 class HeadingEstimator:
     """以人工初始方向启动，运动稳定后用一段位移平滑更新航向。"""
 
@@ -227,6 +235,14 @@ class PathGuidance:
         arrival_radius_m=0.20,
         brake_radius_m=0.40,
         search_ahead_m=0.45,
+        k_f=1.20,
+        k_psi=2.40,
+        k_kappa=0.80,
+        k_d=0.25,
+        r_max_rps=3.00,
+        v_min_mps=0.05,
+        cruise_speed_mps=0.30,
+        min_speed_target_mps=0.12,
     ):
         self.spacing_m = float(spacing_m)
         self.lookahead_m = float(lookahead_m)
@@ -257,7 +273,21 @@ class PathGuidance:
             self.arrival_radius_m, float(brake_radius_m)
         )
         self.search_ahead_m = float(search_ahead_m)
+        # Parameters retained for the explicit filtered-yaw compatibility
+        # path.  The default desktop mode below uses the original normalized
+        # geometric feedback terms and keeps these values only for callers
+        # that provide ``body_heading`` explicitly.
+        self.k_f = max(0.0, float(k_f))
+        self.k_psi = max(0.0, float(k_psi))
+        self.k_kappa = max(0.0, float(k_kappa))
+        self.k_d = max(0.0, float(k_d))
+        self.r_max_rps = max(1e-3, float(r_max_rps))
+        self.v_min_mps = max(1e-3, float(v_min_mps))
+        self.cruise_speed_mps = max(0.0, float(cruise_speed_mps))
+        self.min_speed_target_mps = max(0.0, float(min_speed_target_mps))
         self.heading_estimator = HeadingEstimator()
+        self.body_heading = None
+        self.body_yaw_rate_rps = 0.0
         self.clear()
 
     @staticmethod
@@ -294,6 +324,8 @@ class PathGuidance:
         self.segment_index = 0
         self._turn_sign = 0.0
         self.last_result = None
+        self.body_heading = None
+        self.body_yaw_rate_rps = 0.0
 
     @property
     def prepared(self):
@@ -307,12 +339,35 @@ class PathGuidance:
         self.segment_index = 0
         self._turn_sign = 0.0
         self.last_result = None
-        self.heading_estimator.reset(initial_heading, position, timestamp)
-        return self.update(position, timestamp, allow_course_update=False)
+        self.body_heading = _unit(initial_heading)
+        self.body_yaw_rate_rps = 0.0
+        # Initialize the same estimator that drives the restored desktop
+        # guidance; it starts from the calibrated tail→head vector.
+        self.heading_estimator.reset(self.body_heading, position, timestamp)
+        return self.update(
+            position,
+            timestamp,
+            allow_course_update=False,
+        )
 
     def update(
-        self, position, timestamp, allow_course_update=True, speed_mps=None
+        self,
+        position,
+        timestamp,
+        allow_course_update=True,
+        speed_mps=None,
+        velocity=None,
+        body_heading=None,
+        body_yaw_rate_rps=0.0,
     ):
+        """Evaluate one guidance sample.
+
+        With no explicit ``body_heading`` the original desktop law is used:
+        manual tail→head seed plus optional stable motion course, combined
+        with curvature, heading and cross-track feedback.  An explicit
+        ``body_heading`` selects the newer filtered-yaw compatibility path for
+        protocol diagnostics.
+        """
         if not self.prepared:
             raise RuntimeError("轨迹尚未准备")
         current = np.asarray(position, dtype=np.float64).reshape(2)
@@ -375,73 +430,142 @@ class PathGuidance:
             total_path_m, self.progress_m + active_lookahead_m
         )
         lookahead = self._point_at(lookahead_distance)
-        heading, heading_source = self.heading_estimator.update(
-            current, timestamp, allow_course_update=allow_course_update
-        )
-
-        # body_left_m 保留为鱼体到前视点的左右诊断值；闭环航向误差
-        # 单独使用轨迹切线，避免把离轨误差重复藏进 LOS 航向误差。
-        target = lookahead - current
-        body_forward_m = float(np.dot(heading, target))
-        # y 向下坐标中，鱼体左法向量为 (heading_y, -heading_x)。
-        body_left_m = float(heading[1] * target[0] - heading[0] * target[1])
-        tangent_body_forward = float(np.dot(heading, near_tangent))
-        tangent_body_left = float(
-            heading[1] * near_tangent[0]
-            - heading[0] * near_tangent[1]
-        )
-        raw_heading_error_rad = float(math.atan2(
-            tangent_body_left, tangent_body_forward
-        ))
-        if tangent_body_forward < 0.0:
-            # 轨迹切线在鱼身后方时只锁住掉头方向，不再切换另一套增益，
-            # 因而跨越旧 120°边界时转向幅度保持连续。
-            if self._turn_sign == 0.0:
-                if abs(raw_heading_error_rad) < math.pi - 1e-6:
-                    self._turn_sign = (
-                        1.0 if raw_heading_error_rad >= 0.0 else -1.0
-                    )
-                elif abs(curve_feedforward) > 1e-6:
-                    self._turn_sign = 1.0 if curve_feedforward > 0.0 else -1.0
-                elif abs(body_left_m) > 1e-6:
-                    self._turn_sign = 1.0 if body_left_m > 0.0 else -1.0
-                else:
-                    self._turn_sign = 1.0
-            heading_error_rad = self._turn_sign * abs(raw_heading_error_rad)
+        if body_heading is not None:
+            # Compatibility mode for the filtered-yaw tests and diagnostics:
+            # callers that explicitly provide a body heading get the newer
+            # yaw-rate control law.  The desktop path tracker omits this
+            # argument and therefore uses the restored initial law below.
+            try:
+                self.body_heading = _unit(body_heading)
+                self.body_yaw_rate_rps = float(body_yaw_rate_rps)
+            except (TypeError, ValueError):
+                pass
+            if self.body_heading is None:
+                raise RuntimeError("filtered body yaw is not available")
+            heading = self.body_heading.copy()
+            heading_source = "VISUAL_YAW"
+            target = lookahead - current
+            body_forward_m = float(np.dot(heading, target))
+            body_left_m = float(
+                heading[1] * target[0] - heading[0] * target[1]
+            )
+            psi_path = math.atan2(-float(near_tangent[1]), float(near_tangent[0]))
+            psi_body = math.atan2(-float(heading[1]), float(heading[0]))
+            path_to_fish = current - closest
+            fish_left_of_path_m = float(
+                near_tangent[1] * path_to_fish[0]
+                - near_tangent[0] * path_to_fish[1]
+            )
+            signed_cross_track_error_m = -fish_left_of_path_m
+            if velocity is None:
+                cross_track_rate_mps = 0.0
+            else:
+                try:
+                    velocity_value = np.asarray(velocity, dtype=np.float64).reshape(2)
+                    path_left = np.asarray((near_tangent[1], -near_tangent[0]))
+                    cross_track_rate_mps = -float(np.dot(velocity_value, path_left))
+                except (TypeError, ValueError):
+                    cross_track_rate_mps = 0.0
+            measured_speed_mps = (
+                max(0.0, float(speed_mps))
+                if speed_mps is not None and math.isfinite(float(speed_mps))
+                else 0.0
+            )
+            speed_for_los = max(measured_speed_mps, self.v_min_mps)
+            psi_ref = psi_path + math.atan2(
+                self.k_f * signed_cross_track_error_m, speed_for_los
+            )
+            heading_error_rad = wrap_to_pi(psi_ref - psi_body)
+            heading_feedback = self.k_psi * heading_error_rad
+            curve_term = self.k_kappa * measured_speed_mps * path_curvature_per_m
+            derivative_term = -self.k_d * cross_track_rate_mps
+            r_cmd = heading_feedback + curve_term + derivative_term
+            steering_demand = float(np.clip(r_cmd / self.r_max_rps, -1.0, 1.0))
+            cross_track_feedback = self.k_f * signed_cross_track_error_m / speed_for_los
+            curve_feedforward = float(np.clip(curve_term / self.r_max_rps, -1.0, 1.0))
+            speed_target_mps = max(
+                self.min_speed_target_mps,
+                self.cruise_speed_mps * (1.0 - 0.65 * path_curve_severity),
+            )
         else:
-            heading_error_rad = raw_heading_error_rad
-            if abs(raw_heading_error_rad) >= math.radians(2.0):
-                self._turn_sign = 1.0 if raw_heading_error_rad > 0.0 else -1.0
-
-        heading_feedback = float(np.clip(
-            heading_error_rad / (math.pi / 2.0),
-            -1.0,
-            1.0,
-        ))
-        path_to_fish = current - closest
-        fish_left_of_path_m = float(
-            near_tangent[1] * path_to_fish[0]
-            - near_tangent[0] * path_to_fish[1]
-        )
-        signed_cross_track_error_m = -fish_left_of_path_m
-        cross_track_feedback = float(np.clip(
-            math.atan2(signed_cross_track_error_m, active_lookahead_m)
-            / (math.pi / 2.0),
-            -1.0,
-            1.0,
-        ))
-        steering_demand = float(np.clip(
-            curve_feedforward + heading_feedback + cross_track_feedback,
-            -1.0,
-            1.0,
-        ))
+            # Restored initial geometric body/course heading.  The manual
+            # tail-to-head direction seeds this estimator; once the fish has
+            # moved steadily, the short-window course follows real turns.
+            heading, heading_source = self.heading_estimator.update(
+                current, timestamp, allow_course_update=allow_course_update
+            )
+            target = lookahead - current
+            body_forward_m = float(np.dot(heading, target))
+            body_left_m = float(
+                heading[1] * target[0] - heading[0] * target[1]
+            )
+            path_to_fish = current - closest
+            fish_left_of_path_m = float(
+                near_tangent[1] * path_to_fish[0]
+                - near_tangent[0] * path_to_fish[1]
+            )
+            signed_cross_track_error_m = -fish_left_of_path_m
+            cross_track_feedback = float(np.clip(
+                math.atan2(signed_cross_track_error_m, active_lookahead_m)
+                / (math.pi / 2.0),
+                -1.0,
+                1.0,
+            ))
+            tangent_body_forward = float(np.dot(heading, near_tangent))
+            tangent_body_left = float(
+                heading[1] * near_tangent[0]
+                - heading[0] * near_tangent[1]
+            )
+            raw_heading_error_rad = float(math.atan2(
+                tangent_body_left, tangent_body_forward
+            ))
+            if tangent_body_forward < 0.0:
+                if self._turn_sign == 0.0:
+                    if abs(raw_heading_error_rad) < math.pi - 1e-6:
+                        self._turn_sign = (
+                            1.0 if raw_heading_error_rad >= 0.0 else -1.0
+                        )
+                    elif abs(curve_feedforward) > 1e-6:
+                        self._turn_sign = 1.0 if curve_feedforward > 0.0 else -1.0
+                    elif abs(body_left_m) > 1e-6:
+                        self._turn_sign = 1.0 if body_left_m > 0.0 else -1.0
+                    else:
+                        self._turn_sign = 1.0
+                heading_error_rad = self._turn_sign * abs(raw_heading_error_rad)
+            else:
+                heading_error_rad = raw_heading_error_rad
+                if abs(raw_heading_error_rad) >= math.radians(2.0):
+                    self._turn_sign = 1.0 if raw_heading_error_rad > 0.0 else -1.0
+            heading_feedback = float(np.clip(
+                heading_error_rad / (math.pi / 2.0),
+                -1.0,
+                1.0,
+            ))
+            steering_demand = float(np.clip(
+                curve_feedforward + heading_feedback + cross_track_feedback,
+                -1.0,
+                1.0,
+            ))
+            measured_speed_mps = (
+                max(0.0, float(speed_mps))
+                if speed_mps is not None and math.isfinite(float(speed_mps))
+                else 0.0
+            )
+            psi_path = math.atan2(-float(near_tangent[1]), float(near_tangent[0]))
+            psi_body = math.atan2(-float(heading[1]), float(heading[0]))
+            psi_ref = psi_path
+            cross_track_rate_mps = 0.0
+            r_cmd = steering_demand
+            speed_target_mps = max(
+                self.min_speed_target_mps,
+                self.cruise_speed_mps * (1.0 - 0.65 * path_curve_severity),
+            )
         x_error_m = steering_demand * self.max_x_error_m
         control_severity = abs(steering_demand)
         endpoint_distance = float(np.linalg.norm(current - self.path[-1]))
         remaining = max(0.0, float(self.cumulative[-1]) - self.progress_m)
         drive_distance = max(remaining, endpoint_distance)
         speed_valid = speed_mps is not None and math.isfinite(float(speed_mps))
-        measured_speed_mps = max(0.0, float(speed_mps)) if speed_valid else 0.0
         arrived = (
             endpoint_distance <= self.arrival_radius_m
             and remaining <= self.arrival_radius_m
@@ -468,6 +592,12 @@ class PathGuidance:
             "curve_feedforward": curve_feedforward,
             "heading_feedback": heading_feedback,
             "cross_track_feedback": cross_track_feedback,
+            "psi_path_rad": psi_path,
+            "psi_body_rad": psi_body,
+            "psi_ref_rad": psi_ref,
+            "r_cmd_rps": r_cmd,
+            "cross_track_rate_mps": cross_track_rate_mps,
+            "speed_target_mps": speed_target_mps,
             "steering_demand": steering_demand,
             "estimated_min_turn_radius_m": self.estimated_min_turn_radius_m,
             "turn_radius_m": turn_radius_m,

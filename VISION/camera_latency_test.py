@@ -5,11 +5,11 @@ import time
 import cv2
 
 
-CAMERA_INDEX = 1  # 与正式 VISION 一致：外接 USB 摄像头
-WIDTH = 640
-HEIGHT = 480
-TARGET_FPS = 60
-EXPOSURE = -6  # 约 1/64 秒，允许摄像头接近 60 FPS
+CAMERA_INDEX = 0  # 与正式 VISION 一致：外接 Global Shutter Camera
+WIDTH = 1280
+HEIGHT = 720
+TARGET_FPS = 30
+EXPOSURE = -6  # 1280x720/30 FPS default exposure step
 GAIN = 100
 
 

@@ -97,6 +97,13 @@
 // Computer-vision control lease. The PC must refresh /vision_control within
 // this many milliseconds; otherwise propulsion stops and steering centers.
 #define RF_VISION_COMMAND_TIMEOUT_MS 500
+// Fixed-period PC tracking datagrams. UDP is only a data plane; HTTP/manual
+// commands hold a short priority lease so a late datagram cannot re-arm motion.
+#define RF_VISION_UDP_PORT 9000
+#define RF_VISION_HTTP_PRIORITY_HOLD_MS 400
+#define RF_VISION_UDP_TASK_STACK_BYTES 3072
+#define RF_VISION_UDP_TASK_PRIORITY 3
+#define RF_VISION_UDP_TASK_CORE 1
 
 // MCU-side visual control tuning. Inputs are metres.  The LOS heading error
 // is already filtered and latency-compensated on the PC, so X uses P only;
