@@ -401,12 +401,58 @@ class WhitePointTracker:
         self._velocity = np.zeros(2, dtype=np.float64)
         self._last_time: Optional[float] = None
         self._miss_count = 0
+        self._last_binary_mask: Optional[np.ndarray] = None
+        self._last_binary_roi: Optional[Tuple[int, int, int, int]] = None
 
     def reset(self) -> None:
         self._position = None
         self._velocity[:] = 0.0
         self._last_time = None
         self._miss_count = 0
+        self._last_binary_mask = None
+        self._last_binary_roi = None
+
+    def set_binary_threshold(self, value: int) -> None:
+        """Set the live V-channel floor used by the white binary mask.
+
+        The per-frame adaptive threshold is still computed from the local ROI;
+        this value acts as its absolute lower bound, allowing the UI slider to
+        trade sensitivity for rejection of dim background/reflections.
+        """
+        self.val_min = int(np.clip(value, 0, 255))
+
+    def binary_preview(self, frame) -> np.ndarray:
+        """Return a full-frame binary mask using the live V threshold.
+
+        Passing the current BGR frame produces a true camera-wide mask for
+        diagnostics.  A shape tuple is still accepted as a fallback for code
+        that only needs the most recent ROI mask.
+        """
+        if isinstance(frame, np.ndarray) and frame.ndim == 3 and frame.shape[2] == 3:
+            height, width = int(frame.shape[0]), int(frame.shape[1])
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            mask = ((hsv[:, :, 1] <= self.sat_max)
+                    & (hsv[:, :, 2] >= self.val_min)).astype(np.uint8) * 255
+            kernel = np.ones((self.morph_kernel_px, self.morph_kernel_px), dtype=np.uint8)
+            return cv2.morphologyEx(
+                cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel),
+                cv2.MORPH_CLOSE,
+                kernel,
+            )
+
+        frame_shape = frame
+        height, width = int(frame_shape[0]), int(frame_shape[1])
+        preview = np.zeros((height, width), dtype=np.uint8)
+        if self._last_binary_mask is None or self._last_binary_roi is None:
+            return preview
+        x1, y1, x2, y2 = self._last_binary_roi
+        roi_height = max(0, min(height, y2) - max(0, y1))
+        roi_width = max(0, min(width, x2) - max(0, x1))
+        if roi_height <= 0 or roi_width <= 0:
+            return preview
+        preview[max(0, y1):max(0, y1) + roi_height,
+                max(0, x1):max(0, x1) + roi_width] = self._last_binary_mask[:roi_height, :roi_width]
+        return preview
 
     def _build_roi(
         self,
@@ -536,6 +582,10 @@ class WhitePointTracker:
         kernel = np.ones((self.morph_kernel_px, self.morph_kernel_px), dtype=np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        # ``mask`` is no longer mutated after this point; retain the array for
+        # the optional debug preview without an extra full-ROI allocation.
+        self._last_binary_mask = mask
+        self._last_binary_roi = search_roi
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         tail_point = None
         if tail is not None:

@@ -440,7 +440,11 @@ class ToolbarButton:
 
 
 class VisionToolbar:
+    # Reserve a compact strip above the buttons for the live threshold slider.
+    # Keeping it in the same canvas means it also works when OpenCV's native
+    # trackbar window is unavailable (for example on the tablet preview).
     HEIGHT = 76
+    SLIDER_HEIGHT = 20
     GAP = 5
     ROWS: Tuple[Tuple[ToolbarButton, ...], ...] = (
         (
@@ -464,6 +468,9 @@ class VisionToolbar:
 
     def __init__(self):
         self._rectangles: Dict[str, Tuple[int, int, int, int]] = {}
+        self._slider_rect: Tuple[int, int, int, int] = (0, 0, 0, 0)
+        self._slider_dragging = False
+        self.binary_threshold = 135
 
     @property
     def height(self) -> int:
@@ -471,10 +478,12 @@ class VisionToolbar:
 
     def layout(self, frame_width: int, frame_height: int) -> Dict[str, Tuple[int, int, int, int]]:
         panel_top = max(0, frame_height - self.HEIGHT)
-        row_height = max(24, (self.HEIGHT - self.GAP * 3) // 2)
+        button_top = panel_top + self.SLIDER_HEIGHT
+        button_height = max(24, self.HEIGHT - self.SLIDER_HEIGHT)
+        row_height = max(18, (button_height - self.GAP * 3) // 2)
         rectangles: Dict[str, Tuple[int, int, int, int]] = {}
         for row_index, buttons in enumerate(self.ROWS):
-            y1 = panel_top + self.GAP + row_index * (row_height + self.GAP)
+            y1 = button_top + self.GAP + row_index * (row_height + self.GAP)
             y2 = min(frame_height - self.GAP, y1 + row_height)
             available = frame_width - self.GAP * (len(buttons) + 1)
             button_width = max(1, available // len(buttons))
@@ -483,6 +492,15 @@ class VisionToolbar:
                 x2 = frame_width - self.GAP if column == len(buttons) - 1 else x1 + button_width
                 rectangles[button.action] = (x1, y1, x2, y2)
         self._rectangles = rectangles
+        slider_y1 = panel_top + self.GAP
+        slider_y2 = min(frame_height - self.GAP, slider_y1 + self.SLIDER_HEIGHT - self.GAP)
+        label_width = min(116, max(82, frame_width // 7))
+        self._slider_rect = (
+            self.GAP + label_width,
+            slider_y1,
+            max(self.GAP + label_width + 1, frame_width - self.GAP),
+            slider_y2,
+        )
         return dict(rectangles)
 
     def hit_test(
@@ -496,6 +514,30 @@ class VisionToolbar:
 
     def contains(self, x: int, y: int, frame_height: int) -> bool:
         return 0 <= x and y >= frame_height - self.HEIGHT
+
+    @property
+    def slider_dragging(self) -> bool:
+        return self._slider_dragging
+
+    def slider_hit_test(self, x: int, y: int, frame_width: int, frame_height: int) -> bool:
+        self.layout(frame_width, frame_height)
+        x1, y1, x2, y2 = self._slider_rect
+        return x1 <= x < x2 and y1 <= y < y2
+
+    def begin_slider_drag(self, x: int, frame_width: int, frame_height: int) -> int:
+        self.layout(frame_width, frame_height)
+        self._slider_dragging = True
+        return self.update_slider(x, frame_width, frame_height)
+
+    def update_slider(self, x: int, frame_width: int, frame_height: int) -> int:
+        self.layout(frame_width, frame_height)
+        x1, _, x2, _ = self._slider_rect
+        usable = max(1, x2 - x1)
+        self.binary_threshold = int(np.clip(round((x - x1) * 255.0 / usable), 0, 255))
+        return self.binary_threshold
+
+    def end_slider_drag(self) -> None:
+        self._slider_dragging = False
 
     @staticmethod
     def _role_color(role: str) -> Color:
@@ -513,6 +555,18 @@ class VisionToolbar:
         cv2.rectangle(overlay, (0, panel_top), (width, height), UiPalette.PANEL, -1)
         cv2.addWeighted(overlay, 0.92, image, 0.08, 0.0, image)
         rectangles = self.layout(width, height)
+        # Live binary-threshold slider.  The value is a V-channel floor used
+        # by the white-body binary mask; the main loop applies it immediately.
+        sx1, sy1, sx2, sy2 = self._slider_rect
+        draw_unicode_text(image, f"二值化 V: {self.binary_threshold}", (self.GAP + 4, sy1 + 3), 11, UiPalette.TEXT, bold=True)
+        track_y = (sy1 + sy2) // 2
+        track_left = sx1 + 2
+        track_right = max(track_left + 1, sx2 - 2)
+        cv2.line(image, (track_left, track_y), (track_right, track_y), UiPalette.BORDER, 5, cv2.LINE_AA)
+        knob_x = int(round(track_left + (track_right - track_left) * self.binary_threshold / 255.0))
+        cv2.line(image, (track_left, track_y), (knob_x, track_y), UiPalette.PRIMARY, 5, cv2.LINE_AA)
+        cv2.circle(image, (knob_x, track_y), 7, UiPalette.TEXT, -1, cv2.LINE_AA)
+        cv2.circle(image, (knob_x, track_y), 7, UiPalette.PRIMARY, 2, cv2.LINE_AA)
         by_action = {button.action: button for row in self.ROWS for button in row}
 
         for action, rectangle in rectangles.items():

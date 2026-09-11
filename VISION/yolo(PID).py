@@ -9,7 +9,6 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-
 import cv2
 import numpy as np
 from flask import Flask, Response
@@ -1363,6 +1362,7 @@ def main():
         print(f"固定水池标定未加载，将等待 ArUco/手动标定：{calibration_error}")
 
     toolbar = VisionToolbar()
+    toolbar.binary_threshold = white_head_tracker.val_min
     hud = VisionHud()
     pending_ui_actions = deque()
     frame_state = {
@@ -1558,6 +1558,10 @@ def main():
         'window_height': cam.real_height,
     }
     show_debug_overlay = False
+    # Keep the diagnostic view in full-frame binary mode until the operator
+    # toggles it off with V.  The threshold slider remains visible in the
+    # toolbar so the effect of each adjustment is immediately observable.
+    show_binary_preview = True
     show_color_aux_overlay = SHOW_COLOR_AUX_OVERLAY_DEFAULT
     show_filtered_yaw_overlay = SHOW_FILTERED_YAW_OVERLAY_DEFAULT
     show_yolo_bbox_overlay = SHOW_YOLO_BBOX_OVERLAY_DEFAULT
@@ -1577,6 +1581,28 @@ def main():
         # Git 原版：HighGUI 直接给出原图坐标，不再二次换算。
         rx = int(np.clip(x, 0, cam.real_width - 1))
         ry = int(np.clip(y, 0, cam.real_height - 1))
+
+        # Handle the live binary-threshold slider before buttons/path input.
+        slider_hit = toolbar.slider_hit_test(
+            rx, ry, cam.real_width, cam.real_height
+        )
+        if toolbar.slider_dragging:
+            if event in (cv2.EVENT_MOUSEMOVE, cv2.EVENT_LBUTTONUP):
+                white_head_tracker.set_binary_threshold(
+                    toolbar.update_slider(rx, cam.real_width, cam.real_height)
+                )
+            if event == cv2.EVENT_LBUTTONUP:
+                toolbar.end_slider_drag()
+            drawn_path_state['drawing'] = False
+            marker_roi_state['dragging'] = False
+            return
+        if event == cv2.EVENT_LBUTTONDOWN and slider_hit:
+            white_head_tracker.set_binary_threshold(
+                toolbar.begin_slider_drag(rx, cam.real_width, cam.real_height)
+            )
+            drawn_path_state['drawing'] = False
+            marker_roi_state['dragging'] = False
+            return
 
         if event in (cv2.EVENT_LBUTTONDOWN, cv2.EVENT_LBUTTONUP):
             toolbar_action = toolbar.hit_test(
@@ -1917,6 +1943,10 @@ def main():
                 tail=frame_state.get('tail_marker_position'),
                 tail_bbox=frame_state.get('tail_marker_bbox'),
                 head_hint=pose_head if yolo_pose_valid else None,
+            )
+            binary_mask_preview = (
+                white_head_tracker.binary_preview(frame)
+                if show_binary_preview else None
             )
             color_head_confidence = float(head_color_result.get('confidence', 0.0))
             color_head_pixel = head_color_result.get('position')
@@ -3452,6 +3482,20 @@ def main():
                 }
             }
 
+            if show_binary_preview and binary_mask_preview is not None:
+                # Replace the camera view with the full-frame binary mask. The
+                # toolbar is drawn afterwards, so threshold adjustment remains
+                # available while this diagnostic mode is active.
+                img_show = cv2.cvtColor(binary_mask_preview, cv2.COLOR_GRAY2BGR)
+                draw_unicode_text(
+                    img_show,
+                    f"全画面二值化 V={toolbar.binary_threshold}",
+                    (12, 120),
+                    14,
+                    UiPalette.PRIMARY,
+                    bold=True,
+                )
+
             toolbar.draw(img_show, active={
                 'START': drawn_path_state['active'],
                 'STOP': current_status_text in ('STOPPED', 'EMERGENCY STOP'),
@@ -3546,6 +3590,7 @@ def main():
                 ord('c'): 'CLAHE',
                 ord('m'): 'MARKER_ROI',
                 ord('d'): 'DEBUG',
+                ord('v'): 'BINARY',
             }
             if key in (10, 13):
                 pending_ui_actions.append('START')
@@ -4034,6 +4079,12 @@ def main():
                     print(
                         f"调试层{'开启' if show_debug_overlay else '关闭'}："
                         "仅影响画面叠加，不影响检测、滤波或控制"
+                    )
+
+                elif action == 'BINARY':
+                    show_binary_preview = not show_binary_preview
+                    print(
+                        f"全画面二值化{'开启' if show_binary_preview else '关闭'}"
                     )
 
                 elif action == 'EXP_DOWN':
