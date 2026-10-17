@@ -2,6 +2,8 @@
 
 本仓库包含原始 `CameraTest.ino.bin`、可复现的静态逆向资料，以及依据这些证据重建的纯 ESP-IDF 5.3.2 完整功能工程。
 
+另有独立的 [RobotFish-ESP-IDF](RobotFish-ESP-IDF/README.md)：基于用户指定 ino 与原理图，迁入旧 F4 运动算法的四舵机／双电调工程。当前 `2.1.0-wifi` 使用 2.4 GHz Wi-Fi 完成运动控制、遥测和 OTA，不依赖 LoRa，不启用相机、Partner 脚本、水泵或 RGB。与原工程及历史 LoRa 版的区别见 [新旧工程对照](RobotFish-ESP-IDF/README.md#与原工程及历史版本的区别)。下文继续说明原 Partner 重建工程。
+
 > “还原”指功能等价重建。原镜像没有 ELF 符号和作者源码，因此不能声称逐行源码恢复或生成二进制一致镜像。
 
 ## 目录
@@ -12,7 +14,8 @@ codeFish/
 ├─ reverse_analysis/                  镜像结构、字符串、网页、反汇编和伪代码
 ├─ PARTNER_USER_GUIDE.md              网页与 Partner 脚本使用说明
 ├─ .vscode/                           编译、连接鱼 AP 和无线 OTA 工作流
-└─ RoboFishPartnerDriverSDK/          纯 ESP-IDF 功能等价重建工程
+├─ RoboFishPartnerDriverSDK/          原相机／Partner 功能等价重建工程
+└─ RobotFish-ESP-IDF/                 单 S3 四舵机／双桨，2.1.0-wifi
 ```
 
 原镜像 SHA-256：
