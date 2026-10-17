@@ -1,0 +1,20 @@
+{
+  "time_utc": "2026-10-17T03:38:48.735835+00:00",
+  "port": "COM26",
+  "chip": "ESP32-S3 v0.2",
+  "mac": "e8:f6:0a:8b:38:e4",
+  "flash_bytes": 8388608,
+  "project": "robotfish",
+  "version": "2.1.0-wifi",
+  "application_sha256": "d00d8ef53d54ba77e581a6462722bb19c9124cd5c656b70c1a3260723e0c0292",
+  "each_image_esptool_hash_verified": true,
+  "application_boot_verified": true,
+  "lora_uart_initialized": false,
+  "ap_services_ready": "RobotFishLOAR1 / 192.168.4.1",
+  "boot_log": "validation/wifi-flash-boot.log",
+  "not_verified": [
+    "Live Wi-Fi HTTP from PC (current network not connected to AP)",
+    "Wireless motor commands or physical movement",
+    "OTA transaction and power loss"
+  ]
+}

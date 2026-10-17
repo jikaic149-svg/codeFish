@@ -1,0 +1,7 @@
+/build/
+/build-host/
+/sdkconfig
+/sdkconfig.old
+**/__pycache__/
+/upper/server.log
+/upper/data/

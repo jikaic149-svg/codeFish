@@ -1,0 +1,92 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4037ad1e
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x1870
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xc40
+load:0x403cb700,len:0x2f2c
+entry 0x403c8908
+[0;32mI (26) boot: ESP-IDF v5.3.2-dirty 2nd stage bootloader[0m
+[0;32mI (27) boot: compile time Oct 16 2026 17:36:25[0m
+[0;32mI (27) boot: Multicore bootloader[0m
+[0;32mI (27) boot: chip revision: v0.2[0m
+[0;32mI (27) boot: efuse block revision: v1.4[0m
+[0;32mI (28) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (28) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (28) boot.esp32s3: SPI Flash Size : 8MB[0m
+[0;32mI (28) boot: Enabling RNG early entropy source...[0m
+[0;32mI (28) boot: Partition Table:[0m
+[0;32mI (29) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (29) boot:  0 nvs              WiFi data        01 02 00009000 00005000[0m
+[0;32mI (29) boot:  1 otadata          OTA data         01 00 0000e000 00002000[0m
+[0;32mI (30) boot:  2 app0             OTA app          00 10 00010000 00330000[0m
+[0;32mI (30) boot:  3 app1             OTA app          00 11 00340000 00330000[0m
+[0;32mI (30) boot:  4 spiffs           Unknown data     01 82 00670000 00180000[0m
+[0;32mI (31) boot:  5 coredump         Unknown data     01 03 007f0000 00010000[0m
+[0;32mI (31) boot: End of partition table[0m
+[0;32mI (32) esp_image: segment 0: paddr=00010020 vaddr=3c0a0020 size=1edf8h (126456) map[0m
+[0;32mI (54) esp_image: segment 1: paddr=0002ee20 vaddr=3fc9af00 size=011f8h (  4600) load[0m
+[0;32mI (56) esp_image: segment 2: paddr=00030020 vaddr=42000020 size=9aaf0h (633584) map[0m
+[0;32mI (168) esp_image: segment 3: paddr=000cab18 vaddr=3fc9c0f8 size=038cch ( 14540) load[0m
+[0;32mI (171) esp_image: segment 4: paddr=000ce3ec vaddr=40374000 size=16ee0h ( 93920) load[0m
+[0;32mI (201) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (201) boot: Disabling RNG early entropy source...[0m
+[0;32mI (202) cpu_start: Multicore app[0m
+[0;32mI (212) cpu_start: Pro cpu start user code[0m
+[0;32mI (212) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (212) app_init: Application information:[0m
+[0;32mI (212) app_init: Project name:     robotfish[0m
+[0;32mI (212) app_init: App version:      2.0.0-idf[0m
+[0;32mI (212) app_init: Compile time:     Oct 16 2026 17:26:42[0m
+[0;32mI (213) app_init: ELF file SHA256:  152b22309...[0m
+[0;32mI (213) app_init: ESP-IDF:          v5.3.2-dirty[0m
+[0;32mI (213) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (213) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (213) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (214) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (214) heap_init: At 3FCA59D0 len 00043D40 (271 KiB): RAM[0m
+[0;32mI (214) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (214) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (215) heap_init: At 600FE100 len 00001EE8 (7 KiB): RTCRAM[0m
+[0;32mI (216) spi_flash: detected chip: gd[0m
+[0;32mI (216) spi_flash: flash io: dio[0m
+[0;32mI (217) sleep: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (217) sleep: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (218) main_task: Started on CPU0[0m
+[0;32mI (219) main_task: Calling app_main()[0m
+[0;32mI (2220) uart: queue free spaces: 16[0m
+[0;32mI (2249) pp: pp rom version: e7ae62f[0m
+[0;32mI (2250) net80211: net80211 rom version: e7ae62f[0m
+I (2251) wifi:wifi driver task: 3fcb0628, prio:23, stack:6656, core=0
+I (2264) wifi:wifi firmware version: b0fd6006b
+I (2264) wifi:wifi certification version: v7.0
+I (2265) wifi:config NVS flash: enabled
+I (2265) wifi:config nano formating: disabled
+I (2265) wifi:Init data frame dynamic rx buffer num: 32
+I (2265) wifi:Init static rx mgmt buffer num: 5
+I (2266) wifi:Init management short buffer num: 32
+I (2266) wifi:Init dynamic tx buffer num: 32
+I (2266) wifi:Init static tx FG buffer num: 2
+I (2267) wifi:Init static rx buffer size: 1600
+I (2267) wifi:Init static rx buffer num: 10
+I (2267) wifi:Init dynamic rx buffer num: 32
+[0;32mI (2268) wifi_init: rx ba win: 6[0m
+[0;32mI (2268) wifi_init: accept mbox: 6[0m
+[0;32mI (2268) wifi_init: tcpip mbox: 32[0m
+[0;32mI (2269) wifi_init: udp mbox: 6[0m
+[0;32mI (2269) wifi_init: tcp mbox: 6[0m
+[0;32mI (2269) wifi_init: tcp tx win: 5760[0m
+[0;32mI (2269) wifi_init: tcp rx win: 5760[0m
+[0;32mI (2269) wifi_init: tcp mss: 1440[0m
+[0;32mI (2269) wifi_init: WiFi IRAM OP enabled[0m
+[0;32mI (2270) wifi_init: WiFi RX IRAM OP enabled[0m
+[0;32mI (2270) phy_init: phy_version 680,a6008b2,Jun  4 2024,16:41:10[0m
+I (2309) wifi:mode : softAP (e8:f6:0a:8b:38:e5)
+I (2312) wifi:Total power save buffer number: 16
+I (2313) wifi:Init max length of beacon: 752/752
+I (2313) wifi:Init max length of beacon: 752/752
+[0;32mI (2315) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1[0m
+[0;32mI (2319) network: AP RobotFishLOAR1; telemetry and OTA ready[0m

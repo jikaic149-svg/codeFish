@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RobotFish Wi-Fi 控制</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef3f7;color:#153344;font:16px system-ui,sans-serif}
+main{max-width:760px;margin:auto;padding:20px}section,details{background:white;border:1px solid #d4dfe7;border-radius:14px;padding:18px;margin:16px 0}
+h1{font-size:25px;margin:12px 0}h2{font-size:19px;margin:0 0 14px}p{line-height:1.6}button,select,input{font:inherit;max-width:100%}
+button,select{padding:12px;border:1px solid #bccedb;border-radius:9px;background:#f5f9fc;color:#17384b}
+button{cursor:pointer;touch-action:none;user-select:none}button:disabled{opacity:.45;cursor:default}button.pressed{background:#b8e5dd;border-color:#087f74}
+.primary{background:#087f74;color:white;border:0}.danger{background:#bd3037;color:white;border:0}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.settings{display:grid;gap:16px;margin:18px 0}label{display:flex;gap:10px;align-items:center;flex-wrap:wrap}input[type=range]{flex:1;min-width:120px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.pad button{min-height:60px}.vertical{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0}
+output{font-weight:600}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.65}small{color:#536b7b}a{color:#087f74}
+</style>
+<main>
+<h1>RobotFish · 2.4 GHz Wi-Fi 控制</h1>
+<p id="connection">先启用控制，再按住方向按钮或使用键盘。</p>
+<section>
+<div class="row"><button id="connect" class="primary">启用 Wi-Fi 控制</button><button id="stop" class="danger" disabled>全停 / 空格</button></div>
+<div class="settings">
+<label>推进模式 <select id="mode" disabled><option value="2">螺旋桨</option><option value="1">仿生</option><option value="3">混合</option></select></label>
+<label>前进功率 <input id="power" type="range" min="0" max="100" value="30"><output id="power-value">30%</output></label>
+<label>转向强度 <input id="strength" type="range" min="0" max="100" value="40"><output id="strength-value">40%</output></label>
+</div>
+<div class="pad">
+<button data-axis="front-left" disabled>前左 ↖</button><button data-axis="forward" disabled>前进 W</button><button data-axis="front-right" disabled>前右 ↗</button>
+<button data-axis="left" disabled>左转 A</button><button id="center-stop" class="danger" disabled>全停</button><button data-axis="right" disabled>右转 D</button>
+<button data-axis="back-left" disabled>后左 ↙</button><button data-axis="back" disabled>后退 S</button><button data-axis="back-right" disabled>后右 ↘</button>
+</div>
+<div class="vertical"><button data-axis="up" disabled>上浮 R</button><button data-axis="down" disabled>下潜 F</button></div>
+<small>按住动作，松开停止；离开页面或切走窗口停止。通信中断 3 秒后双桨中立，舵机保持。上浮、下潜沿用原运动分配，可能同时产生前进。</small>
+<p id="command-result" role="status">尚未启用控制。</p>
+</section>
+<section><h2>实时输出</h2><pre id="outputs">等待数据…</pre><small>显示驱动写入目标；<a href="/motion_status" target="_blank">查看详细状态</a></small></section>
+<details><summary>固件升级</summary><p>选择本工程的 RobotFish 应用 BIN。写入前自动全停，完成后重启。</p>
+<input id="firmware" type="file" accept=".bin"><button id="upload">上传固件</button><pre id="ota-result"></pre></details>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id),keys=new Set(),pointers=new Map();
+const vectors={forward:[1,0,0],back:[-1,0,0],left:[0,-1,0],right:[0,1,0],up:[0,0,1],down:[0,0,-1],'front-left':[1,-1,0],'front-right':[1,1,0],'back-left':[-1,-1,0],'back-right':[-1,1,0]};
+const bindings={w:'forward',s:'back',a:'left',d:'right',r:'up',f:'down'};
+let session='',sequence=0,connected=false,serial=Promise.resolve(),pending=false,version=0,sent=-1,lastSent=0,axes={surge:0,yaw:0,heave:0};
+function enabled(value){connected=value;document.querySelectorAll('[data-axis],#stop,#center-stop,#mode').forEach(el=>el.disabled=!value);$('connect').textContent=value?'重新接管控制':'启用 Wi-Fi 控制';}
+async function request(body,keepalive=false){
+ const response=await fetch('/api/v1/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive});
+ const reply=await response.json();if(!response.ok||!reply.accepted)throw Error(reply.error||`HTTP ${response.status}`);return reply;
+}
+function queued(action,extra={},gate=()=>true){
+ const mine=session;const work=serial.then(()=>{if(!gate()||mine!==session)return {skipped:true};return request({action,session:mine,sequence:++sequence,...extra});});
+ serial=work.catch(()=>{});return work;
+}
+function showHeld(){document.querySelectorAll('[data-axis]').forEach(el=>el.classList.toggle('pressed',[...keys,...pointers.values()].includes(el.dataset.axis)));}
+function quietStop(){if(!session)return;request({action:'stop',session,sequence:++sequence},true).catch(()=>{});}
+function fail(error){keys.clear();pointers.clear();axes={surge:0,yaw:0,heave:0};version++;enabled(false);showHeld();quietStop();$('command-result').textContent=`控制已停止：${error.message}。请重新启用。`;}
+function update(){
+ const sum=[0,0,0];for(const key of [...keys,...pointers.values()])vectors[key].forEach((x,i)=>sum[i]+=x);
+ axes={surge:Math.sign(sum[0])*Number($('power').value),yaw:Math.sign(sum[1])*Number($('strength').value),heave:Math.sign(sum[2])*100};version++;showHeld();pump();
+}
+function stop(){keys.clear();pointers.clear();update();}
+async function pump(){
+ if(!connected||pending)return;const active=Object.values(axes).some(Boolean);
+ if(sent===version&&(!active||Date.now()-lastSent<200))return;
+ pending=true;const captured=version,target={...axes};
+ try{
+  const result=await queued(active?'target':'stop',active?{axes:target}:{},()=>connected&&captured===version);
+  if(!result.skipped){sent=captured;lastSent=Date.now();$('command-result').textContent=active?'运动目标已接收，松开停止。':'已全停。';}
+ }catch(error){fail(error);}finally{pending=false;if(connected&&sent!==version)pump();}
+}
+$('connect').onclick=async()=>{
+ if(connected)quietStop();keys.clear();pointers.clear();axes={surge:0,yaw:0,heave:0};enabled(false);showHeld();
+ session=Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');sequence=0;version++;sent=version;
+ $('connect').disabled=true;
+ try{await serial;const reply=await request({action:'acquire',session});$('mode').value=String(reply.mode);enabled(true);$('command-result').textContent='Wi-Fi 控制已启用，当前全停。';}
+ catch(error){$('command-result').textContent=`连接失败：${error.message}`;}finally{$('connect').disabled=false;}
+};
+$('mode').onchange=async()=>{try{await queued('mode',{mode:Number($('mode').value)},()=>connected);$('command-result').textContent='推进模式已更新。';}catch(error){fail(error);}};
+for(const name of ['power','strength'])$(name).oninput=()=>{$(name+'-value').textContent=$(name).value+'%';if(keys.size||pointers.size)update();};
+document.querySelectorAll('[data-axis]').forEach(button=>{
+ button.onpointerdown=event=>{if(!connected)return;event.preventDefault();button.setPointerCapture(event.pointerId);pointers.set(event.pointerId,button.dataset.axis);update();};
+ const release=event=>{if(pointers.delete(event.pointerId))update();};button.onpointerup=release;button.onpointercancel=release;button.onlostpointercapture=release;
+});
+$('stop').onclick=$('center-stop').onclick=stop;
+window.addEventListener('keydown',event=>{
+ if(!connected)return;if(event.code==='Space'){event.preventDefault();if(!event.repeat)stop();return;}
+ if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName))return;const key=bindings[event.key.toLowerCase()];
+ if(key&&!event.repeat){event.preventDefault();keys.add(key);update();}
+});
+window.addEventListener('keyup',event=>{const key=bindings[event.key.toLowerCase()];if(key&&keys.delete(key))update();});
+window.addEventListener('blur',()=>{if(keys.size||pointers.size)stop();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&(keys.size||pointers.size))stop();});
+window.addEventListener('pagehide',()=>{keys.clear();pointers.clear();axes={surge:0,yaw:0,heave:0};version++;enabled(false);quietStop();});
+async function status(){
+ try{const response=await fetch('/motion_status',{cache:'no-store'});if(!response.ok)throw Error('状态不可用');const data=await response.json(),f=data.last_written;
+  $('connection').textContent=data.ota_locked?'升级期间控制已锁定。':data.failsafe_active?'指令超过 3 秒未续期：已停桨。':connected?'Wi-Fi 控制已连接。':'设备在线，等待启用控制。';
+  $('outputs').textContent=`前尾 ${f.tail_front_deg.toFixed(1)}°　后尾 ${f.tail_rear_deg.toFixed(1)}°\n左胸鳍 ${f.pectoral_left_deg.toFixed(1)}°　右胸鳍 ${f.pectoral_right_deg.toFixed(1)}°\n左桨 ${f.left_motor_pct}%　右桨 ${f.right_motor_pct}%\n指令有效期剩余 ${data.lease_remaining_ms} ms`;
+  if(data.ota_locked&&connected){enabled(false);keys.clear();pointers.clear();showHeld();}
+ }catch(error){$('connection').textContent='无法读取设备状态，请检查 Wi-Fi 连接。';}
+}
+$('upload').onclick=async()=>{
+ const file=$('firmware').files[0];if(!file)return;$('upload').disabled=true;stop();enabled(false);
+ try{await serial;const response=await fetch('/ota_upload',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});$('ota-result').textContent=await response.text();}
+ catch(error){$('ota-result').textContent=error.message;}finally{$('upload').disabled=false;}
+};
+setInterval(pump,100);setInterval(status,1000);enabled(false);status();
+</script>
+</html>

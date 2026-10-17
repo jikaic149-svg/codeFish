@@ -1,0 +1,5 @@
+# Preserve byte-exact firmware inputs, images and captured validation evidence.
+* -text
+*.md text eol=lf
+*.bin binary
+validation/*.log binary
