@@ -1,0 +1,105 @@
+{
+  "date_local": "2026-10-17",
+  "target": "XIAO ESP32-S3, four servos and two ESCs",
+  "source_ino": {
+    "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish(20260903-033000)(1).ino",
+    "sha256": "b896b459e5aaf80c95c38d694b6361aa1050345a5f550a6e4ec501bd88aaa6dc",
+    "modified": false
+  },
+  "legacy_firmware": "C:/Users/rlyoulo/Desktop/robofish_new/embedding/f4/firmware",
+  "project": "robotfish",
+  "version": "2.2.6-vision",
+  "idf": "5.3.2-dirty (installed SDK)",
+  "native_idf": true,
+  "hardware_confirmations": {
+    "single_s3": true,
+    "pump_enabled": false,
+    "lora_target_lease_ms": 3000,
+    "lease_exit": "both ESC immediately neutral; four servos slew to 90 degrees from last successful outputs",
+    "control_transport": "2.4 GHz Wi-Fi only"
+  },
+  "application": {
+    "firmware": "robotfish",
+    "hardware": "robotfish-esp32s3",
+    "project_name": "robotfish",
+    "version": "2.2.6-vision",
+    "size": 867216,
+    "format": "bin",
+    "signed": false,
+    "sha256": "02b056faa11d6b5ca1a474b69c5c78364dd9dc27367785afedc87d17671d7338"
+  },
+  "ota_artifact": "artifacts/RobotFish-2.2.6-vision-OTA.bin",
+  "source_fingerprint_sha256": "7b1762679a44089822a9d0c906c9d818b1696dc3546486a65719005460926d4d",
+  "checks": {
+    "esp_idf_build": "passed",
+    "python_and_javascript_syntax": "passed",
+    "behavior_tests": "not run; user will test and accept",
+    "video_tests": "not run",
+    "hardware_updated": false
+  },
+  "not_hardware_verified": [
+    "Wi-Fi motion and HTTP from connected client",
+    "PWM electrical waveforms and mechanical response",
+    "OTA transaction or power loss",
+    "RTOS stack watermark, loaded and underwater motion"
+  ],
+  "first_install_flash_files": {
+    "0x0": "bootloader/bootloader.bin",
+    "0x10000": "robotfish.bin",
+    "0x8000": "partition_table/partition-table.bin",
+    "0xe000": "ota_data_initial.bin"
+  },
+  "usb_bundle": "artifacts/usb",
+  "hardware_flash": {
+    "time_utc": "2026-10-17T03:38:48.735835+00:00",
+    "port": "COM26",
+    "chip": "ESP32-S3 v0.2",
+    "mac": "e8:f6:0a:8b:38:e4",
+    "flash_bytes": 8388608,
+    "project": "robotfish",
+    "version": "2.1.0-wifi",
+    "application_sha256": "d00d8ef53d54ba77e581a6462722bb19c9124cd5c656b70c1a3260723e0c0292",
+    "each_image_esptool_hash_verified": true,
+    "application_boot_verified": true,
+    "lora_uart_initialized": false,
+    "ap_services_ready": "RobotFishLOAR1 / 192.168.4.1",
+    "boot_log": "validation/wifi-flash-boot.log",
+    "not_verified": [
+      "Live Wi-Fi HTTP from PC (current network not connected to AP)",
+      "Wireless motor commands or physical movement",
+      "OTA transaction and power loss"
+    ]
+  },
+  "control_transport": "2.4 GHz Wi-Fi only",
+  "lora_initialized": false,
+  "previous_hardware_flash": {
+    "time_utc": "2026-10-17T02:25:42.589619+00:00",
+    "port": "COM26",
+    "chip": "ESP32-S3 (QFN56) revision v0.2",
+    "mac": "e8:f6:0a:8b:38:e4",
+    "flash_bytes": 8388608,
+    "project": "robotfish",
+    "version": "2.0.0-idf",
+    "application_sha256": "deb686ef189edd9e4fca5c184ea12ab938bfbfc02b4b5e2c5e9397c5bd951c36",
+    "flash_files": {
+      "0x0": "bootloader.bin",
+      "0x8000": "partition-table.bin",
+      "0xe000": "ota_data_initial.bin",
+      "0x10000": "robotfish.bin"
+    },
+    "each_image_esptool_hash_verified": true,
+    "post_flash_hard_reset": true,
+    "serial_boot_observation_seconds": 10,
+    "boot_log": "validation/usb-flash-boot.log",
+    "application_boot_verified": true,
+    "uart_initialization_verified": true,
+    "ap_services_ready": "RobotFishLOAR1, DHCP 192.168.4.1, telemetry and OTA server startup logged",
+    "not_verified": [
+      "LoRa over-air command reception",
+      "PWM electrical waveforms and physical movement",
+      "HTTP communication from connected Wi-Fi client",
+      "OTA transaction or power-loss rollback"
+    ]
+  },
+  "current_release": "validation/vision-2.2.6.json"
+}
