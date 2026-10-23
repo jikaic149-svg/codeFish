@@ -6,7 +6,7 @@
 using esp_err_t = int;
 using uart_port_t = int;
 inline constexpr int ESP_OK = 0, ESP_ERR_TIMEOUT = 1;
-inline constexpr int UART_NUM_1 = 1, UART_DATA_8_BITS = 8;
+inline constexpr int UART_NUM_1 = 1, UART_NUM_2 = 2, UART_DATA_8_BITS = 8;
 inline constexpr int UART_PARITY_DISABLE = 0, UART_STOP_BITS_1 = 1;
 inline constexpr int UART_HW_FLOWCTRL_DISABLE = 0, UART_SCLK_DEFAULT = 0;
 inline constexpr int UART_PIN_NO_CHANGE = -1;

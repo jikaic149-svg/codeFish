@@ -54,12 +54,15 @@ int main() {
   assert(board::applyFrameMask(frame) == 0x3f && pulseIs(4,2000) && pulseIs(5,1000));
   frame.leftPropulsionPercent = frame.rightPropulsionPercent = -100;
   assert(board::applyFrameMask(frame) == 0x3f && pulseIs(4,1000) && pulseIs(5,2000));
+  frame.tailFrontDegrees = 110; frame.tailRearDegrees = 70;
+  assert(board::applyFrameMask(frame) == 0x3f &&
+      pulseIs(0,500+70*2000.0/180) && pulseIs(1,500+110*2000.0/180));
   frame.leftPropulsionPercent = std::numeric_limits<int>::max();
   frame.rightPropulsionPercent = std::numeric_limits<int>::min();
   frame.tailFrontDegrees = 0; frame.tailRearDegrees = 180;
   frame.pectoralLeftDegrees = 0; frame.pectoralRightDegrees = 180;
   assert(board::applyFrameMask(frame) == 0x3f && pulseIs(4,2000) && pulseIs(5,2000));
-  assert(pulseIs(0,500+20*2000.0/180) && pulseIs(1,500+152*2000.0/180));
+  assert(pulseIs(0,500+122*2000.0/180) && pulseIs(1,500+45*2000.0/180));
   assert(pulseIs(2,1000) && pulseIs(3,500+155*2000.0/180));
   frame.tailFrontDegrees = std::numeric_limits<float>::quiet_NaN();
   const unsigned calls = dutyCalls;

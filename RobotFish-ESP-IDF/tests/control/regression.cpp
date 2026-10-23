@@ -71,7 +71,7 @@ static void absoluteTargetsAndModes() {
   check(move(state, 1, 100, {75, -25, 30}).code == Code::Accepted &&
       state.target.surgePercent == 75 && state.target.yawPercent == -25 &&
       state.target.pitchPercent == 30 && state.target.outputScale == 1 &&
-      state.target.allowFlowAssist, "full percentage target is applied once without a second throttle scale");
+      !state.target.allowFlowAssist, "absolute fin state never enables automatic propulsion or tail drive");
   check(move(state, 2, 200, {-40, 0, 0}).code == Code::Accepted &&
       state.target.surgePercent == -40 && state.target.yawPercent == 0 &&
       state.target.pitchPercent == 0 && !state.target.allowFlowAssist,
@@ -91,9 +91,9 @@ static void absoluteTargetsAndModes() {
       state.target.mode == DriveMode::Bionic && state.target.surgePercent == 0 &&
       state.target.pitchPercent == 80, "fresh heave preserves configured mode only");
   auto stopped = move(state, 6, 3500, {0, 0, 0});
-  check(stopped.code == Code::Accepted && stopped.stopPending && !stopped.leaseActive &&
+  check(stopped.code == Code::Accepted && !stopped.stopPending && stopped.leaseActive && state.softStopping &&
       !state.expired && !state.target.enabled && state.target.pitchPercent == 0 &&
-      stopped.mode == DriveMode::Bionic, "zero axes explicitly stop and center every actuator");
+      stopped.mode == DriveMode::Bionic, "zero axes request an ordinary ramp to neutral without an emergency barrier");
 }
 static void orderingAndSessions() {
   ControlState state;
@@ -209,8 +209,72 @@ static void requestDeadlines() {
     }
   }
 }
+static void outputDegradation() {
+  for (unsigned failedChannel = 0; failedChannel < 6; ++failedChannel) {
+    ControlState state;
+    acquire(state);
+    check(move(state, 1, 10).code == Code::Accepted, "start degradation fixture");
+    const uint8_t incomplete = static_cast<uint8_t>(63u & ~(1u << failedChannel));
+    state.observeOutput(incomplete);
+    check(state.outputFailureStreak == 1 && state.failedMask == (1u << failedChannel) &&
+        !state.outputRecovery && state.leaseActive &&
+        std::strcmp(state.safetyState(), "OUTPUT_WARNING") == 0,
+        "one failed channel is reported without discarding the active command");
+    state.observeOutput(63);
+    check(state.outputFailureStreak == 0 && state.failedMask == 0 && state.leaseActive &&
+        std::strcmp(state.safetyState(), "RUNNING") == 0,
+        "one fully successful frame clears a transient warning");
+    for (unsigned count = 1; count <= appconfig::kOutputNeutralFailures; ++count) {
+      state.observeOutput(incomplete);
+      check(state.outputFailureStreak == count, "failures count actual consecutive output submissions");
+      if (count < appconfig::kOutputNeutralFailures)
+        check(!state.outputRecovery && state.leaseActive, "warning does not stop before threshold");
+    }
+    check(state.outputRecovery && !state.outputFault && state.stopPending && !state.leaseActive &&
+        !state.target.enabled && state.wifi.session[0] == 0 && state.wifi.sequence == 0 &&
+        std::strcmp(state.safetyState(), "OUTPUT_RECOVERY") == 0,
+        "repeated output failures neutralize and invalidate the old control session");
+    for (Action action : {Action::Acquire, Action::Target, Action::Mode}) {
+      auto value = command(action, 2, 20); value.axes.surge = 100;
+      check(state.accept(value, 20).code == Code::OutputRecovery && !state.leaseActive,
+          "every motion or authorization request rejects while output recovery is active");
+    }
+    state.observeOutput(63);
+    check(!state.outputRecovery && !state.outputFault && state.outputFailureStreak == 0 &&
+        state.wifi.session[0] == 0 && !state.leaseActive,
+        "successful neutral output clears recovery without resurrecting session or motion");
+    state.stopPending = false;
+    check(move(state, 2, 30).code == Code::SessionConflict && !state.leaseActive,
+        "old session targets cannot resume after output recovery");
+    check(state.accept(command(Action::Acquire, 0, 40), 40).code == Code::Accepted &&
+        state.stopPending && !state.leaseActive, "recovery needs fresh explicit authorization");
+    state.stopPending = false;
+    check(move(state, 1, 50).code == Code::Accepted, "fresh authorized target may resume recovered hardware");
+    for (unsigned count = 0; count < appconfig::kOutputFaultFailures; ++count)
+      state.observeOutput(incomplete);
+    check(state.outputFault && state.outputRecovery && !state.leaseActive &&
+        std::strcmp(state.safetyState(), "OUTPUT_FAULT") == 0,
+        "long consecutive failures latch an output fault");
+    for (unsigned count = 0; count < 300; ++count) state.observeOutput(incomplete);
+    check(state.outputFailureStreak == appconfig::kOutputFaultFailures,
+        "failure streak saturates instead of wrapping back into normal operation");
+    state.observeOutput(63);
+    state.stopPending = false;
+    check(state.outputFault && !state.outputRecovery && state.outputFailureStreak == 0 &&
+        std::strcmp(state.safetyState(), "OUTPUT_FAULT") == 0,
+        "a later successful output cannot clear the latched fault");
+    for (Action action : {Action::Acquire, Action::Target, Action::Mode}) {
+      auto value = command(action, 2, 60); value.axes.surge = 100;
+      check(state.accept(value, 60).code == Code::OutputFault && !state.leaseActive,
+          "latched fault rejects client attempts to restart or reauthorize");
+    }
+    state.stop();
+    check(state.outputFault, "STOP cannot reset the latched hardware-output fault");
+  }
+}
 int main() {
   static_assert(std::is_trivially_copyable_v<Command> && std::is_trivially_copyable_v<Result>);
   boundaries(); absoluteTargetsAndModes(); orderingAndSessions(); rejection(); requestDeadlines();
-  std::printf("PASS: %u Wi-Fi control checks (absolute targets, 3s lease/wrap, sessions, sequence/STOP replay barrier, validation, OTA lock)\n", checks);
+  outputDegradation();
+  std::printf("PASS: %u Wi-Fi control checks (absolute targets, 3s lease/wrap, sessions, sequence/STOP replay barrier, validation, OTA lock, output degradation/recovery/fault)\n", checks);
 }

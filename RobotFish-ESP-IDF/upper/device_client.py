@@ -13,14 +13,18 @@ import json
 import math
 import re
 import robotfish
+from lora_link import LoRaLink
 from credentials import KEYS
 import threading
 import time
+from diagnostics import event
+from windows_network import capture as capture_network_context, gateways
 
 DEVICE_HTTP_PORT = 80
 DEVICE_STREAM_PORT = 81          # camera stream server = control port + 1
 REQUEST_TIMEOUT_SECONDS = 1.5
 BODY_LIMIT_BYTES = 64 * 1024
+TELEMETRY_CACHE_SECONDS = .075  # Coalesce tabs/recording; normal UI polls at 10 Hz.
 
 # Battery condition codes, mirrored from common/spi_link_protocol.h.
 BATTERY_CONDITIONS = {
@@ -37,6 +41,9 @@ MOTION_ACTIONS = {0: '停止', 1: '前进', 2: '后退', 3: '左转', 4: '右转
 
 class DeviceError(RuntimeError):
     """Raised with a message that is safe and useful to show in the UI."""
+    def __init__(self, message, *, code='device_error', retryable=False):
+        super().__init__(message)
+        self.code, self.retryable = code, retryable
 
 
 def parse_host(value):
@@ -124,15 +131,26 @@ class DeviceClient:
         self._sessions = {}          # host -> {'cookie': str, 'password': str}
         self._active_host = None
         self._profiles = {}
+        self._capabilities = {}
+        self._motion_latest = {}
+        self._motion_guard = threading.Lock()
+        self._telemetry_guard = threading.Lock()
+        self._telemetry_connections = {}
+        self._telemetry_latency = {}
+        self._telemetry_logged = {}
+        self._telemetry_sessions = {}
+        self._telemetry_failures = {}
+        self.lora = LoRaLink()
 
-    def _robotfish_identity(self, host):
+    def _robotfish_identity(self, host, *, timeout=REQUEST_TIMEOUT_SECONDS, quiet=False):
         try:
-            status, data, _ = self._request(host, '/get_ip')
+            status, data, _ = self._request(host, '/get_ip', timeout=timeout, diagnose=not quiet)
         except DeviceError:
             return None
         if status == 200 and robotfish.validate_identity(data):
             with self._guard:
                 self._profiles[host] = 'robotfish'
+                self._capabilities[host] = dict(data)
                 self._active_host = host
             return data
         return None
@@ -142,13 +160,64 @@ class DeviceClient:
             host = host or self._active_host
             return self._profiles.get(host) == 'robotfish'
 
+    def discover_robotfish(self, candidates=()):
+        """Probe only known addresses/default gateways, never an entire subnet."""
+        with self._guard:
+            active = self._active_host
+        hosts = []
+        for value in (active, *gateways(), '192.168.4.1', *candidates):
+            try:
+                host = display_host(value)
+            except DeviceError:
+                continue
+            if host not in hosts:
+                hosts.append(host)
+        for host in hosts[:4]:
+            identity = self._robotfish_identity(host, timeout=.45, quiet=True)
+            if identity:
+                return dict(identity, host=host)
+        return None
+
+    def auto_connect(self, host, session, *, force=False):
+        """Use a saved key or the factory key after verifying RobotFish identity."""
+        host = display_host(host)
+        if type(force) is not bool:
+            raise DeviceError('无效连接参数')
+        identity = self.identity(host)
+        if identity.get('firmware') != 'robotfish':
+            raise DeviceError('自动连接只适用于 RobotFish', code='wrong_device')
+        view = self.robot(host)
+        raw = view.get('diagnostics', {})
+        if raw.get('output_fault') or raw.get('output_recovery') or raw.get('ota_locked'):
+            raise DeviceError('设备处于故障或维护状态，请先处理设备状态', code='device_not_ready')
+        with self._guard:
+            saved = self._sessions.get(host) or {}
+            existing = saved.get('control_session')
+            sequence = max(saved.get('client_sequence', 0), saved.get('sequence', 0))
+        if existing and view['control']['connected'] and view['control']['session_confirmed']:
+            return dict(accepted=True, session=existing, sequence=sequence, identity=identity)
+        if not force and (existing or raw.get('wifi', {}).get('session') or raw.get('remote_active') is True):
+            raise DeviceError('检测到已有控制会话，请点击“连接机器鱼”接管', code='control_session_changed')
+        passwords = dict.fromkeys(filter(None, (KEYS.get(host), robotfish.DEFAULT_CONTROL_PASSWORD)))
+        for password in passwords:
+            try:
+                result = self.login(host, password, session=session)
+                break
+            except DeviceError as exc:
+                if exc.code != 'invalid_password':
+                    raise  # Unknown outcomes are never retried automatically.
+        else:
+            raise DeviceError('默认密码已修改，请在自定义连接中输入一次新密码', code='custom_password_required')
+        return dict(result, identity=dict(identity, authenticated=True, control_session=result['session']))
+
     # -- low level -----------------------------------------------------------
     def _request(self, host, path, method='GET', body=None, cookie=None,
-                 timeout=REQUEST_TIMEOUT_SECONDS, port=None, password=None):
+                 timeout=REQUEST_TIMEOUT_SECONDS, port=None, password=None, diagnose=True):
         address, parsed_port = parse_host(host)
         if port is None:
             port = parsed_port
-        headers = {'Connection': 'close', 'Accept': 'application/json'}
+        persistent = method == 'GET' and path == '/motion_status'
+        headers = {'Connection': 'keep-alive' if persistent else 'close', 'Accept': 'application/json'}
         payload = None
         if body is not None:
             payload = json.dumps(body).encode()
@@ -158,24 +227,50 @@ class DeviceClient:
             headers['Cookie'] = cookie
         if password is not None:
             headers['X-OTA-Password'] = password
-        connection = http.client.HTTPConnection(address, port, timeout=timeout)
+        connection = self._telemetry_connections.get(host) if persistent else None
+        if connection is None:
+            connection = http.client.HTTPConnection(address, port, timeout=timeout)
+            if persistent:
+                self._telemetry_connections[host] = connection
+        started, status, failure = time.monotonic(), None, None
         try:
             connection.request(method, path, body=payload, headers=headers)
             response = connection.getresponse()
+            status = response.status
             raw = response.read(BODY_LIMIT_BYTES + 1)
             if len(raw) > BODY_LIMIT_BYTES:
-                raise DeviceError('设备响应过大')
+                raise DeviceError('设备响应过大，结果未确认', code='invalid_response', retryable=True)
             try:
                 data = json.loads(raw) if raw else {}
             except ValueError:
-                raise DeviceError(f'设备返回了非 JSON 响应（HTTP {response.status}）')
+                raise DeviceError(f'设备返回了非 JSON 响应（HTTP {response.status}）', code='invalid_response', retryable=True)
+            if not isinstance(data, dict):
+                raise DeviceError('设备响应不是 JSON 对象，结果未确认', code='invalid_response', retryable=True)
             return response.status, data, response.getheader('Set-Cookie')
-        except DeviceError:
+        except DeviceError as exc:
+            failure = type(exc).__name__
+            if persistent:
+                self._telemetry_connections.pop(host, None)
+                connection.close()
             raise
         except (OSError, http.client.HTTPException) as exc:
-            raise DeviceError(f'找不到设备 {host}：连接失败或超时')
+            failure = type(exc).__name__
+            if diagnose:
+                capture_network_context()
+            if persistent:
+                self._telemetry_connections.pop(host, None)
+                connection.close()
+            raise DeviceError(f'找不到设备 {host}：连接失败或超时', code='transport_unavailable', retryable=True) from exc
         finally:
-            connection.close()
+            elapsed = round((time.monotonic() - started) * 1000, 2)
+            if diagnose and (not persistent or status != 200 or failure or elapsed >= 250):
+                # Metadata only: never log bodies, passwords, cookies or sessions.
+                event('device_http', host=host, method=method, path=path.split('?')[0],
+                      status=status, elapsed_ms=elapsed, error_type=failure,
+                      action=body.get('action') if isinstance(body, dict) and
+                      body.get('action') in ('acquire', 'target', 'mode', 'stop', 'attitude_on', 'attitude_off') else None)
+            if not persistent:
+                connection.close()
 
     # -- session -------------------------------------------------------------
     def login(self, host, password, remember=False, persist=False, session=None):
@@ -189,17 +284,17 @@ class DeviceClient:
                 raise DeviceError('请输入设备控制密码（1～127 个可打印 ASCII 字符）')
             if not isinstance(session, str) or not 1 <= len(session) <= 64 or any(not 32 <= ord(c) <= 126 for c in session):
                 raise DeviceError('无效控制会话，请刷新上位机后重新连接')
-            if persist and (len(password) < 12 or password.isdigit()):
-                raise DeviceError('保存密钥至少需要12位且不能全为数字；可取消保存后连接')
             status, data, _ = self._request(host, '/api/v1/control', 'POST',
                 {'action': 'acquire', 'session': session}, password=password)
             if status != 200 or data.get('accepted') is not True:
-                raise DeviceError('控制密码错误' if status == 401 else data.get('error') or f'连接控制失败（HTTP {status}）')
+                raise DeviceError('控制密码错误' if status == 401 else data.get('error') or f'连接控制失败（HTTP {status}）',
+                                  code='invalid_password' if status == 401 else 'connect_failed',
+                                  retryable=status in (408, 429, 500, 502, 503, 504))
             with self._guard:
                 self._sessions[host] = {'password': password, 'control_session': session, 'sequence': data.get('sequence', 0)}
                 self._active_host = host
             if persist:
-                try: KEYS.save(host, password)
+                try: KEYS.save(host, password, minimum_length=1)
                 except RuntimeError as exc: raise DeviceError('已连接，但密钥未保存：' + str(exc))
             return dict(data, online=True, host=host, remembered=bool(remember), key_saved=KEYS.has(host))
         if not isinstance(password, str) or not 1 <= len(password) <= 256:
@@ -229,6 +324,8 @@ class DeviceClient:
         return {'online': True, 'host': host, 'remembered': bool(remember), 'key_saved': KEYS.has(host)}
 
     def forget(self, host=None):
+        if host is None or self.lora.status()['host'] == display_host(host):
+            self.lora.close()
         with self._guard:
             if host:
                 self._sessions.pop(display_host(host), None)
@@ -242,7 +339,7 @@ class DeviceClient:
         return session.get('cookie') if session else None
 
     def wifi_control(self, host, action, session, sequence, **payload):
-        """One authenticated single-S3 command; failures never reconnect or retry."""
+        """Send once. Keep credentials on transient faults; never reacquire or replay."""
         host = display_host(host)
         if not self.is_robotfish(host):
             raise DeviceError('请先检测并连接 RobotFish 控制')
@@ -251,25 +348,148 @@ class DeviceClient:
             password = saved.get('password')
             connected = saved.get('control_session') == session and bool(password)
         if not connected:
-            raise DeviceError('控制会话未连接或已被接管，请重新连接控制')
-        if action not in ('target', 'mode', 'stop') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+            raise DeviceError('控制会话未连接或已被接管，请重新连接控制', code='control_session_changed')
+        if saved.get('recovery_required') and action != 'stop':
+            raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         body = dict(payload, action=action, session=session, sequence=sequence)
+        status, result = None, {}
         try:
             status, result, _ = self._request(host, '/api/v1/control', 'POST', body, password=password)
             if status != 200 or result.get('accepted') is not True:
+                code = result.get('error')
+                transient = status in (408, 429, 500, 502, 503, 504) or code in (
+                    'lora_primary_active', 'neutral_pending', 'control_busy', 'control_timeout', 'stale_sequence', 'command_expired')
                 raise DeviceError('控制密码错误，请重新连接' if status == 401 else
-                    '控制会话已失效、指令过期或设备维护中，请重新连接' if status == 409 else
-                    result.get('error') or f'控制失败（HTTP {status}）')
-        except DeviceError:
+                    result.get('error') if status == 409 else
+                    result.get('error') or f'控制失败（HTTP {status}）',
+                    code=code if isinstance(code, str) else f'http_{status}', retryable=transient)
+        except DeviceError as exc:
             with self._guard:
                 if self._sessions.get(host, {}).get('control_session') == session:
-                    self._sessions.pop(host, None)
+                    if exc.retryable:
+                        if exc.code not in ('lora_primary_active', 'neutral_pending'):
+                            self._sessions[host]['recovery_required'] = True
+                    else:
+                        self._sessions.pop(host, None)
+            if exc.code not in ('lora_primary_active', 'neutral_pending'):
+                self.lora.clear_target()
+            event('control_interrupted', host=host, action=action, status=status,
+                  code=exc.code, retryable=exc.retryable)
             raise
         with self._guard:
             if self._sessions.get(host, {}).get('control_session') == session:
                 self._sessions[host]['sequence'] = sequence
+                if action == 'stop':
+                    self._sessions[host].pop('recovery_required', None)
         return dict(result, id=sequence, simulated=False)
+
+    def configure_lora(self, host, **options):
+        host = display_host(host)
+        with self._guard:
+            if self._capabilities.get(host, {}).get('lora_protocol') != 2:
+                raise DeviceError('请先检测支持双链路的固件')
+            if not self._sessions.get(host, {}).get('control_session'):
+                raise DeviceError('请先连接控制，再连接 LoRa 串口')
+        try:
+            status = self.lora.configure(host, **options)
+            with self._guard:
+                raw = self._motion_latest.get(host, ({}, 0))[0]
+            self.lora.synchronize(raw.get('lora', {}).get('last_source'), raw.get('lora', {}).get('last_sequence'))
+            return status
+        except (OSError, ValueError, ImportError) as exc:
+            raise DeviceError(str(exc)) from exc
+
+    @staticmethod
+    def _order_motion(saved, sequence, client_id):
+        # Each page orders its own requests; the device wire sequence is shared.
+        orders = saved.setdefault('client_sequences', {})
+        key = client_id or ''
+        previous = orders.get(key, saved.get('client_sequence', 0) if client_id is None else 0)
+        if sequence <= previous:
+            raise DeviceError('旧控制请求已拒绝', code='stale_client_sequence')
+        orders[key] = sequence
+        saved['client_sequence'] = max(saved.get('client_sequence', 0), sequence)
+
+    def motion_control(self, host, action, session, sequence, *, client_id=None, **payload):
+        host = display_host(host)
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+            raise DeviceError('无效控制操作或序号')
+        if client_id is not None and (not isinstance(client_id, str) or not 1 <= len(client_id) <= 64 or
+                                     any(not 32 <= ord(c) <= 126 for c in client_id)):
+            raise DeviceError('无效页面标识')
+        with self._guard:
+            dual = self._capabilities.get(host, {}).get('lora_protocol') == 2
+            if action in ('attitude_on', 'attitude_off') and self._capabilities.get(host, {}).get('attitude_control_supported') is not True:
+                raise DeviceError('当前固件未提供陀螺仪控制，请先更新固件', code='unsupported_control')
+            if action == 'attitude_on' and self._capabilities.get(host, {}).get('attitude_control_calibrated') is not True:
+                raise DeviceError('请先确认 IMU 安装轴向和执行器纠偏方向，完成标定后再开启', code='attitude_not_calibrated')
+        if action in ('attitude_on', 'attitude_off') and payload:
+            raise DeviceError('姿态辅助开关不接受运动目标或额外参数')
+        if not dual:
+            with self._motion_guard:
+                with self._guard:
+                    saved = self._sessions.get(host) or {}
+                    if saved.get('control_session') != session or not saved.get('password'):
+                        raise DeviceError('控制会话未连接，请重新连接', code='control_session_changed')
+                    self._order_motion(saved, sequence, client_id)
+                    raw = self._motion_latest.get(host, ({}, 0))[0]
+                    reported = raw.get('wifi', {}).get('sequence', 0) if raw.get('wifi', {}).get('session') == session else 0
+                    wire = max(saved.get('sequence', 0), reported if type(reported) is int else 0) + 1
+                return self.wifi_control(host, action, session, wire, **payload)
+        if action == 'target':
+            axes = payload.get('axes')
+            if not isinstance(axes, dict) or set(axes) != {'surge', 'yaw', 'heave'} or any(
+                    type(x) not in (int, float) or not math.isfinite(x) or not -100 <= x <= 100 for x in axes.values()):
+                raise DeviceError('三轴目标超出范围')
+            scale = payload.get('propulsion_scale', 100)
+            if type(scale) not in (int, float) or not math.isfinite(scale) or not 0 <= scale <= 100:
+                raise DeviceError('推进比例超出范围')
+        if action == 'mode' and (type(payload.get('mode')) is not int or payload['mode'] not in (1, 2, 3)):
+            raise DeviceError('无效运动模式')
+        with self._motion_guard:
+            with self._guard:
+                saved = self._sessions.get(host) or {}
+                if saved.get('control_session') != session or not saved.get('password'):
+                    raise DeviceError('控制会话未连接，请重新连接', code='control_session_changed')
+                if saved.get('recovery_required') and action != 'stop':
+                    raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
+                self._order_motion(saved, sequence, client_id)
+                raw, received = self._motion_latest.get(host, ({}, 0))
+                if action == 'mode':
+                    saved['desired_mode'] = payload['mode']
+                mode = saved.get('desired_mode', raw.get('mode', 2))
+                wire = max(saved.get('sequence', 0), raw.get('wifi', {}).get('sequence', 0))
+            link = self.lora.status()
+            fresh = time.monotonic() - received < 2
+            available = link['connected'] and link['host'] == host
+            healthy = raw.get('lora', {}).get('healthy')
+            lora_payload = dict(payload, mode=mode)
+            if action == 'stop':
+                queued = self.lora.submit(host, action, lora_payload) if available else None
+                try:
+                    return dict(self.wifi_control(host, action, session, wire + 1), transport='wifi', lora_queued=bool(queued))
+                except DeviceError:
+                    if queued:
+                        return dict(queued, id=sequence)
+                    raise
+            if available and (not fresh or healthy is not False):
+                return dict(self.lora.submit(host, action, lora_payload), id=sequence)
+            self.lora.clear_target()
+            if not fresh:
+                raise DeviceError('Wi-Fi 遥测已过期，无法确认备用通道', code='telemetry_stale', retryable=True)
+            if healthy is not False:
+                return {'accepted': False, 'waiting': True, 'transport': 'waiting', 'id': sequence, 'simulated': False}
+            try:
+                if action == 'target' and raw.get('mode') != mode:
+                    self.wifi_control(host, 'mode', session, wire + 1, mode=mode)
+                    wire += 1
+                return dict(self.wifi_control(host, action, session, wire + 1, **payload), transport='wifi')
+            except DeviceError as exc:
+                if str(exc) in ('lora_primary_active', 'neutral_pending'):
+                    return {'accepted': False, 'waiting': True, 'transport': 'waiting', 'id': sequence, 'simulated': False}
+                raise
 
     def _reauthenticate(self, host):
         """Retry once with a remembered password after a 401."""
@@ -397,15 +617,72 @@ class DeviceClient:
         """Normalised robot telemetry, ready for direct display."""
         host = display_host(host)
         if self.is_robotfish(host) or self._robotfish_identity(host):
-            status, raw, _ = self._request(host, '/motion_status')
-            if status != 200:
-                raise DeviceError(raw.get('error') or f'设备返回 HTTP {status}')
-            try:
-                view = robotfish.normalize(raw, host)
+            # A single telemetry connection, independent of the motion lock.
+            with self._telemetry_guard:
                 with self._guard:
-                    session = (self._sessions.get(host) or {}).get('control_session')
+                    raw, received = self._motion_latest.get(host, ({}, float('-inf')))
+                    saved = self._sessions.get(host) or {}
+                    session, sequence = saved.get('control_session'), saved.get('sequence', 0)
+                    generation = saved.setdefault('_generation', object()) if session else None
+                previous_failure = self._telemetry_failures.get(host)
+                if previous_failure and previous_failure['generation'] is generation and time.monotonic() < previous_failure['retry_at']:
+                    raise DeviceError(previous_failure['message'], code=previous_failure['code'],
+                                      retryable=previous_failure['retryable'])
+                if time.monotonic() - received >= TELEMETRY_CACHE_SECONDS or (
+                        session and (raw.get('wifi', {}).get('session') != session or
+                                     raw.get('wifi', {}).get('sequence', 0) != sequence)):
+                    started = time.monotonic()
+                    try:
+                        status, raw, _ = self._request(host, '/motion_status')
+                        if status != 200:
+                            raise DeviceError(raw.get('error') or f'设备返回 HTTP {status}',
+                                              code=f'http_{status}', retryable=status in (408, 429, 500, 502, 503, 504))
+                        # Reject invalid payloads before publishing a new cached sample.
+                        robotfish.normalize(raw, host)
+                    except (DeviceError, ValueError, TypeError, AttributeError) as exc:
+                        error = exc if isinstance(exc, DeviceError) else DeviceError(str(exc), code='invalid_response')
+                        failures = previous_failure['attempts'] + 1 if previous_failure and previous_failure['generation'] is generation else 1
+                        # Coalesce failures too: multiple tabs must not queue serial 1.5 s timeouts.
+                        self._telemetry_failures[host] = dict(message=str(error), code=error.code,
+                            retryable=error.retryable, attempts=failures, generation=generation,
+                            retry_at=time.monotonic() + min(3, .25 * 2 ** min(failures - 1, 4)))
+                        with self._guard:
+                            if session and self._sessions.get(host) is saved:
+                                saved['recovery_required'] = True
+                        self.lora.clear_target()
+                        event('telemetry_interrupted', host=host, code=error.code, retryable=error.retryable)
+                        if error is exc:
+                            raise
+                        raise error from exc
+                    received = time.monotonic()
+                    self._telemetry_latency[host] = (received - started) * 1000
+                    self._telemetry_sessions[host] = generation
+                    self._telemetry_failures.pop(host, None)
+                    with self._guard:
+                        self._motion_latest[host] = (raw, received)
+                latency = self._telemetry_latency.get(host, 0)
+            try:
+                # Include Wi-Fi transit and cache residence; old samples never gain freshness.
+                view = robotfish.normalize(raw, host, latency + max(0, time.monotonic() - received) * 1000)
+                view['telemetry_rtt_ms'] = round(latency, 2)
+                logged, frames, rx_bytes = self._telemetry_logged.get(host, (0, 0, 0))
+                if received - logged >= 1:
+                    imu = view['imu']
+                    interval = received - logged if logged else 0
+                    event('telemetry', host=host, rtt_ms=round(latency, 2), imu=imu,
+                          frames_per_s=round(max(0, (imu['frames'] or 0) - frames) / interval, 2) if interval else None,
+                          bytes_per_s=round(max(0, (imu['rx_bytes'] or 0) - rx_bytes) / interval, 2) if interval else None,
+                          route=view['control']['route'], safety=view['safety_mode'], attitude=view.get('attitude_control'))
+                    self._telemetry_logged[host] = (received, imu['frames'] or 0, imu['rx_bytes'] or 0)
+                self.lora.synchronize(raw.get('lora', {}).get('last_source'), raw.get('lora', {}).get('last_sequence'))
+                view['lora_sender'] = self.lora.status()
+                with self._guard:
+                    saved = self._sessions.get(host) or {}
+                    session = saved.get('control_session')
                 view['control']['connected'] = bool(session and raw.get('wifi', {}).get('session') == session)
                 view['control']['session'] = raw.get('wifi', {}).get('session', '')
+                view['control']['session_confirmed'] = not session or self._telemetry_sessions.get(host) is saved.get('_generation')
+                view['control']['recovery_required'] = bool(saved.get('recovery_required'))
                 return view
             except (ValueError, TypeError, AttributeError) as exc:
                 raise DeviceError(str(exc)) from exc

@@ -9,6 +9,7 @@ import time
 FIRMWARE = 'robotfish'
 HARDWARE = 'robotfish-esp32s3'
 PROJECT = 'robotfish'
+DEFAULT_CONTROL_PASSWORD = 'fishota'  # Matches the RobotFish firmware's factory configuration.
 MAX_IMAGE_BYTES = 0x330000
 
 
@@ -17,7 +18,7 @@ def validate_identity(data):
             and data.get('hardware') == HARDWARE and data.get('project_name') == PROJECT)
 
 
-def normalize(raw, host):
+def normalize(raw, host, elapsed_ms=0):
     if not isinstance(raw, dict) or type(raw.get('version')) is not int or raw['version'] != 1:
         raise ValueError('不支持的 RobotFish 运动诊断版本')
     def number(value):
@@ -30,14 +31,55 @@ def normalize(raw, host):
         ('left_esc', 'left_motor_pct'), ('right_esc', 'right_motor_pct'))}
     actuators['pitch'] = None
     target = raw.get('remote_target', {})
-    radio = raw.get('wifi', raw.get('lora', {}))
+    dual = raw.get('lora_protocol') == 2
+    radio = raw.get('lora', {}) if dual else raw.get('wifi', raw.get('lora', {}))
+    sensor = raw.get('imu', {})
+    angles = sensor.get('angles_deg', {})
+    age = number(angles.get('age_ms'))
+    if age is not None and age >= 0:
+        age += max(0, elapsed_ms)
+    attitude = angles.get('valid') is True and age is not None and 0 <= age <= 500
+    attitude = attitude and all(number(angles.get(axis)) is not None for axis in ('x', 'y', 'z'))
+    imu = {'model': sensor.get('model', ''), 'valid': attitude, 'age_ms': age,
+           'roll': number(angles.get('x')) if attitude else None,
+           'pitch': number(angles.get('y')) if attitude else None,
+           'yaw': number(angles.get('z')) if attitude else None,
+           'uart_ready': sensor.get('uart_ready') is True,
+           'rx_bytes': number(sensor.get('rx_bytes')),
+           'baud': number(sensor.get('baud')), 'frames': number(sensor.get('frames')),
+           'checksum_errors': number(sensor.get('checksum_errors')),
+           'receive_errors': number(sensor.get('receive_errors'))}
+    feedback = raw.get('attitude_control', {})
+    feedback_age = number(feedback.get('age_ms'))
+    if feedback_age is not None:
+        feedback_age += max(0, elapsed_ms)
+    maximum_age = number(feedback.get('maximum_age_ms'))
+    feedback_valid = feedback.get('body_valid') is True and feedback_age is not None and maximum_age is not None and 0 <= feedback_age <= maximum_age
+    stabilizer = dict(supported=raw.get('attitude_control_supported') is True,
+        enabled=feedback.get('enabled') is True, reason=feedback.get('reason', 'unavailable'),
+        pitch_calibrated=feedback.get('pitch_calibrated') is True, roll_calibrated=feedback.get('roll_calibrated') is True,
+        yaw_calibrated=feedback.get('yaw_calibrated') is True,
+        pitch_active=feedback.get('pitch_active') is True and feedback_valid,
+        roll_active=feedback.get('roll_active') is True and feedback_valid,
+        yaw_active=feedback.get('yaw_active') is True and feedback_valid,
+        heading_valid=feedback.get('heading_valid') is True and feedback_valid,
+        heading_locked=feedback.get('heading_locked') is True and feedback_valid,
+        manual_yaw=feedback.get('manual_yaw') is True,
+        age_ms=feedback_age, maximum_age_ms=maximum_age, body_valid=feedback_valid,
+        body_roll_deg=number(feedback.get('body_roll_deg')) if feedback_valid else None,
+        body_pitch_deg=number(feedback.get('body_pitch_deg')) if feedback_valid else None,
+        body_yaw_deg=number(feedback.get('body_yaw_deg')) if feedback_valid and feedback.get('heading_valid') is True else None,
+        heading_target_deg=number(feedback.get('heading_target_deg')) if feedback_valid and feedback.get('heading_locked') is True else None,
+        pitch_correction_pct=number(feedback.get('pitch_correction_pct')) if feedback_valid else None,
+        roll_correction_pct=number(feedback.get('roll_correction_pct')) if feedback_valid else None,
+        yaw_correction_pct=number(feedback.get('yaw_correction_pct')) if feedback_valid else None)
     source = raw.get('source', 'unknown')
     failsafe = raw.get('failsafe_active')
     mode, action = raw.get('mode'), raw.get('action')
     wifi = raw.get('wifi_control_allowed') is True and raw.get('control_protocol') == 1
     safety = ('LEASE_EXPIRED' if failsafe is True else 'RUNNING' if raw.get('remote_active') is True else 'WAIT_COMMAND') if wifi else ('LEASE_EXPIRED' if failsafe is True else 'UNKNOWN')
     return {'host': host, 'firmware': FIRMWARE, 'online': True, 'ready': None,
-            'wifi_control_allowed': wifi, 'camera': False,
+            'wifi_control_allowed': wifi, 'dual_link': dual, 'imu': imu, 'attitude_control': stabilizer, 'camera': False,
             'camera_stream_url': '', 'camera_capture_url': '',
             'battery': {'valid': False, 'voltage': None, 'age_ms': None,
                         'condition': 'unknown', 'condition_label': '未上报'},
@@ -49,11 +91,13 @@ def normalize(raw, host):
                      'errors': number(radio.get('rejected', radio.get('tx_errors'))), 'round_trip_us': None,
                      'frame_attempts': attempts, 'frame_failures': number(raw.get('failures'))},
             'owner': source if source in ('lora', 'vision', 'wifi') else 'none' if wifi else 'unknown',
-            'safety_mode': safety, 'telemetry_source': 'robotfish_http',
-            'reason': ('指令租约到期：双桨中立，舵机保持最后成功角度' if failsafe is True else
+            'safety_mode': raw.get('safety_state', safety), 'telemetry_source': 'robotfish_http',
+            'reason': ('指令租约到期：双桨中立、舵机回中' if failsafe is True else
+                       'LoRa 主控，失联后 Wi-Fi 备用；IMU 姿态经 Wi-Fi 回传' if dual else
                        '2.4G Wi-Fi 运动控制与遥测；六路数值为驱动写入目标，非位置反馈' if wifi else
                        '单 ESP32-S3 实际驱动写入目标（非位置反馈）；电池状态未上报；LoRa 接收运动指令'),
-            'control': {'mode': mode, 'source': source, 'axes': {
+            'control': {'mode': mode, 'source': source, 'route': raw.get('preferred_control', 'wifi' if wifi else 'lora'),
+                        'lora_healthy': raw.get('lora', {}).get('healthy'), 'lora_age_ms': raw.get('lora', {}).get('age_ms'), 'axes': {
                 name: number(target.get(key)) for name, key in (
                     ('surge', 'surge_pct'), ('yaw', 'yaw_pct'), ('heave', 'heave_pct'))}},
             'diagnostics': raw}

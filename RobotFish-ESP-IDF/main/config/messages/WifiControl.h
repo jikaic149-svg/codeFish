@@ -6,8 +6,9 @@ namespace robofish::wifi {
 inline constexpr unsigned kSessionCapacity = 65;
 inline constexpr unsigned kQueueDepth = 8;
 
-enum class Action : uint8_t { Acquire, Target, Mode, Stop };
-enum class Code : uint8_t { Accepted, Invalid, SessionConflict, StaleSequence, Expired, Maintenance };
+enum class Action : uint8_t { Acquire, Target, Mode, Stop, AttitudeOn, AttitudeOff };
+enum class Code : uint8_t { Accepted, Invalid, SessionConflict, StaleSequence, Expired, Maintenance,
+                          OutputRecovery, OutputFault, LoRaActive, NeutralPending };
 struct Axes { float surge = 0, yaw = 0, heave = 0; };
 
 // HTTP owns publication; the 10 ms control owner consumes at most eight copies.
@@ -18,6 +19,7 @@ struct Command {
   Action action = Action::Stop;
   DriveMode mode = DriveMode::Prop;
   Axes axes;
+  float propulsionScalePercent = 100; // Optional target field; manual clients default to full range.
 };
 struct Result {
   uint32_t requestId = 0;
@@ -26,7 +28,7 @@ struct Result {
   uint32_t sequence = 0;
   DriveMode mode = DriveMode::Prop;
   Axes axes;
-  bool leaseActive = false, stopPending = false;
+  bool leaseActive = false, stopPending = false, attitudeEnabled = false;
 };
 struct Status {
   char session[kSessionCapacity]{};

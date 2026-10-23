@@ -17,6 +17,7 @@ struct Request {
   bool allowFlowAssist = false;
   bool immediate = false;  // Existing immediate stop/failsafe path; bypass slew only.
   float outputScale = 1;
+  float propulsionScale = 1; // [0,1], applies after prop mixing; leaves tail and fins unchanged.
   // Preserve independent tail/prop drive demands from existing upstream controls.
   // Nodes do not know whether the caller is a radio, vision or manual source.
   bool independentDrives = false;

@@ -1,5 +1,6 @@
 #include "network.h"
 #include "bsp.h"
+#include "Service/LoRa/LoraProtocol.h"
 #include "Service/Wifi/ControlProtocol.h"
 #include <algorithm>
 #include <array>
@@ -7,6 +8,8 @@
 #include <cstdio>
 #include <cstring>
 #include "config/AppConfig.h"
+#include "config/BoardConfig.h"
+#include "config/AttitudeConfig.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -22,7 +25,7 @@
 #include "freertos/task.h"
 
 namespace {
-QueueHandle_t snapshots, commands, commandResults, stopRequests, stopResults;
+QueueHandle_t snapshots, stopRequests, stopResults, commands, commandResults;
 std::atomic_bool runtimeReady{false};
 httpd_handle_t server = nullptr;
 esp_netif_t *apNetif = nullptr;
@@ -67,7 +70,18 @@ esp_err_t identity(httpd_req_t *req) {
   cJSON_AddBoolToObject(body, "pump_available", false);
   cJSON_AddBoolToObject(body, "wifi_control_allowed", true);
   cJSON_AddNumberToObject(body, "control_protocol", 1);
-  cJSON_AddStringToObject(body, "control_transport", "wifi");
+  cJSON_AddStringToObject(body, "control_transport", "lora_wifi_fallback");
+  cJSON_AddStringToObject(body, "telemetry_transport", "wifi");
+  cJSON_AddNumberToObject(body, "lora_protocol", 2);
+  cJSON_AddNumberToObject(body, "lora_timeout_ms", robofish::config::lora::kLinkTimeoutMs);
+  cJSON_AddStringToObject(body, "imu_model", "JY61P");
+  cJSON_AddNumberToObject(body, "imu_baud", board::config::kImuBaud);
+  cJSON_AddBoolToObject(body, "heave_fin_only", true);
+  cJSON_AddBoolToObject(body, "propulsion_scale_control", true);
+  const auto attitudeSettings = robofish::config::attitude::makeSettings();
+  cJSON_AddBoolToObject(body, "attitude_control_supported", true);
+  const auto calibration = robofish::attitude::evaluate(attitudeSettings, {}, 0, false, false, false);
+  cJSON_AddBoolToObject(body, "attitude_control_calibrated", calibration.pitchCalibrated || calibration.rollCalibrated || calibration.yawCalibrated);
   return json(req, body);
 }
 
@@ -90,21 +104,36 @@ esp_err_t telemetry(httpd_req_t *req) {
     return httpd_resp_send(req, "No control snapshot", HTTPD_RESP_USE_STRLEN);
   }
   const auto &target = s.control.target;
+  const bool failsafe = s.control.expired || s.control.outputRecovery || s.control.outputFault;
   cJSON *body = cJSON_CreateObject();
   cJSON_AddNumberToObject(body, "version", 1);
-  cJSON_AddStringToObject(body, "source", s.control.expired ? "failsafe" : s.control.leaseActive ? "wifi" : "none");
-  cJSON_AddStringToObject(body, "last_source", "wifi");
+  cJSON_AddStringToObject(body, "source", failsafe ? "failsafe" : s.control.leaseActive ? s.control.controlSource() : "none");
+  cJSON_AddStringToObject(body, "last_source", s.control.controlSource());
+  cJSON_AddStringToObject(body, "control_transport", "lora_wifi_fallback");
+  cJSON_AddStringToObject(body, "telemetry_transport", "wifi");
+  cJSON_AddNumberToObject(body, "lora_protocol", 2);
+  cJSON_AddNumberToObject(body, "lora_timeout_ms", robofish::config::lora::kLinkTimeoutMs);
   cJSON_AddBoolToObject(body, "wifi_control_allowed", true);
   cJSON_AddNumberToObject(body, "control_protocol", 1);
   cJSON_AddNumberToObject(body, "mode", static_cast<int>(target.mode));
+  cJSON_AddNumberToObject(body, "propulsion_scale_percent", target.propulsionScale * 100);
   const auto action = !s.control.leaseActive ? MotionAction::Stopped :
       target.surgePercent < 0 ? MotionAction::Backward :
       target.yawPercent < 0 ? MotionAction::Left : target.yawPercent > 0 ? MotionAction::Right :
       target.surgePercent > 0 ? MotionAction::Forward : MotionAction::Stopped;
   cJSON_AddNumberToObject(body, "action", static_cast<int>(action));
   cJSON_AddBoolToObject(body, "remote_active", s.control.leaseActive);
-  cJSON_AddBoolToObject(body, "failsafe_active", s.control.expired);
+  cJSON_AddBoolToObject(body, "failsafe_active", failsafe);
+  cJSON_AddStringToObject(body, "lease_servo_action", "center");
+  cJSON_AddStringToObject(body, "safety_state", s.control.safetyState());
+  cJSON_AddBoolToObject(body, "output_warning", s.control.outputFailureStreak > 0 && !s.control.outputRecovery && !s.control.outputFault);
+  cJSON_AddBoolToObject(body, "output_recovery", s.control.outputRecovery);
+  cJSON_AddBoolToObject(body, "output_fault", s.control.outputFault);
+  cJSON_AddNumberToObject(body, "output_failure_streak", s.control.outputFailureStreak);
+  cJSON_AddNumberToObject(body, "failed_mask", s.control.failedMask);
+  cJSON_AddBoolToObject(body, "control_rearm_required", s.control.outputRecovery || s.control.outputFault);
   cJSON_AddBoolToObject(body, "ota_locked", s.control.maintenance);
+  cJSON_AddBoolToObject(body, "soft_stopping", s.control.softStopping);
   cJSON_AddBoolToObject(body, "pump_enabled", false);
   cJSON_AddNumberToObject(body, "uptime_ms", s.nowMs);
   const auto age = uint32_t(s.nowMs - s.control.lastMotionMs);
@@ -131,7 +160,92 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(wifi, "sequence", s.wifi.sequence);
   cJSON_AddNumberToObject(wifi, "accepted", s.wifi.accepted);
   cJSON_AddNumberToObject(wifi, "rejected", s.wifi.rejected);
-  cJSON_AddBoolToObject(body, "attitude_available", false);
+  cJSON_AddNumberToObject(wifi, "result_drops", s.wifi.resultDrops);
+  cJSON_AddStringToObject(body, "preferred_control", s.control.loraHealthy(s.nowMs) ? "lora" : "wifi");
+  cJSON *lora = cJSON_AddObjectToObject(body, "lora");
+  cJSON_AddBoolToObject(lora, "healthy", s.control.loraHealthy(s.nowMs));
+  cJSON_AddBoolToObject(lora, "seen", s.control.loRaSeen);
+  if (s.control.loRaSeen) cJSON_AddNumberToObject(lora, "age_ms", uint32_t(s.nowMs - s.control.lastLoRaMs));
+  cJSON_AddBoolToObject(lora, "uart_ready", s.loraReady);
+  cJSON_AddBoolToObject(lora, "tx_enabled", s.lora.txEnabled);
+  cJSON_AddNumberToObject(lora, "accepted", s.lora.accepted);
+  cJSON_AddNumberToObject(lora, "rejected", s.lora.rejected);
+  cJSON_AddNumberToObject(lora, "duplicates", s.lora.duplicates);
+  cJSON_AddNumberToObject(lora, "stale", s.lora.stale);
+  cJSON_AddNumberToObject(lora, "receive_errors", s.lora.receiveErrors);
+  cJSON_AddNumberToObject(lora, "last_source", s.lora.lastSource);
+  cJSON_AddNumberToObject(lora, "last_sequence", s.lora.lastSequence);
+  cJSON_AddNumberToObject(lora, "last_code", s.lora.lastCode);
+  cJSON_AddNumberToObject(lora, "last_command_ms", s.lora.lastCommandMs);
+  cJSON_AddNumberToObject(lora, "knob", s.control.knob);
+  const auto &result = s.control.loraResult;
+  cJSON *reply = cJSON_AddObjectToObject(body, "command_result");
+  cJSON_AddBoolToObject(reply, "available", result.available);
+  if (result.available) {
+    cJSON_AddBoolToObject(reply, "accepted", result.code == robofish::lora::ControlCode::Accepted);
+    cJSON_AddStringToObject(reply, "result", robofish::lora::controlCodeName(result.code));
+    cJSON_AddNumberToObject(reply, "source", result.command.source);
+    cJSON_AddNumberToObject(reply, "sequence", result.command.sequence);
+    cJSON_AddNumberToObject(reply, "code", result.command.code);
+    cJSON_AddNumberToObject(reply, "received_ms", result.receivedMs);
+  }
+  char ack[64]{};
+  if (s.lora.accepted) {
+    robofish::lora::Command accepted;
+    accepted.source = s.lora.lastSource; accepted.sequence = s.lora.lastSequence; accepted.code = s.lora.lastCode;
+    robofish::lora::formatAck(ack, sizeof(ack), accepted, s.lora.accepted);
+  }
+  cJSON_AddStringToObject(lora, "last_ack", ack); // 原 910 回执仅通过 HTTP 读取。
+  const auto &imu = s.imu;
+  cJSON *sensor = cJSON_AddObjectToObject(body, "imu");
+  cJSON_AddStringToObject(sensor, "model", "JY61P");
+  cJSON_AddBoolToObject(sensor, "uart_ready", imu.uartReady);
+  cJSON_AddNumberToObject(sensor, "baud", imu.baud);
+  cJSON_AddNumberToObject(sensor, "rx_bytes", imu.receivedBytes);
+  cJSON_AddNumberToObject(sensor, "frames", imu.frames);
+  cJSON_AddNumberToObject(sensor, "checksum_errors", imu.checksumErrors);
+  cJSON_AddNumberToObject(sensor, "receive_errors", imu.receiveErrors);
+  const auto sample = [&](const char *name, const robofish::imu::Vector3 &value, bool valid, uint32_t at) {
+    cJSON *item = cJSON_AddObjectToObject(sensor, name);
+    cJSON_AddBoolToObject(item, "valid", valid && uint32_t(s.nowMs - at) <= 500);
+    if (valid) {
+      cJSON_AddNumberToObject(item, "x", value.x);
+      cJSON_AddNumberToObject(item, "y", value.y);
+      cJSON_AddNumberToObject(item, "z", value.z);
+      cJSON_AddNumberToObject(item, "age_ms", uint32_t(s.nowMs - at));
+    }
+  };
+  sample("acceleration_g", imu.acceleration, imu.hasAcceleration, imu.accelerationMs);
+  sample("angular_velocity_dps", imu.angularVelocity, imu.hasAngularVelocity, imu.angularVelocityMs);
+  sample("angles_deg", imu.angles, imu.hasAngles, imu.anglesMs);
+  cJSON_AddBoolToObject(body, "attitude_available", imu.hasAngles && uint32_t(s.nowMs - imu.anglesMs) <= 500);
+  cJSON_AddBoolToObject(body, "attitude_control_supported", true);
+  cJSON *attitude = cJSON_AddObjectToObject(body, "attitude_control");
+  const auto &feedback = s.attitude;
+  cJSON_AddBoolToObject(attitude, "enabled", s.control.attitudeEnabled);
+  cJSON_AddStringToObject(attitude, "reason", robofish::attitude::reasonName(feedback.reason));
+  cJSON_AddBoolToObject(attitude, "pitch_calibrated", feedback.pitchCalibrated);
+  cJSON_AddBoolToObject(attitude, "roll_calibrated", feedback.rollCalibrated);
+  cJSON_AddBoolToObject(attitude, "yaw_calibrated", feedback.yawCalibrated);
+  cJSON_AddBoolToObject(attitude, "body_valid", feedback.bodyValid);
+  cJSON_AddBoolToObject(attitude, "pitch_active", feedback.pitchActive);
+  cJSON_AddBoolToObject(attitude, "roll_active", feedback.rollActive);
+  cJSON_AddBoolToObject(attitude, "yaw_active", feedback.yawActive);
+  cJSON_AddBoolToObject(attitude, "heading_valid", feedback.headingValid);
+  cJSON_AddBoolToObject(attitude, "heading_locked", feedback.headingLocked);
+  cJSON_AddBoolToObject(attitude, "manual_yaw", feedback.manualYaw);
+  cJSON_AddNumberToObject(attitude, "maximum_age_ms", robofish::config::attitude::kMaximumSampleAgeMs);
+  cJSON_AddNumberToObject(attitude, "pitch_correction_pct", feedback.pitchCorrectionPercent);
+  cJSON_AddNumberToObject(attitude, "roll_correction_pct", feedback.rollCorrectionPercent);
+  cJSON_AddNumberToObject(attitude, "yaw_correction_pct", feedback.yawCorrectionPercent);
+  if (feedback.hasSample)
+    cJSON_AddNumberToObject(attitude, "age_ms", uint32_t(s.nowMs - feedback.sampleMs));
+  if (feedback.bodyValid) {
+    cJSON_AddNumberToObject(attitude, "body_roll_deg", feedback.rollDegrees);
+    cJSON_AddNumberToObject(attitude, "body_pitch_deg", feedback.pitchDegrees);
+    if (feedback.headingValid) cJSON_AddNumberToObject(attitude, "body_yaw_deg", feedback.yawDegrees);
+  }
+  if (feedback.headingLocked) cJSON_AddNumberToObject(attitude, "heading_target_deg", feedback.headingTargetDegrees);
   return json(req, body);
 }
 
@@ -214,7 +328,11 @@ esp_err_t controlRequest(httpd_req_t *req) {
     const char *reason = result.code == Code::Invalid ? "invalid_control" :
         result.code == Code::SessionConflict ? "control_session_changed" :
         result.code == Code::StaleSequence ? "stale_sequence" :
-        result.code == Code::Expired ? "command_expired" : "ota_locked";
+        result.code == Code::Expired ? "command_expired" :
+        result.code == Code::OutputRecovery ? "output_recovery" :
+        result.code == Code::OutputFault ? "output_fault" :
+          result.code == Code::LoRaActive ? "lora_primary_active" :
+          result.code == Code::NeutralPending ? "neutral_pending" : "ota_locked";
     return controlError(req, result.code == Code::Invalid ? "400 Bad Request" : "409 Conflict", reason);
   }
   cJSON *body = cJSON_CreateObject();
@@ -227,6 +345,7 @@ esp_err_t controlRequest(httpd_req_t *req) {
   cJSON_AddBoolToObject(body, "simulated", false);
   cJSON_AddBoolToObject(body, "lease_active", result.leaseActive);
   cJSON_AddBoolToObject(body, "stop_pending", result.stopPending);
+  cJSON_AddBoolToObject(body, "attitude_enabled", result.attitudeEnabled);
   cJSON *axes = cJSON_AddObjectToObject(body, "axes");
   cJSON_AddNumberToObject(axes, "surge", result.axes.surge);
   cJSON_AddNumberToObject(axes, "yaw", result.axes.yaw);
@@ -301,9 +420,10 @@ esp_err_t update(httpd_req_t *req) {
 }
 }
 
-bool networkBegin(QueueHandle_t values, QueueHandle_t controlRequests, QueueHandle_t controlResults,
+bool networkBegin(QueueHandle_t values, QueueHandle_t controlCommands, QueueHandle_t controlResults,
                   QueueHandle_t requests, QueueHandle_t results) {
-  snapshots = values; commands = controlRequests; commandResults = controlResults;
+  commands = controlCommands; commandResults = controlResults;
+  snapshots = values;
   stopRequests = requests; stopResults = results;
   if (nvs_flash_init() != ESP_OK || esp_netif_init() != ESP_OK ||
       esp_event_loop_create_default() != ESP_OK) return false;
@@ -326,6 +446,7 @@ bool networkBegin(QueueHandle_t values, QueueHandle_t controlRequests, QueueHand
       {.uri="/get_ip", .method=HTTP_GET, .handler=identity, .user_ctx=nullptr},
       {.uri="/motion_status", .method=HTTP_GET, .handler=telemetry, .user_ctx=nullptr},
       {.uri="/status", .method=HTTP_GET, .handler=telemetry, .user_ctx=nullptr},
+      {.uri="/lora_status", .method=HTTP_GET, .handler=telemetry, .user_ctx=nullptr},
       {.uri="/api/v1/control", .method=HTTP_POST, .handler=controlRequest, .user_ctx=nullptr},
       {.uri="/", .method=HTTP_GET, .handler=updatePage, .user_ctx=nullptr},
       {.uri="/update", .method=HTTP_GET, .handler=updatePage, .user_ctx=nullptr},

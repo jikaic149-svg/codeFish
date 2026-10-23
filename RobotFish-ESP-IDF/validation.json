@@ -8,45 +8,34 @@
   },
   "legacy_firmware": "C:/Users/rlyoulo/Desktop/robofish_new/embedding/f4/firmware",
   "project": "robotfish",
-  "version": "2.1.0-wifi",
+  "version": "2.2.6-vision",
   "idf": "5.3.2-dirty (installed SDK)",
   "native_idf": true,
   "hardware_confirmations": {
     "single_s3": true,
     "pump_enabled": false,
     "lora_target_lease_ms": 3000,
-    "lease_exit": "both ESC neutral, servos hold last successful API targets",
+    "lease_exit": "both ESC immediately neutral; four servos slew to 90 degrees from last successful outputs",
     "control_transport": "2.4 GHz Wi-Fi only"
   },
   "application": {
     "firmware": "robotfish",
     "hardware": "robotfish-esp32s3",
     "project_name": "robotfish",
-    "version": "2.1.0-wifi",
-    "size": 863712,
+    "version": "2.2.6-vision",
+    "size": 867216,
     "format": "bin",
     "signed": false,
-    "sha256": "d00d8ef53d54ba77e581a6462722bb19c9124cd5c656b70c1a3260723e0c0292"
+    "sha256": "02b056faa11d6b5ca1a474b69c5c78364dd9dc27367785afedc87d17671d7338"
   },
-  "ota_artifact": "artifacts/RobotFish-ESP32S3-OTA-20261017-111715.bin",
-  "build_log": "validation/wifi-build.log",
-  "source_fingerprint_sha256": "2fc1a0d2d01dcb9100b635b4ab7a2ca10a4c9c9c6b2e72ebab606bed603e9092",
+  "ota_artifact": "artifacts/RobotFish-2.2.6-vision-OTA.bin",
+  "source_fingerprint_sha256": "7b1762679a44089822a9d0c906c9d818b1696dc3546486a65719005460926d4d",
   "checks": {
-    "motion_scenarios": 1620,
-    "motion_ticks_compared": 51840,
-    "motion_behavior_assertions": 51901,
-    "motion_current_csv_sha256": "c7c8f9d314e5d87c8d7af87a0e2cdc1a7c2d447cf2a26fb3396715981e1eebf6",
-    "motion_legacy_csv_sha256": "c7c8f9d314e5d87c8d7af87a0e2cdc1a7c2d447cf2a26fb3396715981e1eebf6",
-    "control_state_assertions": 131,
-    "radio_pwm": "actual BSP only, no radio compilation or startup",
-    "upper_unittest_count": 22,
-    "upper_javascript_syntax": "passed",
-    "browser": "Edge loopback: actual embedded HTML and PC workstation; >3s continuous down, keyup/blur/Space STOP, compound axes, 409 locks, confirmed PC OTA, 390px",
-    "browser_screenshot": "validation/upper-ota-verified.png",
-    "real_bin_inspected_by_upper": true,
-    "actual_owner_assertions": 442,
-    "wifi_parser_assertions": 97,
-    "device_browser_screenshot": "validation/device-wifi-verified.png"
+    "esp_idf_build": "passed",
+    "python_and_javascript_syntax": "passed",
+    "behavior_tests": "not run; user will test and accept",
+    "video_tests": "not run",
+    "hardware_updated": false
   },
   "not_hardware_verified": [
     "Wi-Fi motion and HTTP from connected client",
@@ -111,5 +100,6 @@
       "HTTP communication from connected Wi-Fi client",
       "OTA transaction or power-loss rollback"
     ]
-  }
+  },
+  "current_release": "validation/vision-2.2.6.json"
 }

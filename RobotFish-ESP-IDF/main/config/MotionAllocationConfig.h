@@ -25,6 +25,7 @@ struct TailRecipe {
   float turnBiasDegrees = 0;
   float staticSteeringDegrees = 0;
   float rateDegreesPerSecond = 0;
+  float transitionRateDegreesPerSecond = 0; // Bias/envelope and static start/return speed.
   float forwardMaximumFrequencyHz = 0;
   float forwardSpeedFraction = 0;  // (0,1): gait; remainder shared by bias/amplitude.
 };
@@ -32,6 +33,7 @@ struct PropulsionRecipe {
   float commandScale = 1;
   float yawGain = 1;
   float ratePercentPerSecond = 0;
+  float stopRatePercentPerSecond = 0;
   float brakeMaximumReversePercent = 0;
 };
 struct PectoralRecipe {
@@ -70,8 +72,8 @@ namespace robofish::config::motion {
 
 inline robofish::motion::Geometry makeGeometry() {
   return {
-      {lora::kTailFrontCenter, RF_TAIL_MIN_ANGLE, RF_TAIL_MAX_ANGLE},
-      {lora::kTailRearCenter, RF_TAIL_MIN_ANGLE, RF_TAIL_MAX_ANGLE},
+      {lora::kTailFrontCenter, lora::kTailFrontMinimum, lora::kTailFrontMaximum},
+      {lora::kTailRearCenter, lora::kTailRearMinimum, lora::kTailRearMaximum},
       {lora::kPectoralLeftCenter, lora::kPectoralLeftMinimum, lora::kPectoralLeftMaximum},
       {lora::kPectoralRightCenter, lora::kPectoralRightMinimum, lora::kPectoralRightMaximum}};
 }
@@ -91,12 +93,14 @@ inline robofish::motion::Recipe makeRecipe(DriveMode mode) {
   const float tailYawSign = lora::kTurnDirection * lora::kTailSteeringDirection;
   recipe.tail.turnBiasDegrees = lora::kTailTurnBiasDegrees * tailYawSign;
   recipe.tail.staticSteeringDegrees = lora::kTailStaticSteeringDegrees * tailYawSign;
-  recipe.tail.rateDegreesPerSecond = lora::kServoStepPer10Ms * 100;
+  recipe.tail.rateDegreesPerSecond = lora::kTailStepPer10Ms * 100;
+  recipe.tail.transitionRateDegreesPerSecond = config::control::kTailTransitionDegreesPerSecond;
   recipe.propulsion.commandScale = hybrid ? config::control::kHybridPropulsionCommandScale : 1;
   // FRD: the left prop is at negative y, so positive (right) yaw needs T_L>T_R.
   // Do not reuse the old radio-specific steering sign for this geometric law.
   recipe.propulsion.yawGain = 1;
   recipe.propulsion.ratePercentPerSecond = config::control::kPropulsionRatePercentPerSecond;
+  recipe.propulsion.stopRatePercentPerSecond = config::control::kPropulsionStopRatePercentPerSecond;
   recipe.propulsion.brakeMaximumReversePercent = config::control::kBrakeMaximumReversePercent;
   const auto offset = [](int center, int endpoint) {
     // Preserve the existing 132/48, 56/124 endpoint rounding.
@@ -106,7 +110,8 @@ inline robofish::motion::Recipe makeRecipe(DriveMode mode) {
   recipe.pectoral.rightPositivePitchDegrees = offset(lora::kPectoralRightCenter, lora::kPectoralRightUp);
   recipe.pectoral.leftNegativePitchDegrees = offset(lora::kPectoralLeftCenter, lora::kPectoralLeftDown);
   recipe.pectoral.rightNegativePitchDegrees = offset(lora::kPectoralRightCenter, lora::kPectoralRightDown);
-  // Roll geometry remains uncalibrated: its gains are explicitly zero.
+  recipe.pectoral.leftRollDegrees = config::control::kPectoralLeftRollDegrees;
+  recipe.pectoral.rightRollDegrees = config::control::kPectoralRightRollDegrees;
   recipe.pectoral.leftYawDegrees = config::control::kPectoralLeftYawDegrees;
   recipe.pectoral.rightYawDegrees = config::control::kPectoralRightYawDegrees;
   recipe.pectoral.leftBrakeDegrees = config::control::kPectoralLeftBrakeDegrees;

@@ -5,7 +5,9 @@ namespace {
 bool due(uint32_t now, uint32_t deadline) { return static_cast<int32_t>(now-deadline) >= 0; }
 bool same(const Command &a, const Command &b) {
   return a.source == b.source && a.sequence == b.sequence && a.code == b.code && a.hasKnob == b.hasKnob &&
-      (!a.hasKnob || a.knob == b.knob);
+      (!a.hasKnob || a.knob == b.knob) && a.mode == b.mode &&
+      a.axes.surge == b.axes.surge && a.axes.yaw == b.axes.yaw && a.axes.heave == b.axes.heave &&
+      a.propulsionScalePercent == b.propulsionScalePercent;
 }
 }
 

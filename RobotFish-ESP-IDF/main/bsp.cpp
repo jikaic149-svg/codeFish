@@ -95,8 +95,10 @@ uint8_t applyFrameMask(const robofish::ActuatorFrame &frame) {
       !std::isfinite(frame.tailRearDegrees) || !std::isfinite(frame.pectoralLeftDegrees) ||
       !std::isfinite(frame.pectoralRightDegrees)) return 0;
   const float pulses[] = {
-      servoPulse(frame.tailFrontDegrees, RF_TAIL_MIN_ANGLE, RF_TAIL_MAX_ANGLE),
-      servoPulse(frame.tailRearDegrees, RF_TAIL_MIN_ANGLE, RF_TAIL_MAX_ANGLE),
+      servoPulse(calibration::kTailFrontCenter + calibration::kTailFrontDirection *
+          (frame.tailFrontDegrees - calibration::kTailFrontCenter), calibration::kTailFrontMinimum, calibration::kTailFrontMaximum),
+      servoPulse(calibration::kTailRearCenter + calibration::kTailRearDirection *
+          (frame.tailRearDegrees - calibration::kTailRearCenter), calibration::kTailRearMinimum, calibration::kTailRearMaximum),
       servoPulse(frame.pectoralLeftDegrees, calibration::kPectoralLeftMinimum, calibration::kPectoralLeftMaximum),
       servoPulse(frame.pectoralRightDegrees, calibration::kPectoralRightMinimum, calibration::kPectoralRightMaximum),
       escPulse(frame.leftPropulsionPercent, calibration::kLeftEscDirection),

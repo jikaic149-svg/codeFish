@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+set(IDF_TARGET esp32s3 CACHE STRING "Target")
+set(COMPONENTS main)
+set(PROJECT_VER "0.1-lora-test")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(lora_test_bridge)

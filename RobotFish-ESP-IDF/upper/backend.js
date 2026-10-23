@@ -1,16 +1,35 @@
 'use strict';
 let serviceToken='', liveState={connected:false}, liveBusy=false, lastLog='', liveEpoch=0, pollPending=false;
+let serviceAttitudeControl=false;
+let diagnosticQueue=[],diagnosticTimer=0;
+function diagnosticEvent(kind,details={}){
+  if(location.protocol==='file:')return;
+  diagnosticQueue.push({kind,...details});diagnosticQueue=diagnosticQueue.slice(-20);
+  if(!diagnosticTimer)diagnosticTimer=setTimeout(()=>{
+    diagnosticTimer=0;const events=diagnosticQueue.splice(0,20);if(!serviceToken)return;
+    fetch('/api/diagnostics',{method:'POST',headers:{'Content-Type':'application/json','X-AmphiLink-Token':serviceToken},body:JSON.stringify({events}),keepalive:true}).catch(()=>{});
+  },1500);
+}
+window.addEventListener('error',event=>diagnosticEvent('error',{message:String(event.message||'resource_error').slice(0,2048),source:String(event.filename||'').split(/[?#]/)[0].split('/').pop(),line:event.lineno,column:event.colno}));
+window.addEventListener('unhandledrejection',event=>diagnosticEvent('unhandledrejection',{message:String(event.reason?.message||event.reason).slice(0,2048)}));
+if(typeof PerformanceObserver!=='undefined'&&PerformanceObserver.supportedEntryTypes?.includes('longtask'))new PerformanceObserver(list=>{for(const task of list.getEntries())if(task.duration>=100)diagnosticEvent('longtask',{elapsed_ms:Math.round(task.duration)});}).observe({type:'longtask'});
 async function service(path,body) {
   if(location.protocol==='file:')throw Error('请使用 start.cmd 启动本地服务，再从 http://127.0.0.1:8766 打开上位机');
   if(body!==undefined&&!serviceToken)await service('session');
-  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),path==='development/task'?180000:path==='vision/start'?30000:path==='probe-upgrade'?200000:(path==='flash'||path==='erase')?600000:path==='connect'?60000:((path==='links'||path==='state')?6000:20000));
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),path==='station'?4000:path.startsWith('station/')?5000:path==='development/task'?180000:path==='vision/start'?30000:path==='probe-upgrade'?200000:(path==='flash'||path==='erase')?600000:path==='connect'?60000:((path==='links'||path==='state')?6000:20000));
+  const started=performance.now();
   try{
     const response=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-AmphiLink-Token':serviceToken},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});
     const data=await response.json();
-    if(!response.ok){if(data.logs)recordLogs(data.logs);throw Error(data.error||'设备服务请求失败');}
+    if(!response.ok){if(data.logs)recordLogs(data.logs);if(response.status===403)serviceToken='';const error=Error(data.error||'设备服务请求失败');error.code=data.code||'http_'+response.status;error.retryable=data.retryable===true||(data.retryable===undefined&&response.status>=500);error.status=response.status;throw error;}
     if(data.token)serviceToken=data.token;
+    if(path==='session'||path==='state')serviceAttitudeControl=data.features?.attitude_control===true;
     return data;
-  }catch(error){if(error.name==='AbortError')throw Error('请求超时，结果尚未确认；请检查连接与日志');if(error instanceof TypeError)throw Error('本地服务不可达，请双击桌面图标重新启动');throw error;}finally{clearTimeout(timer);}
+  }catch(error){
+    if(error.name==='AbortError'||error instanceof TypeError||error instanceof SyntaxError){const cause=error;error=Error(cause.name==='AbortError'?'请求超时，结果尚未确认；正在检查连接':cause instanceof SyntaxError?'服务响应未能确认，正在检查连接':'本地服务暂不可达，正在等待恢复');error.code=cause.name==='AbortError'?'request_timeout':cause instanceof SyntaxError?'invalid_response':'local_service_unavailable';error.retryable=true;}
+    diagnosticEvent('request_error',{source:path.split('?')[0],message:error.name,code:error.code,status:error.status,retryable:error.retryable,elapsed_ms:Math.round(performance.now()-started)});
+    throw error;
+  }finally{clearTimeout(timer);}
 }
 function recordLogs(lines){const start=lastLog?lines.lastIndexOf(lastLog)+1:0;for(const line of lines.slice(start))log(line);lastLog=lines.at(-1)||lastLog;}
 function drawLive(data){

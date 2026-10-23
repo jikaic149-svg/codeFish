@@ -4,4 +4,5 @@
 /sdkconfig.old
 **/__pycache__/
 /upper/server.log
+/upper/logs/
 /upper/data/

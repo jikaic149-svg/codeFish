@@ -28,8 +28,10 @@ bool validRecipe(const Recipe &recipe) {
   const auto &fin = recipe.pectoral;
   return finiteValues({tail.amplitudeDegrees, tail.rearAmplitudeRatio,
       tail.phaseLagRad, tail.turnBiasDegrees, tail.staticSteeringDegrees, tail.rateDegreesPerSecond,
+      tail.transitionRateDegreesPerSecond,
       tail.forwardMaximumFrequencyHz, tail.forwardSpeedFraction,
-      prop.commandScale, prop.yawGain, prop.ratePercentPerSecond, prop.brakeMaximumReversePercent,
+      prop.commandScale, prop.yawGain, prop.ratePercentPerSecond, prop.stopRatePercentPerSecond,
+      prop.brakeMaximumReversePercent,
       fin.leftPositivePitchDegrees, fin.rightPositivePitchDegrees,
       fin.leftNegativePitchDegrees, fin.rightNegativePitchDegrees,
       fin.leftRollDegrees, fin.rightRollDegrees, fin.leftYawDegrees, fin.rightYawDegrees,
@@ -39,9 +41,11 @@ bool validRecipe(const Recipe &recipe) {
       recipe.flowMinimumPercent, recipe.diveDragCompensationPercent,
       recipe.turnForwardReductionFraction}) &&
       tail.amplitudeDegrees >= 0 && tail.rateDegreesPerSecond >= 0 &&
+      tail.transitionRateDegreesPerSecond >= 0 &&
       tail.forwardMaximumFrequencyHz >= 0 &&
       tail.forwardSpeedFraction > 0 && tail.forwardSpeedFraction < 1 &&
-      prop.commandScale >= 0 && prop.ratePercentPerSecond >= 0 && fin.rateDegreesPerSecond >= 0 &&
+      prop.commandScale >= 0 && prop.ratePercentPerSecond >= 0 &&
+      prop.stopRatePercentPerSecond >= 0 && fin.rateDegreesPerSecond >= 0 &&
       prop.brakeMaximumReversePercent >= 0 && prop.brakeMaximumReversePercent <= 100 &&
       recipe.turnForwardReductionFraction >= 0 && recipe.turnForwardReductionFraction <= 1 &&
       recipe.flowMinimumPercent >= 0 && recipe.flowMinimumPercent <= 100 &&
@@ -50,8 +54,9 @@ bool validRecipe(const Recipe &recipe) {
 bool validRequest(const Request &request) {
   return finiteValues({request.surgePercent, request.yawPercent, request.pitchPercent,
       request.rollPercent, request.tailDrivePercent, request.propulsionDrivePercent,
-      request.tailYawPercent, request.outputScale, request.brakePercent}) &&
+      request.tailYawPercent, request.outputScale, request.propulsionScale, request.brakePercent}) &&
       request.outputScale >= 0 && request.outputScale <= 1 &&
+      request.propulsionScale >= 0 && request.propulsionScale <= 1 &&
       request.brakePercent >= 0 && request.brakePercent <= 100 &&
       (request.mode == DriveMode::Idle || request.mode == DriveMode::Bionic ||
        request.mode == DriveMode::Prop || request.mode == DriveMode::Hybrid);
@@ -181,7 +186,12 @@ Result allocate(const Request &input, const Recipe &recipe,
   }
   const float yawFraction = std::abs(request.yawPercent) * 0.01f;
   const float forwardScale = 1 - recipe.turnForwardReductionFraction * yawFraction * yawFraction;
-  if (request.mode == DriveMode::Hybrid && tailDrive > 0) tailDrive *= forwardScale;
+  if (request.mode == DriveMode::Hybrid && tailDrive >= 0) {
+    // Full propeller yaw removes common surge, but must not erase tail turning.
+    tailDrive *= forwardScale;
+    if (!request.independentDrives) tailDrive = std::max(tailDrive,
+        std::abs(tailYaw) * config::lora::kHybridTurnTailDrivePercent * 0.01f);
+  }
   if (propDrive > 0) propDrive *= forwardScale;
   // Normalize source choices once; no zero-drive fallback may restart a braked tail.
   request.independentDrives = true;
@@ -198,8 +208,9 @@ Result allocate(const Request &input, const Recipe &recipe,
   const float desiredBias = std::clamp(motion.biasDegrees, minimumBias, maximumBias);
   if (desiredBias != motion.biasDegrees) result.limitedReasons |= TailLimited;
   const bool periodic = motion.amplitudeDegrees > 0 && motion.frequencyHz > 0;
-  const float transitionBudget = recipe.tail.rateDegreesPerSecond * slewMs * 0.001f *
-      (periodic ? 1 - recipe.tail.forwardSpeedFraction : 1);
+  const float transitionBudget = std::min(recipe.tail.transitionRateDegreesPerSecond,
+      recipe.tail.rateDegreesPerSecond * (periodic ? 1 - recipe.tail.forwardSpeedFraction : 1)) *
+      slewMs * 0.001f;
   const float biasChange = std::clamp(desiredBias - state.tailBiasDegrees,
       -transitionBudget, transitionBudget);
   if (!request.enabled || !request.tailEnabled) state.tailBiasDegrees = 0;

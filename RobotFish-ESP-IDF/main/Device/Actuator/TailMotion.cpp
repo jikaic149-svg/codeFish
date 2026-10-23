@@ -30,7 +30,11 @@ Motion schedule(const robofish::motion::Request &request, const robofish::motion
   const float effective = std::clamp(drive * 0.01f * request.outputScale, 0.0f, 1.0f);
   const float scale = std::sqrt(effective);
   motion.amplitudeDegrees = recipe.amplitudeDegrees * scale;
-  motion.frequencyHz = recipe.forwardMaximumFrequencyHz * scale;
+  // Turning reduces common drive/amplitude, but must not also slow the gait.
+  // Keep strength scaling and the existing angular-speed budget for both joints.
+  const float turn = std::clamp(std::abs(yaw) * 0.01f * request.outputScale, 0.0f, 1.0f);
+  motion.frequencyHz = effective > 0 ?
+      recipe.forwardMaximumFrequencyHz * std::sqrt(std::max(effective, turn)) : 0;
   if (motion.amplitudeDegrees > 0) {
     const double peakSpeed = algorithm::kTwoPi * motion.frequencyHz *
         std::max(motion.amplitudeDegrees, previousAmplitudeDegrees) *
@@ -52,6 +56,21 @@ Output allocate(const robofish::motion::Request &request, const robofish::motion
   output.targetRear = geometry.tailRear.centerDegrees;
   if (request.enabled && request.tailEnabled) {
     const bool oscillating = request.mode == DriveMode::Bionic || request.mode == DriveMode::Hybrid;
+    if (oscillating) {
+      // Share joint travel between steering bias and oscillation. Reserving all
+      // travel for bias first can make full steering appear to freeze the tail.
+      float scale = 1.0f;
+      const auto limit = [&](const robofish::motion::JointGeometry &joint, float amplitude) {
+        const float high = biasDegrees + amplitude, low = biasDegrees - amplitude;
+        if (high > 0) scale = std::min(scale, (joint.maximumDegrees - joint.centerDegrees) / high);
+        if (low < 0) scale = std::min(scale, (joint.centerDegrees - joint.minimumDegrees) / -low);
+      };
+      limit(geometry.tailFront, amplitudeDegrees);
+      limit(geometry.tailRear, amplitudeDegrees * std::abs(recipe.rearAmplitudeRatio));
+      if (scale < 1) output.limits |= robofish::motion::TailLimited;
+      biasDegrees *= scale;
+      amplitudeDegrees *= scale;
+    }
     const float frontCenter = boundedCenter(geometry.tailFront, biasDegrees, output.limits);
     const float rearCenter = boundedCenter(geometry.tailRear, biasDegrees, output.limits);
     output.targetFront = frontCenter;
@@ -77,7 +96,11 @@ Output allocate(const robofish::motion::Request &request, const robofish::motion
       geometry.tailFront.minimumDegrees, geometry.tailFront.maximumDegrees);
   output.targetRear = std::clamp(output.targetRear,
       geometry.tailRear.minimumDegrees, geometry.tailRear.maximumDegrees);
-  const float step = recipe.rateDegreesPerSecond * slewElapsedMs * 0.001f;
+  const bool swinging = request.enabled && request.tailEnabled && amplitudeDegrees > 0 &&
+      (request.mode == DriveMode::Bionic || request.mode == DriveMode::Hybrid);
+  const float rate = swinging ? recipe.rateDegreesPerSecond :
+      std::min(recipe.rateDegreesPerSecond, recipe.transitionRateDegreesPerSecond);
+  const float step = rate * slewElapsedMs * 0.001f;
   output.front = request.immediate ? output.targetFront :
       approach(lastCommitted.tailFrontDegrees, output.targetFront, step);
   output.rear = request.immediate ? output.targetRear :

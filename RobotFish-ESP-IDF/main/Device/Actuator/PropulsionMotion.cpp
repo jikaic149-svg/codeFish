@@ -5,9 +5,10 @@
 
 namespace robofish::device::propulsion {
 namespace {
-int approach(int previous, int target, float step) {
+int approach(int previous, int target, float step, float stopStep) {
   // A normal polarity change must successfully submit neutral before reversing.
   if ((previous > 0 && target < 0) || (previous < 0 && target > 0)) target = 0;
+  if (target == 0) step = stopStep;
   // Integer nominal commands have 1% resolution. Floor the allowed step so
   // truncation toward zero cannot exceed the rate limit while decelerating.
   // ponytail: sub-1% steps hold; use a float nominal frame if finer ramps are needed.
@@ -45,14 +46,19 @@ Output allocate(const robofish::motion::Request &request, const robofish::motion
     }
     if (common != requestedCommon || differential != requestedDifferential)
       output.limits |= robofish::motion::PropulsionLimited;
-    output.targetLeft = static_cast<int>((common + differential) * request.outputScale);
-    output.targetRight = static_cast<int>((common - differential) * request.outputScale);
+    output.targetLeft = static_cast<int>((common + differential) * request.outputScale * request.propulsionScale);
+    output.targetRight = static_cast<int>((common - differential) * request.outputScale * request.propulsionScale);
+    if (request.propulsionScale < 1) output.limits |= robofish::motion::PropulsionLimited;
   }
   const float step = recipe.ratePercentPerSecond * slewElapsedMs * 0.001f;
+  const float stopStep = recipe.stopRatePercentPerSecond * slewElapsedMs * 0.001f;
   output.left = request.immediate ? output.targetLeft :
-      approach(lastCommitted.leftPropulsionPercent, output.targetLeft, step);
+      approach(lastCommitted.leftPropulsionPercent, output.targetLeft, step, stopStep);
   output.right = request.immediate ? output.targetRight :
-      approach(lastCommitted.rightPropulsionPercent, output.targetRight, step);
+      approach(lastCommitted.rightPropulsionPercent, output.targetRight, step, stopStep);
+  const int limit = static_cast<int>(100 * request.propulsionScale);
+  output.left = std::clamp(output.left, -limit, limit);
+  output.right = std::clamp(output.right, -limit, limit);
   if (output.left != output.targetLeft || output.right != output.targetRight)
     output.limits |= robofish::motion::PropulsionRateLimited;
   output.common = (output.left + output.right) * 0.5f;
