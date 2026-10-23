@@ -13,18 +13,21 @@ if ($LASTEXITCODE -ne 0) { throw 'Control state checks failed' }
 $ownerExecutable = Join-Path $output 'owner-regression.exe'
 & $Compiler -std=c++17 -O1 -Wall -Wextra -Werror `
   "-I$PSScriptRoot/stubs" "-I$project/tests/radio_board/stubs" "-I$project/main" `
-  "$PSScriptRoot/owner_regression.cpp" "$project/main/robotfish.cpp" `
+  "$PSScriptRoot/lora_owner_regression.cpp" "$project/main/robotfish.cpp" `
+  "$project/main/BSP/LoRaUart.cpp" "$project/main/BSP/ImuUart.cpp" `
+  "$project/main/Service/LoRa/LoRaService.cpp" "$project/main/Service/LoRa/LoraProtocol.cpp" `
   "$project/main/Mode/Motion/MotionMode.cpp" "$project/main/Device/Actuator/TailMotion.cpp" `
   "$project/main/Device/Actuator/PropulsionMotion.cpp" "$project/main/Device/Actuator/PectoralMotion.cpp" `
   -o $ownerExecutable
 if ($LASTEXITCODE -ne 0) { throw 'Control owner compile failed' }
-& $ownerExecutable
-if ($LASTEXITCODE -ne 0) { throw 'Control owner checks failed' }
-& $ownerExecutable deadlines
-if ($LASTEXITCODE -ne 0) { throw 'Control owner deadline checks failed' }
-& $ownerExecutable lease
-if ($LASTEXITCODE -ne 0) { throw 'Control owner lease exit checks failed' }
-& $ownerExecutable emergency
-if ($LASTEXITCODE -ne 0) { throw 'Control owner emergency-stop checks failed' }
-& $ownerExecutable fault
-if ($LASTEXITCODE -ne 0) { throw 'Control owner output-fault checks failed' }
+foreach ($scenario in @('normal','lease','recovery','fault','attitude')) {
+  & $ownerExecutable $scenario
+  if ($LASTEXITCODE -ne 0) { throw "LoRa/IMU owner checks failed ($scenario)" }
+}
+
+$dualExecutable = Join-Path $output 'dual-link-regression.exe'
+& $Compiler -std=c++17 -O1 -Wall -Wextra -Werror "-I$project/main" `
+  "$PSScriptRoot/dual_link_regression.cpp" "$project/main/Service/LoRa/LoraProtocol.cpp" -o $dualExecutable
+if ($LASTEXITCODE -ne 0) { throw 'Dual link compile failed' }
+& $dualExecutable
+if ($LASTEXITCODE -ne 0) { throw 'Dual link arbitration checks failed' }

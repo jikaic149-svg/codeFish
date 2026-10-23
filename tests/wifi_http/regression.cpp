@@ -46,6 +46,17 @@ int main() {
         "mode accepts precisely the three supported values");
   check(parse("{\"action\":\"stop\",\"session\":\"browser-1\",\"sequence\":1}", out) &&
       out.action == Action::Stop, "stop accepts with no axes");
+  for (const char *action : {"attitude_on", "attitude_off"}) {
+    const std::string prefix=std::string("{\"action\":\"")+action+"\",\"session\":\"browser-1\"";
+    check(parse(prefix+",\"sequence\":1}",out) &&
+        out.action==(std::string(action)=="attitude_on"?Action::AttitudeOn:Action::AttitudeOff),
+        "attitude configuration uses ordered authenticated control");
+    reject(prefix+"}");
+    reject(prefix+",\"sequence\":0}");
+    reject(prefix+",\"sequence\":1,\"axes\":{}}");
+    reject(prefix+",\"sequence\":1,\"mode\":2}");
+    reject(prefix+",\"sequence\":1,\"propulsion_scale\":50}");
+  }
   check(parse("{\"action\":\"acquire\",\"session\":\"" + std::string(64, 'x') + "\"}", out) &&
       std::strlen(out.session) == 64, "session accepts 64 printable bytes");
   const std::string valid = target("{\"surge\":0,\"yaw\":0,\"heave\":0}");

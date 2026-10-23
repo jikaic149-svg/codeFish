@@ -27,11 +27,14 @@ from station import STATION
 import tooling
 import development
 from vision_service import VISION
+import diagnostics
 
 ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
+REVISION = 'workstation-10-attitude-control'
+FEATURES = {'attitude_control': True}
 # Simulator controls proxy only when explicitly requested, so a normal run
 # exposes no extra surface at all.
 SIMULATOR = '--simulator' in sys.argv[1:]
@@ -349,25 +352,41 @@ atexit.register(VISION.stop)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
+    def handle_one_request(self):
+        self.request_started = time.monotonic()
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            diagnostics.event('client_disconnected', method=getattr(self,'command',''))
+        except Exception as exc:
+            diagnostics.event('server_error', error_type=type(exc).__name__)
+            raise
+    def log_request(self,code='-',size='-'):
+        path=urlsplit(getattr(self,'path','')).path
+        elapsed=round((time.monotonic()-getattr(self,'request_started',time.monotonic()))*1000,2)
+        if (isinstance(code,int) and code>=400) or elapsed>=250 or (self.command=='POST' and path!='/api/diagnostics'):
+            diagnostics.event('local_http',method=self.command,path=path[:128],status=code,elapsed_ms=elapsed)
     def reply(self,status,body):
         data=json.dumps(body,ensure_ascii=False).encode()
         self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store')
         self.end_headers();self.wfile.write(data)
     def valid_host(self):return self.headers.get('Host')==f'127.0.0.1:{PORT}'
+    def device_error(self,exc,status=503):
+        return self.reply(status,{'error':str(exc),'code':exc.code,'retryable':exc.retryable})
     def device_reply(self,reader,host):
         """Relay a device read as JSON, mapping device faults to 503."""
         try:return self.reply(200,reader(host))
-        except device_client.DeviceError as exc:return self.reply(503,{'error':str(exc)})
+        except device_client.DeviceError as exc:return self.device_error(exc)
     def do_GET(self):
         if not self.valid_host():return self.reply(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':'workstation-5-wifi','instance':str(ROOT)})
-        if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':'workstation-5-wifi'})
+        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT)})
+        if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':REVISION,'features':FEATURES})
         if path=='/api/tooling':return self.reply(200,tooling.info())
         if path=='/api/station':
             try:return self.reply(200,dict(STATION.read(),mode=STATION.mode))
-            except device_client.DeviceError as exc:return self.reply(503,{'error':str(exc)})
+            except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/data':return self.reply(200,STATION.data())
         if path=='/api/telemetry':return self.reply(200,STATION.telemetry())
         if path in ('/api/data/export','/api/data/raw/export'):
@@ -445,10 +464,9 @@ class Handler(BaseHTTPRequestHandler):
             try:return self.reply(200,PROBES.snapshot(parse_qs(urlsplit(self.path).query).get('host',[None])[0]))
             except ValueError as exc:return self.reply(400,{'error':str(exc)})
         if path=='/api/device/discover':
-            # Passive: the probe announces itself on UDP 4442 and ProbeMonitor
-            # has already collected the addresses, so no scan is needed here.
             snapshot=PROBES.snapshot()
-            return self.reply(200,{'candidates':sorted(snapshot['wifi']),'usb':snapshot['usb']})
+            return self.reply(200,{'candidates':sorted(snapshot['wifi']),'usb':snapshot['usb'],
+                                  'robotfish':device_client.CLIENT.discover_robotfish(snapshot['wifi'])})
         if path in ('/api/device/state','/api/device/identity'):
             host=parse_qs(urlsplit(self.path).query).get('host',[None])[0]
             reader=(device_client.CLIENT.robot
@@ -456,7 +474,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.device_reply(reader,host)
         if path=='/api/state':
             if not LOCK.acquire(blocking=False):return self.reply(409,{'error':'设备操作进行中'})
-            try:self.reply(200,dict(DEBUG.status(),token=TOKEN,probe_enabled=PROBES.enabled))
+            try:self.reply(200,dict(DEBUG.status(),token=TOKEN,probe_enabled=PROBES.enabled,features=FEATURES))
             except Exception as e:self.reply(503,{'error':str(e)})
             finally:LOCK.release()
             return
@@ -476,6 +494,16 @@ class Handler(BaseHTTPRequestHandler):
             body=json.loads(self.rfile.read(length))
             if not isinstance(body,dict):raise ValueError('请求须为JSON对象')
             action=urlsplit(self.path).path.removeprefix('/api/')
+            if action=='diagnostics':
+                entries=body.get('events')
+                if not isinstance(entries,list) or not 1<=len(entries)<=20:
+                    raise ValueError('无效诊断批次')
+                for entry in entries:
+                    if not isinstance(entry,dict) or entry.get('kind') not in ('error','unhandledrejection','request_error','longtask','control_link'):
+                        raise ValueError('无效诊断事件')
+                    diagnostics.event('browser',**{key:str(entry.get(key,''))[:2048]
+                        for key in ('kind','message','source','line','column','elapsed_ms','code','status','retryable')})
+                return self.reply(200,{'saved':True})
             if device_client.CLIENT.is_robotfish():
                 blocked={'connect','flash','erase','halt','resume','step','reset','breakpoint','remove-breakpoint'}
                 if action in blocked or action.startswith('development/'):
@@ -504,27 +532,45 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get('mode')=='simulation' and DEBUG.process:
                     raise ValueError('请先结束实物调试会话，再进入测试模式')
                 return self.reply(200,dict(STATION.configure(body.get('mode'),body.get('host','')),mode=STATION.mode))
+            if action=='station/lora':
+                if STATION.mode=='simulation':raise ValueError('仿真模式不连接实物 LoRa')
+                return self.reply(200,device_client.CLIENT.configure_lora(STATION.host,
+                    port=body.get('port','COM28'), address=body.get('address','0102'),
+                    channel=body.get('channel','20'), connected=body.get('connected',True)))
             if action=='station/control':
-                return self.reply(200,STATION.configure_control(body.get('action'),body.get('value'),body.get('session'),body.get('sequence')))
+                return self.reply(200,STATION.configure_control(body.get('action'),body.get('value'),body.get('session'),body.get('sequence'),client_id=body.get('client_id')))
             if action=='station/target':
-                return self.reply(200,STATION.target(body.get('axes'),body.get('session'),body.get('sequence'),body.get('source')))
+                return self.reply(200,STATION.target(body.get('axes'),body.get('session'),body.get('sequence'),body.get('source'),client_id=body.get('client_id')))
             if action=='station/command':
                 return self.reply(200,STATION.command(body.get('command'),body.get('source','lora')))
             if action=='station/simulate':return self.reply(200,STATION.simulate(body.get('changes')))
             if action=='data/record':return self.reply(200,STATION.capture(body.get('action')))
+            if action=='device/auto-connect':
+                host=device_client.display_host(body.get('host'))
+                with STATION.command_guard:
+                    with STATION.guard:
+                        mode,previous,recording=STATION.mode,STATION.host,STATION.recording
+                    if mode=='simulation':raise ValueError('仿真模式不连接实物')
+                    if recording and host!=previous:raise ValueError('记录中不切换设备，请先停止记录')
+                    result=device_client.CLIENT.auto_connect(host,body.get('session'),force=body.get('force',False))
+                    view=STATION.configure(mode,host) if host!=previous else STATION.read()
+                    return self.reply(200,dict(result,view=dict(view,mode=mode)))
             if action=='device/login':
-                if STATION.mode=='simulation':raise ValueError('测试模式无需设备登录；切换台架模式后再登录实物')
-                host=device_client.display_host(body.get('host'))
-                password=KEYS.get(host) if body.get('use_saved') else body.get('password','')
-                return self.reply(200,device_client.CLIENT.login(host,password,
-                    remember=bool(body.get('remember') or body.get('use_saved')),
-                    persist=bool(body.get('remember') and not body.get('use_saved')),session=body.get('session')))
+                with STATION.command_guard:
+                    if STATION.mode=='simulation':raise ValueError('测试模式无需设备登录；切换台架模式后再登录实物')
+                    host=device_client.display_host(body.get('host'))
+                    password=KEYS.get(host) if body.get('use_saved') else body.get('password','')
+                    return self.reply(200,device_client.CLIENT.login(host,password,
+                        remember=bool(body.get('remember') or body.get('use_saved')),
+                        persist=bool(body.get('remember') and not body.get('use_saved')),session=body.get('session')))
             if action=='device/forget':
-                host=device_client.display_host(body.get('host'))
-                KEYS.forget(host)
-                return self.reply(200,device_client.CLIENT.forget(host))
+                with STATION.command_guard:
+                    host=device_client.display_host(body.get('host'))
+                    KEYS.forget(host)
+                    return self.reply(200,device_client.CLIENT.forget(host))
             if action=='device/logout':
-                return self.reply(200,device_client.CLIENT.forget(body.get('host')))
+                with STATION.command_guard:
+                    return self.reply(200,device_client.CLIENT.forget(body.get('host')))
             if action=='device/command':
                 raise ValueError('管理链禁止运动；请使用LoRa控制入口')
             if action=='device/network':
@@ -532,6 +578,8 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get('action') not in ('status','networks','identity','scan-result','connect-result') and (DEBUG.process or development.active()):
                     raise ValueError('请先结束STM32调试会话，再修改网络')
                 return self.reply(200,device_client.CLIENT.management(body.get('host'),body.get('action'),body.get('payload')))
+        except device_client.DeviceError as exc:
+            return self.device_error(exc,503 if exc.retryable else 400)
         except Exception as e:
             return self.reply(400,{'error':str(e)})
         # Hardware maintenance is serialized; telemetry, recording and simulation
@@ -565,6 +613,8 @@ class Handler(BaseHTTPRequestHandler):
         finally:LOCK.release()
 
 if __name__=='__main__':
+    diagnostics.start()
+    diagnostics.event('startup',revision=REVISION,port=PORT,python=sys.version.split()[0])
     PROBES.start()
     STATION.start()
     print(f'RobotFish UI: http://127.0.0.1:{PORT}',flush=True)

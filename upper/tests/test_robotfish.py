@@ -49,6 +49,7 @@ MOTION = dict(version=1, source='wifi', last_source='wifi', attempts=5, failures
 
 
 class Target(BaseHTTPRequestHandler):
+    CONTROL_PASSWORD = 'test-user-input'
     uploads = []
     paths = []
     controls = []
@@ -105,7 +106,7 @@ class Target(BaseHTTPRequestHandler):
         data = self.rfile.read(int(self.headers['Content-Length']))
         if self.path == '/api/v1/control':
             owner = type(self)
-            if self.headers.get('X-OTA-Password') != 'test-user-input':
+            if self.headers.get('X-OTA-Password') != owner.CONTROL_PASSWORD:
                 return self.reply({'error': 'Control password required'}, 401)
             command = json.loads(data)
             if owner.deny_control:
@@ -128,6 +129,8 @@ class Target(BaseHTTPRequestHandler):
                     owner.last_motion = time.monotonic()
                 elif action == 'mode':
                     owner.motion['mode'] = command['mode']
+                elif action in ('attitude_on', 'attitude_off'):
+                    owner.motion.setdefault('attitude_control', {})['enabled'] = action == 'attitude_on'
                 elif action == 'stop':
                     owner.motion.update(remote_active=False, failsafe_active=False, lease_remaining_ms=0)
                     owner.motion['remote_target'] = dict(surge_pct=0, yaw_pct=0, heave_pct=0)

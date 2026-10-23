@@ -23,6 +23,9 @@ inline constexpr float kTailForwardSpeedFraction = 0.8f;
 // Fins follow the selected heave state only; yaw is handled by tail/props.
 inline constexpr float kPectoralLeftYawDegrees = 0.0f;
 inline constexpr float kPectoralRightYawDegrees = 0.0f;
+// Servo-angle offsets for +100% body roll request. Zero until physically calibrated.
+inline constexpr float kPectoralLeftRollDegrees = 0.0f;
+inline constexpr float kPectoralRightRollDegrees = 0.0f;
 inline constexpr float kPectoralLeftBrakeDegrees = 5.0f;
 inline constexpr float kPectoralRightBrakeDegrees = -5.0f;
 inline constexpr float kPectoralLeftSurgeTrimDegrees = 0.0f;

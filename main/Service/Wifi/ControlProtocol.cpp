@@ -59,6 +59,8 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
     else if (!std::strcmp(action->valuestring, "target")) parsed.action = Action::Target;
     else if (!std::strcmp(action->valuestring, "mode")) parsed.action = Action::Mode;
     else if (!std::strcmp(action->valuestring, "stop")) parsed.action = Action::Stop;
+    else if (!std::strcmp(action->valuestring, "attitude_on")) parsed.action = Action::AttitudeOn;
+    else if (!std::strcmp(action->valuestring, "attitude_off")) parsed.action = Action::AttitudeOff;
     else valid = false;
   }
   if (valid && parsed.action != Action::Acquire) {
@@ -86,7 +88,8 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
     valid = !axes && integer(mode, 1, 3);
     if (valid) parsed.mode = static_cast<DriveMode>(static_cast<unsigned>(mode->valuedouble));
   }
-  if (valid && parsed.action == Action::Stop) valid = !axes && !mode;
+  if (valid && (parsed.action == Action::Stop || parsed.action == Action::AttitudeOn ||
+                parsed.action == Action::AttitudeOff)) valid = !axes && !mode;
   cJSON_Delete(root);
   if (valid) command = parsed;
   return valid;

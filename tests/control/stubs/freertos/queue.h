@@ -14,3 +14,5 @@ int xQueueSend(QueueHandle_t, const void *, unsigned);
 int xQueueReceive(QueueHandle_t, void *, unsigned);
 int xQueueOverwrite(QueueHandle_t, const void *);
 int xQueuePeek(QueueHandle_t, void *, unsigned);
+
+int xQueueReset(QueueHandle_t);

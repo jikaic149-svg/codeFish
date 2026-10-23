@@ -84,7 +84,7 @@ def main():
               '请关闭占用该端口的程序后重试。')
         return 1
 
-    if identity.get('revision') != 'workstation-5-wifi' or os.path.normcase(identity.get('instance','')) != os.path.normcase(str(ROOT)):
+    if identity.get('revision') != 'workstation-10-attitude-control' or os.path.normcase(identity.get('instance','')) != os.path.normcase(str(ROOT)):
         alert('本机正在运行旧版或其他目录的上位机。\n\n请先保存实验数据并结束旧服务，再重新双击图标。\n当前入口：'+str(ROOT))
         return 1
 

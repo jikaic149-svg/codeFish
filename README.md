@@ -1,6 +1,49 @@
-# RobotFish ESP-IDF：2.4 GHz Wi-Fi 控制
+# RobotFish ESP-IDF：LoRa 接收 / Wi-Fi 回传
 
-当前版本 **2.2.6-vision**，运行于单块 XIAO ESP32-S3。运动指令、状态回传和 OTA 全部使用 Wi-Fi；不编译、不初始化 LoRa。工程以原始 `RobotFish(20260903-033000)(1).ino` 和 XIAO V4.0 原理图为硬件基线，运动核心迁自 `robofish_new/embedding/f4/firmware`。
+完整配置、接线、烧录、测试和操作经过：[LoRa 与 IMU 配置及操作记录](docs/lora-imu-setup-and-test.md)。
+
+当前源码版本 **2.5.0-attitude**，运行于单块 XIAO ESP32-S3。运动命令以 **LoRa 为主、认证 Wi-Fi 为备用**，命令结果、执行器状态和 JY61P 数据通过 **Wi-Fi HTTP 回传**；OTA 继续使用 Wi-Fi。新增俯仰、横滚稳定和相对航向保持代码，默认关闭，安装轴向仍待实测。本轮按用户要求只完成代码与离线验证，未烧录或启动实鱼控制环路。修改前 Git 备份为 `aaf80f1`，备注“初版无刷鱼，esp32版本”。
+
+最近一次确认烧录的是 **2.3.2-lora-imu**，目标为 COM26（MAC `e8:f6:0a:8b:38:e4`），当时按用户要求仅使用 Type-C 串口做实机测试，不更换电脑 Wi-Fi。JY61P 已按实际 **115200/8N1** 接入，三轴有效输出及手动转动响应已确认；LoRa 已在软件内交换 TX/RX 分配以适配现有接线，定点接收 10/10 通过。历史记录见 `validation/lora-imu-usb-20261022.json`，对应诊断镜像为 `artifacts/RobotFish-ESP32S3-OTA-20261022-200659.bin`。这些结果不代表新版姿态控制已经上板验收。
+
+USB 观察仅在 `ROBOTFISH_USB_DIAGNOSTICS=ON` 时编译，Type-C COM26 每 100ms 输出一行 `USBSTAT {...}`，包含 roll/pitch/yaw、数据年龄、CRC/接收错误、LoRa 接收计数和最后命令。此构建选项默认 OFF，当前测试缓存已启用；关闭时以 `-DROBOTFISH_USB_DIAGNOSTICS=OFF` 重新构建。
+
+## 当前串口与回传
+
+已通过 easyeda-agent 回读工程“比赛机器鱼V4.0 XIAOesp32”的 `PCB1_1` 及其原理图，接口映射如下：
+
+| 用途 | ESP32 外设 | ESP32 TX | ESP32 RX | 参数 |
+|---|---|---|---|---|
+| PCB 的 GND／5V／TX／RX 四针口接 LoRa | UART1 | GPIO2 / D1 / PCB TX → LoRa RXD | GPIO1 / D0 / PCB RX ← LoRa TXD | 115200，8N1 |
+| RGB／GPIO_IN1 接 JY61P | UART2 | GPIO7 / D8 / RGB → JY61P RX | GPIO9 / D10 / GPIO_IN1 ← JY61P TX | 115200，8N1 |
+
+当前软件按现有接线配置：板 TX/GPIO2 为 ESP32 发送、板 RX/GPIO1 为 ESP32 接收。因此 LoRa TXD 接板 RX，LoRa RXD 接板 TX，不用改线。LoRa 的 VCC、GND、M0 高和 M1 低继续沿用已验证的六线固定方案。JY61P 共地，UART 使用 3.3V 电平；参考 [官方规格书](https://wit-motion.yuque.com/wumwnr/docs/agok0k)，当前模块按用户确认的 115200 bps 接收；其他模块的实际速率须同步修改 `main/config/BoardConfig.h`。
+
+**GPIO9 的现有硬件支路：** 原理图 U16 为 EL817S1，GPIO_IN1 接其 LED 阳极，LED 阴极经 R1（1 kΩ）接 GND。若 U16／R1 已焊装，接陀螺仪前先隔离该支路；RGB 接口原外设也须停用。本轮只读核对 PCB，没有修改硬件设计。GPIO9 不再允许启用水泵输出。
+
+连接原热点后，设备网页 `http://192.168.4.1/` 显示命令结果、输出和陀螺仪数据；登录与 OTA 密码沿用原设置。也可轮询 `GET /lora_status` 或 `/motion_status`。返回最新快照，包含 `command_result`、`lora.last_ack` 和 `imu`；这不是逐包可靠推送服务。LoRa 端不发送 ACK。历史 2.3.2 的 Wi-Fi 运动入口返回 `403 / lora_control_only`；当前源码支持认证 Wi-Fi 备用控制，LoRa 健康时保留主控优先级，全停仍可受理。
+
+当前鱼端实际可达的定点地址是 **0x0102**、信道 0x20；电脑发送端需先写入字节 `01 02 20`，再跟应用层 ASCII 命令。应用载荷中的逻辑鱼节点仍为 1，不能把这两个地址字段混用。
+
+JY61P 接收器校验 WIT 的 11 字节数据帧，提供加速度（g）、角速度（deg/s）和欧拉角（deg），各组独立显示有效标志和数据年龄。原始遥测保留传感器坐标；新增反馈只使用明确配置后的鱼体坐标，不自动写模块配置或校准。帧格式参考 [WIT 官方通信协议](https://wit-motion.gitbook.io/witmotion-sdk/wit-standard-protocol/wit-standard-communication-protocol)。
+
+2.3.0 初版历史构建：`artifacts/RobotFish-ESP32S3-OTA-20261022-162704.bin`，880656 字节，SHA256 `25af76c9ab815c660bbee8d24aec85913f253dc9fa8e61215b8f476ecc289df6`。验证记录见 `validation/lora-wifi-imu-20261022.json`。现有 3 秒失联停桨／舵机缓慢回正、普通缓启停、急停、输出故障分级和 OTA 中立屏障继续沿用。
+
+## 姿态辅助代码（默认关闭，待实测）
+
+姿态计算复用鱼端现有 20 ms 输出周期，不增加任务或网络往返。俯仰、横滚使用角度误差和角速度阻尼；航向保持使用相对航向误差，跨 ±180° 走短路径。每轴修正上限默认 20%，继续经过原有运动分配、机械限位与变化速率限制。
+
+仅在人工启用辅助、有有效前进目标且控制租约有效时才允许修正；倒车和原地转向保留人工控制。手动浮沉优先于俯仰稳定，手动转向优先于航向保持；松开转向后记录当时的相对航向。全停、失联、传感器失效或重新开启均清除旧航向目标。角度和角速度必须同时有效且不超过 200 ms；失效立即撤掉自动修正，不续期运动租约。
+
+待测参数集中在 `main/config/AttitudeConfig.h`：鱼体前／右／下与传感器轴的映射目前均为 0，表示未确认；用户已确认上浮就是抬头、下潜就是低头，因此俯仰命令方向为 +1。横滚、航向执行器方向仍为 0，横滚鱼鳍分配量在 `main/config/ControlConfig.h` 中也为 0，禁止在未确认时输出反馈。PD 参数尚未做水池整定。航向目标是本次前进中的相对方向，不代表绝对北向。
+
+LoRa v2 开关命令为 23／24，Wi-Fi 动作为 `attitude_on`／`attitude_off`；设置开关本身不启动或延长运动。设备身份声明能力与标定状态，`/motion_status` 的 `attitude_control` 报告各轴状态、鱼体姿态、修正量、航向目标以及本次计算实际使用的数据年龄。上位机在安装映射未确认、旧固件或旧后台时禁用开启入口；默认始终关闭。
+
+离线检查入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tests/attitude/run.ps1`、`tests/control/run.ps1`、`tests/wifi_http/run.ps1` 和 `python -B tests/wifi_http/telemetry.py`；上位机模拟验证见 `upper/README.md`。这些验证不连接实鱼，不等同于真实运动验收。
+
+## 2.2.x 历史 Wi-Fi 控制实现
+
+以下为旧版本背景；当前源码能力和未启用状态以上方说明为准，串口接线沿用已确认的 2.3.2 配置。
 
 2.2.6 增加可选目标字段 `propulsion_scale`（0～100，省略默认 100）。原上位机只对视觉目标固定发送 50，双桨在混合后减半并限幅为 ±50%；尾部、鱼鳍和手动客户端不受该缩放影响。设备身份提供 `propulsion_scale_control=true`。旧固件不能保证此功能，上位机会要求先升级。本轮由用户负责测试验收，仅完成构建和静态检查，未烧录或执行实机控制。
 
@@ -120,42 +163,55 @@ PWM 为 50 Hz、14 位。舵机 500–2500 μs，ESC 为 1000/1500/2000 μs；�
 
 ### LoRa 六线固定接法：独立链路实测结论
 
-用户最终选择保留六线方案，不再重复测试。ESP32 端按本轮已验证的 D0／D1 接线：
+用户最终选择保留六线方案，恢复接线后的双向复测已通过。ESP32 端按本轮已验证的 D0／D1 接线：
 
 | LoRa 引脚 | 连接 |
 |---|---|
-| RXD（3） | ESP32 **D0（TX）** |
-| TXD（4） | ESP32 **D1（RX）** |
+| RXD（3） | ESP32 **D1/GPIO2（TX，PCB TX）** |
+| TXD（4） | ESP32 **D0/GPIO1（RX，PCB RX）** |
 | VCC（6） | 稳定 **5V** 电源，具备 **1A** 瞬时供电能力 |
 | GND（7） | ESP32 与电源共地 |
 | MD0／M0（1） | 固定接 **3.3V** |
 | MD1／M1（2） | 固定接 **GND** |
 
-AUX（5）悬空，不接额外控制线。上表为正常收发；仅配置时临时将 M0 改为 GND，两模式脚均低，配置串口固定 9600／8N1；配置完成后按表恢复。
+AUX（5）悬空，不接额外控制线。上表为当前 2.3.2 接线；历史独立测试固件的 D0 TX/D1 RX 方向与此相反，原历史记录保留。仅配置时临时将 M0 改为 GND，两模式脚均低，配置串口固定 9600／8N1；配置完成后按表恢复。
 
 两端采用 **定点传输**、**115200／8N1**、信道 **0x20**、空中速率 **2.4 kbps**。ESP32 端本机 **0x0101**、目标 **0x0102**；USB 转 TTL 端本机 **0x0102**、目标 **0x0101**。已设置并回读核对本对模块专用 AES 密钥，不使用广播地址。
 
-正常固定接线下，真实空口双向各 **10/10** 成功，载荷逐字节一致，错误地址在两个方向均被过滤，见 [定点测试记录](validation/lora-fixed-pair-test.json)。M0/M1 全悬空时，不掉电及重新上电两种条件均为双向 **0/3**，见 [不断电悬空](validation/lora-floating-powered.json)及[重新上电悬空](validation/lora-floating-cold_start.json)。因此本工程保留六线固定接法；用户选择沿用之前通过的正常接线记录，不再追加恢复复测。
+正常固定接线下，真实空口双向各 **10/10** 成功，载荷逐字节一致，错误地址在两个方向均被过滤，见 [定点测试记录](validation/lora-fixed-pair-test.json)。M0/M1 全悬空时，不掉电及重新上电两种条件均为双向 **0/3**，见 [不断电悬空](validation/lora-floating-powered.json)及[重新上电悬空](validation/lora-floating-cold_start.json)。因此本工程保留六线固定接法。随后按用户要求追加复测，双向再次各 **10/10**，载荷逐字节一致，两个方向的错误地址帧均被过滤，见 [六线方案复测记录](validation/lora-fixed-pair-retest.json)。
 
-此处是独立测试链路的接线与模块配置。当前机器鱼 Wi-Fi 主程序仍未接入定点 LoRa 控制；新增 ESP32 测试板暂保留 `tests/lora_pair` 串口桥接程序，原固件备份信息见 `validation/lora-pair-esp32-backup.json`。
+此处是独立测试链路的接线与模块配置。上述测试当时的机器鱼主程序尚未接入定点 LoRa；当前 2.3.2 已接入 LoRa 接收；新增 ESP32 测试板暂保留 `tests/lora_pair` 串口桥接程序，原固件备份信息见 `validation/lora-pair-esp32-backup.json`。
 
-## HTTP 接口
+## HTTP 与 LoRa 命令接口
 
-- `GET /get_ip`：身份、版本、运行槽、启动确认、Wi-Fi 控制能力。
-- `GET /motion_status` 或 `/status`：目标、最后成功输出、提交结果、会话和租约。
-- `GET /` 或 `/update`：操控和 OTA 页面，Basic 登录 `fish` / `fishota`。
-- `POST /api/v1/control`：JSON 控制，Basic 或 `X-OTA-Password` 鉴权。
-- `POST /ota_upload`：原生应用 BIN，鉴权方式同上。
+- `GET /get_ip`：身份、版本、`control_transport=lora`、`telemetry_transport=wifi`、`wifi_control_allowed=false`。
+- `GET /motion_status`、`/status` 或 `/lora_status`：最新命令结果、LoRa 计数、执行器输出、租约和 JY61P 数据。
+- `GET /` 或 `/update`：遥测和 OTA 页面，原 Basic 登录继续有效。
+- `POST /api/v1/control`：不再接受 Wi-Fi 运动控制；正确鉴权后返回 `403 / lora_control_only`。
+- `POST /ota_upload`：原生应用 BIN，保持原鉴权与六路中立确认。
 
-先发送 `{"action":"acquire","session":"客户端随机ID"}`，其余操作使用同一会话和严格递增的 1–4294967295 序号：
+LoRa 应用载荷沿用原 ino 的 ASCII 文本协议，每条以换行结束：
 
-```json
-{"action":"mode","session":"客户端随机ID","sequence":1,"mode":3}
-{"action":"target","session":"客户端随机ID","sequence":2,"axes":{"surge":30,"yaw":0,"heave":0}}
-{"action":"stop","session":"客户端随机ID","sequence":3}
+```text
+100,1,来源,序号,命令[,旋钮]\n
 ```
 
-模式 1/2/3 为仿生／螺旋桨／混合。三轴必须完整给出，均为 −100～100 有限数值，全零等同全停。旧序号、错误会话、非法输入、队列忙和 OTA 锁定返回错误。HTTP 200 表示目标已接受；PWM 结果通过状态查询读取。
+来源、序号为 0～65535；序号按每个来源递增并支持 65535→0 回绕，重复或旧帧不会再次执行或续租。保留最多四个来源的序号历史。旋钮可省略；携带时范围为 0～1000，映射到原 50～100% 档位。
+
+| 命令 | 行为 |
+|---|---|
+| 1 | 水平运动缓停，保持鱼鳍浮沉档 |
+| 2 / 3 / 4 | 前进 / 左转 / 右转 |
+| 5 | 螺旋桨→仿生→混合循环 |
+| 6 | 上浮鱼鳍档，保持水平运动 |
+| 7 | 从上浮回正常；再次收到则下潜 |
+| 9 | 后退 |
+| 10 / 11 / 12 / 13 | 前左 / 前右 / 后左 / 后右 |
+| 14 / 15 / 16 | 螺旋桨 / 仿生 / 混合模式，模式设置本身不启动或续租 |
+| 17 | 急停全部运动并清除鱼鳍保持档 |
+| 8 / 18 / 19 | 水泵不可用，明确拒绝 |
+
+Wi-Fi 的 `command_result` 给出最近提交命令的来源、序号、命令、接受结果与原因；`lora.last_ack` 保留最近成功命令的原 `910,...\n` 回执。解析失败、重复和旧序号通过 LoRa 计数显示。HTTP 接受状态仅表示控制目标被接受，实际驱动提交结果仍从 `written_mask`、`last_written` 读取。
 
 ## 编译与安装
 

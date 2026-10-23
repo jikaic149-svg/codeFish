@@ -110,7 +110,8 @@ inline robofish::motion::Recipe makeRecipe(DriveMode mode) {
   recipe.pectoral.rightPositivePitchDegrees = offset(lora::kPectoralRightCenter, lora::kPectoralRightUp);
   recipe.pectoral.leftNegativePitchDegrees = offset(lora::kPectoralLeftCenter, lora::kPectoralLeftDown);
   recipe.pectoral.rightNegativePitchDegrees = offset(lora::kPectoralRightCenter, lora::kPectoralRightDown);
-  // Roll geometry remains uncalibrated: its gains are explicitly zero.
+  recipe.pectoral.leftRollDegrees = config::control::kPectoralLeftRollDegrees;
+  recipe.pectoral.rightRollDegrees = config::control::kPectoralRightRollDegrees;
   recipe.pectoral.leftYawDegrees = config::control::kPectoralLeftYawDegrees;
   recipe.pectoral.rightYawDegrees = config::control::kPectoralRightYawDegrees;
   recipe.pectoral.leftBrakeDegrees = config::control::kPectoralLeftBrakeDegrees;

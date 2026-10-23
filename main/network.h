@@ -1,5 +1,8 @@
 #pragma once
 #include "ControlState.h"
+#include "config/messages/LoRaLinkStatus.h"
+#include "config/messages/ImuStatus.h"
+#include "APP/Algorithm/AttitudeControl.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -9,6 +12,10 @@ struct MotionSnapshot {
   robofish::ActuatorFrame written;
   robofish::motion::Result allocation;
   robofish::wifi::Status wifi;
+  robofish::lora::LinkStatus lora;
+  robofish::imu::Status imu;
+  robofish::attitude::Result attitude;
+  bool loraReady = false;
   uint32_t nowMs = 0;
   uint32_t attempts = 0;
   uint32_t failures = 0;
@@ -16,9 +23,8 @@ struct MotionSnapshot {
   uint8_t writtenMask = 0;
 };
 
-// Latest-value telemetry, bounded command/result FIFO, and one OTA stop transaction.
-// HTTP is the only producer; the application loop is the only control-state owner.
-bool networkBegin(QueueHandle_t snapshots, QueueHandle_t commands,
-                  QueueHandle_t commandResults, QueueHandle_t stopRequests,
-                  QueueHandle_t stopResults);
+// Latest snapshot, bounded Wi-Fi fallback transactions and one OTA stop transaction.
+// The application loop owns both UARTs, link arbitration and all actuator updates.
+bool networkBegin(QueueHandle_t snapshots, QueueHandle_t commands, QueueHandle_t commandResults,
+                  QueueHandle_t stopRequests, QueueHandle_t stopResults);
 void networkConfirmStartup(bool ready);

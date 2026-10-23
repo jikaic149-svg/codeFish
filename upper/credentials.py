@@ -57,8 +57,8 @@ class KeyStore:
             token = self._read().get(host)
         return protect(base64.b64decode(token, validate=True), decrypt=True).decode() if token else ''
 
-    def save(self, host, password):
-        if len(password) < 12 or password.isdigit():
+    def save(self, host, password, *, minimum_length=12):
+        if len(password) < minimum_length or (minimum_length >= 12 and password.isdigit()):
             raise RuntimeError('保存设备密钥至少需要12位且不能全为数字；旧设备可取消保存后登录')
         encrypted = base64.b64encode(protect(password.encode())).decode()
         with self.guard:

@@ -2,9 +2,10 @@
 #include <stdint.h>
 
 namespace robofish::config::lora {
-inline constexpr int kBaud = 115200;  // E32 UART，8N1，模块保持外部透明模式配置。
+inline constexpr int kBaud = 115200;  // A39 UART，8N1；沿用已验证的定点配置及外部固定模式脚。
 inline constexpr int kFishNode = 1;
-inline constexpr unsigned kMaxLineLength = 32;
+inline constexpr unsigned kMaxLineLength = 80; // CRC-protected three-axis targets, including signed tenths.
+inline constexpr uint32_t kLinkTimeoutMs = 3000; // Fresh LoRa commands/heartbeats retain priority.
 inline constexpr uint32_t kAckDelayMs = 260;
 }
 
@@ -15,7 +16,7 @@ inline constexpr unsigned kReceiveEventCount = 16;
 inline constexpr unsigned kReadBudgetBytes = 128;
 inline constexpr unsigned kRecentTransactionCount = 4;
 inline constexpr unsigned kMaximumSources = 4;
-// 沿用旧 F4 接收策略：空口参数和遥控器静默窗未验证，默认不发送 ACK。
+// 机器鱼只从 LoRa 接收；命令结果通过 Wi-Fi 快照回传，生产配置不发送 LoRa ACK。
 struct Timing {
   bool ackTxEnabled = false;
   bool peerWindowsVerified = false;

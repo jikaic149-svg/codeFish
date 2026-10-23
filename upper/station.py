@@ -1,6 +1,6 @@
 """PC mission state, explicit bench reads, local simulation and bounded capture.
 
-Single-S3 motion uses an authenticated Wi-Fi session. The legacy HTTP/SPI
+Single-S3 motion uses LoRa first and authenticated Wi-Fi fallback. The legacy HTTP/SPI
 management path retains its existing restrictions.
 """
 from collections import deque
@@ -20,7 +20,8 @@ LEASE_SECONDS = 3.0
 MAX_RECORDS = 30000
 FIELDS = ('time', 'source', 'valid', 'battery_v', 'power_pct', 'tail1_deg',
           'tail2_deg', 'left_fin_deg', 'right_fin_deg', 'left_esc_pct',
-          'right_esc_pct', 'latency_ms', 'owner', 'safety', 'reason')
+          'right_esc_pct', 'latency_ms', 'owner', 'safety', 'reason',
+          'roll_deg', 'pitch_deg', 'yaw_deg', 'imu_valid', 'imu_age_ms', 'control_route')
 
 
 def empty_state(source, reason):
@@ -34,6 +35,7 @@ def empty_state(source, reason):
 class Workstation:
     def __init__(self):
         self.guard = threading.RLock()
+        self.command_guard = threading.RLock()
         self.mode = 'mission'
         self.host = ''
         self.sim = Simulator('', 0, 'local-simulation')
@@ -155,12 +157,12 @@ class Workstation:
             raise device_client.DeviceError('本交付未包含旧 STM32 离线模型；请选择实物遥测')
         if mode == 'bench' or (mode == 'mission' and host):
             host = device_client.display_host(host)
-        with self.guard:
+        with self.command_guard, self.guard:
             if self.recording:
                 raise device_client.DeviceError('请先停止数据记录，再切换工作模式或设备')
             self.mode, self.host = mode, host
             if mode != 'simulation' and device_client.CLIENT.is_robotfish(host):
-                self.control_source = 'wifi'
+                self.control_source = 'auto'
             self.raw_stream = self.raw_cursor = self.raw_lost = 0
             self.raw_latest.clear()
             self.raw_batch, self.raw_error = {}, ''
@@ -281,43 +283,51 @@ class Workstation:
         if not stop and source == 'wifi' and self.links['lora']:
             raise device_client.DeviceError('LoRa正常，2.4G不能接管')
 
-    def configure_control(self, action, value, session, sequence):
-        with self.guard:
-            if self.mode != 'simulation' and self.host and device_client.CLIENT.is_robotfish(self.host):
+    def configure_control(self, action, value, session, sequence, *, client_id=None):
+        with self.command_guard:
+            with self.guard:
+                hardware_host = self.host if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else ''
+            if hardware_host:
                 if action == 'source':
-                    if value != 'wifi':
-                        raise device_client.DeviceError('RobotFish 仅使用 2.4G Wi-Fi 控制')
-                    self.control_source = 'wifi'
-                    result = {'message': '已选择 2.4G Wi-Fi 控制', 'simulated': False}
+                    if value not in ('wifi', 'auto'):
+                        raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
+                    with self.guard:
+                        self.control_source = 'auto'
+                    result = {'message': '已选择 LoRa 主控、Wi-Fi 自动备用', 'simulated': False}
                 elif action == 'mode' and type(value) is int and value in (1, 2, 3):
-                    result = device_client.CLIENT.wifi_control(self.host, 'mode', session, sequence, mode=value)
+                    result = device_client.CLIENT.motion_control(hardware_host, 'mode', session, sequence, client_id=client_id, mode=value)
                     result['message'] = '运动模式已应用，没有启动或续期运动'
                 elif action == 'stop':
-                    result = device_client.CLIENT.wifi_control(self.host, 'stop', session, sequence)
+                    result = device_client.CLIENT.motion_control(hardware_host, 'stop', session, sequence, client_id=client_id)
                     result['message'] = '已全停，等待新的有效运动目标'
+                elif action == 'attitude' and type(value) is bool:
+                    result = device_client.CLIENT.motion_control(hardware_host, 'attitude_on' if value else 'attitude_off',
+                        session, sequence, client_id=client_id)
+                    result['message'] = '姿态辅助设置已提交，以鱼端状态为准；设置本身不启动运动'
                 else:
-                    raise device_client.DeviceError('无效 Wi-Fi 控制操作或参数')
+                    raise device_client.DeviceError('无效控制操作或参数')
                 return result
-            self._ordered(session, sequence)
-            if action == 'source':
-                if value not in ('lora','wifi','vision'):
-                    raise device_client.DeviceError('无效控制来源')
-                self.control_source = value
-                message = '已选择控制通道；控制权仍由有效指令与优先级决定'
-            elif action == 'mode':
-                if type(value) is not int or value not in (1,2,3):
-                    raise device_client.DeviceError('无效运动模式')
-                self._advance(time.monotonic())
-                self._control_route(self.control_source)
-                self.sim.mode = value
-                self._render_axes(time.monotonic())
-                message = '模式已独立应用（仿真），没有启动或续期运动'
-            else:
-                raise device_client.DeviceError('无效配置操作')
-            self.sequences[session] = sequence
-            return {'mode':self.sim.mode if self.mode=='simulation' else None,
-                    'source':self.control_source,'owner':self.owner if self.mode=='simulation' else 'unknown',
-                    'sequence':sequence,'message':message,'simulated':self.mode=='simulation'}
+            with self.guard:
+                self._ordered(session, sequence)
+                if action == 'source':
+                    if value not in ('lora','wifi','vision'):
+                        raise device_client.DeviceError('无效控制来源')
+                    self.control_source = value
+                    message = '已选择控制通道；控制权仍由有效指令与优先级决定'
+                elif action == 'mode':
+                    if type(value) is not int or value not in (1,2,3):
+                        raise device_client.DeviceError('无效运动模式')
+                    self._advance(time.monotonic())
+                    self._control_route(self.control_source)
+                    self.sim.mode = value
+                    self._render_axes(time.monotonic())
+                    message = '模式已独立应用（仿真），没有启动或续期运动'
+                else:
+                    raise device_client.DeviceError('无效配置操作')
+                self.sequences[session] = sequence
+                return {'mode':self.sim.mode if self.mode=='simulation' else None,
+                        'source':self.control_source,'owner':self.owner if self.mode=='simulation' else 'unknown',
+                        'sequence':sequence,'message':message,'simulated':self.mode=='simulation'}
 
     def _render_axes(self, now):
         if self.axes is None or self.safety != 'RUNNING':
@@ -340,47 +350,50 @@ class Workstation:
             self.sequences[session]=sequence
             return {'ready':True,'simulated':True,'generation':self.control_generation}
 
-    def target(self, axes, session, sequence, source=None):
+    def target(self, axes, session, sequence, source=None, *, client_id=None):
         if not isinstance(axes,dict) or set(axes) != {'surge','yaw','heave'} or any(type(value) not in (float,int) or not -100 <= value <= 100 for value in axes.values()):
             raise device_client.DeviceError('三轴目标须为-100～100的有限数值')
-        with self.guard:
-            if self.mode != 'simulation' and self.host and device_client.CLIENT.is_robotfish(self.host):
-                if source not in (None, 'wifi'):
-                    raise device_client.DeviceError('RobotFish 仅使用 2.4G Wi-Fi 控制')
-                result = device_client.CLIENT.wifi_control(self.host, 'target', session, sequence, axes=dict(axes))
+        with self.command_guard:
+            with self.guard:
+                hardware_host = self.host if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else ''
+            if hardware_host:
+                if source not in (None, 'auto', 'wifi', 'lora'):
+                    raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
+                result = device_client.CLIENT.motion_control(hardware_host, 'target', session, sequence, client_id=client_id, axes=dict(axes))
                 return result
-            self._ordered(session,sequence)
-            now=time.monotonic()
-            self._advance(now)
-            source=source or self.control_source
-            if source not in ('lora','wifi','vision'):
-                raise device_client.DeviceError('无效控制来源')
-            if source=='vision' and self.vision_sessions.get(session)!=self.control_generation:
-                raise device_client.DeviceError('视觉任务已退出或被人工接管，需要重新启动循迹')
-            stopped=not any(axes.values())
-            self._control_route(source,stopped)
-            if not stopped:
-                if self.sim.battery_state()!=0:
-                    raise device_client.DeviceError('电池异常，禁止运动')
-                if self.safety!='RUNNING' and (not self.links['spi'] or self.links['upgrading']):
-                    raise device_client.DeviceError('SPI断链或升级中，禁止启动')
-                if source!='vision' and self.owner!=source:
-                    self.control_generation+=1;self.vision_sessions.clear()
-                self.axes=dict(axes)
-                self.owner,self.last_goal,self.safety=source,now,'RUNNING'
-                self.sim.failsafe=False
-                self.reason='三轴目标生效（仿真）'
-                self._render_axes(now)
-            else:
-                self._neutral()
-                self.safety='BATTERY_STOP' if self.sim.battery_state()!=0 else 'WAIT_COMMAND'
-                self.reason='已全停，等待新的有效目标'
-            self.sequences[session]=sequence
-            self.sim.command_id+=1
-            self.sim.command_ack=self.sim.command_id
-            self.sim.command_result=1
-            return {'id':self.sim.command_id,'sequence':sequence,'axes':dict(axes),
-                    'mode':self.sim.mode,'owner':self.owner,'simulated':True}
+            with self.guard:
+                self._ordered(session,sequence)
+                now=time.monotonic()
+                self._advance(now)
+                source=source or self.control_source
+                if source not in ('lora','wifi','vision'):
+                    raise device_client.DeviceError('无效控制来源')
+                if source=='vision' and self.vision_sessions.get(session)!=self.control_generation:
+                    raise device_client.DeviceError('视觉任务已退出或被人工接管，需要重新启动循迹')
+                stopped=not any(axes.values())
+                self._control_route(source,stopped)
+                if not stopped:
+                    if self.sim.battery_state()!=0:
+                        raise device_client.DeviceError('电池异常，禁止运动')
+                    if self.safety!='RUNNING' and (not self.links['spi'] or self.links['upgrading']):
+                        raise device_client.DeviceError('SPI断链或升级中，禁止启动')
+                    if source!='vision' and self.owner!=source:
+                        self.control_generation+=1;self.vision_sessions.clear()
+                    self.axes=dict(axes)
+                    self.owner,self.last_goal,self.safety=source,now,'RUNNING'
+                    self.sim.failsafe=False
+                    self.reason='三轴目标生效（仿真）'
+                    self._render_axes(now)
+                else:
+                    self._neutral()
+                    self.safety='BATTERY_STOP' if self.sim.battery_state()!=0 else 'WAIT_COMMAND'
+                    self.reason='已全停，等待新的有效目标'
+                self.sequences[session]=sequence
+                self.sim.command_id+=1
+                self.sim.command_ack=self.sim.command_id
+                self.sim.command_result=1
+                return {'id':self.sim.command_id,'sequence':sequence,'axes':dict(axes),
+                        'mode':self.sim.mode,'owner':self.owner,'simulated':True}
 
     def read(self):
         with self.guard:
@@ -418,7 +431,12 @@ class Workstation:
                'power_pct': view.get('motion', {}).get('power') if valid else None,
                'latency_ms': view.get('link', {}).get('round_trip_us') / 1000 if valid and view.get('link', {}).get('round_trip_us') is not None else None,
                'owner': view.get('owner', 'unknown'), 'safety': view.get('safety_mode', 'UNKNOWN'),
-               'reason': view.get('reason', '')}
+               'reason': view.get('reason', ''),
+               'imu_valid': bool(valid and view.get('imu', {}).get('valid')),
+               'imu_age_ms': view.get('imu', {}).get('age_ms') if valid else None,
+               'control_route': view.get('control', {}).get('route', '')}
+        for axis in ('roll', 'pitch', 'yaw'):
+            row[axis + '_deg'] = view.get('imu', {}).get(axis) if row['imu_valid'] else None
         for key, suffix in (('tail1', '_deg'), ('tail2', '_deg'), ('left_fin', '_deg'),
                             ('right_fin', '_deg'), ('left_esc', '_pct'), ('right_esc', '_pct')):
             row[key + suffix] = act.get(key) if valid else None

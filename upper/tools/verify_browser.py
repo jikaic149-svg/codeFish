@@ -23,56 +23,37 @@ def verify_device_page(browser, target):
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(f'http://127.0.0.1:{target.server_port}/')
-    assert page.locator('[data-axis="forward"]').is_disabled()
-    page.locator('#connect').click()
-    page.wait_for_function("!document.querySelector('[data-axis=forward]').disabled")
-    assert fixture.Target.controls[0]['action'] == 'acquire'
-    page.locator('#mode').select_option('3')
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('已更新')")
-    assert fixture.Target.motion['mode'] == 3
-    page.evaluate('document.activeElement.blur()')
-    begin = len(fixture.Target.controls)
-    page.keyboard.down('f')
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('运动目标')")
-    page.wait_for_timeout(3300)
-    held = [entry for entry in fixture.Target.controls[begin:] if entry['action'] == 'target']
-    assert len(held) >= 8
-    assert all(entry['axes'] == {'surge': 0, 'yaw': 0, 'heave': -100} for entry in held)
-    assert held[-1]['received_at'] - held[0]['received_at'] >= 3
-    assert fixture.Target.motion['remote_active'] and not fixture.Target.motion['failsafe_active']
-    page.keyboard.up('f')
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('已全停')")
-    assert fixture.Target.controls[-1]['action'] == 'stop'
-    page.keyboard.down('w')
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('运动目标')")
-    page.evaluate("window.dispatchEvent(new Event('blur'))")
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('已全停')")
-    page.keyboard.up('w')
-    page.locator('[data-axis="front-left"]').hover()
-    page.mouse.down()
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('运动目标')")
-    assert fixture.Target.controls[-1]['axes'] == {'surge': 30, 'yaw': -40, 'heave': 0}
-    page.mouse.up()
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('已全停')")
-    page.evaluate('document.activeElement.blur()')
-    page.keyboard.down('w')
-    page.wait_for_function("document.getElementById('command-result').textContent.includes('运动目标')")
-    fixture.Target.deny_control = True
-    page.wait_for_function("document.querySelector('[data-axis=forward]').disabled")
-    after_failure = len(fixture.Target.controls)
-    page.wait_for_timeout(500)
-    assert len(fixture.Target.controls) == after_failure
-    page.keyboard.up('w')
-    fixture.Target.deny_control = False
+    page.wait_for_function("document.getElementById('outputs').textContent.includes('91.0')")
+    assert page.locator('[data-axis], #connect, #mode').count() == 0
+    assert '115200' not in page.locator('#imu').inner_text()  # No fabricated sensor metadata.
+    fixture.Target.motion['imu'] = dict(uart_ready=True, baud=115200, frames=1,
+        angles_deg=dict(valid=True, x=45, y=-45, z=90, age_ms=20))
+    page.wait_for_function("document.getElementById('imu').textContent.includes('45.0, -45.0, 90.0')")
+    assert '115200' in page.locator('#imu').inner_text()
+    saved = page.locator('#outputs').inner_text()
+    page.route('**/motion_status', lambda route: route.abort())
+    page.wait_for_function("document.getElementById('connection').textContent.includes('状态读取失败')")
+    assert page.locator('#outputs').inner_text() == saved
+    page.unroute('**/motion_status')
+    page.wait_for_function("document.getElementById('connection').textContent.includes('Wi-Fi 已连接')")
+    page.locator('details').evaluate('(element) => element.open = true')
+    page.locator('#firmware').set_input_files({
+        'name': 'robotfish.bin', 'mimeType': 'application/octet-stream', 'buffer': fixture.image()})
+    page.locator('#upload').click()
+    page.wait_for_function("document.getElementById('ota-result').textContent.includes('固件已提交')")
+    assert fixture.Target.uploads == [fixture.image()]
+    assert not fixture.Target.controls
+    assert '/api/v1/control' not in fixture.Target.paths
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     assert not errors, errors
     page.screenshot(path=str(ROOT.parent / 'build-host' / 'device-wifi-verified.png'), full_page=True)
     page.close()
-    print('Device browser OK: actual embedded HTML; authenticated acquire; >3s continuous down; keyup/blur STOP; pointer mix; 409 locks; 390px.')
+    print('Device browser OK: actual telemetry HTML; valid/absent IMU; outage and recovery; simulated OTA; no motion requests; 390px.')
 
 
 def main():
     fixture.Target.reset()
+    server.device_client.CLIENT.discover_robotfish = lambda candidates=(): None
     target = ThreadingHTTPServer(('127.0.0.1', 0), fixture.Target)
     web = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
     server.PORT = web.server_port
@@ -87,6 +68,7 @@ def main():
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(f'http://127.0.0.1:{web.server_port}/')
             page.locator('[data-go="network"]').first.click()
+            page.evaluate('document.getElementById("connection-advanced").open=true')
             page.locator('#robot-host').fill(f'127.0.0.1:{target.server_port}')
             page.wait_for_function("document.body.dataset.device === 'robotfish'")
             page.locator('[data-page="overview"]').click()
@@ -97,8 +79,9 @@ def main():
             page.locator('[data-go="network"]').first.click()
             page.evaluate("document.getElementById('device-session').open=true")
             page.locator('#robot-password').fill('test-user-input')
+            page.locator('#robot-remember').uncheck()
             page.locator('#robot-login').click()
-            page.wait_for_function("document.getElementById('robot-login-state').textContent.includes('2.4G 控制已连接')")
+            page.wait_for_function("document.getElementById('robot-login-state').textContent.includes('控制会话已连接')")
             assert fixture.Target.controls[0]['action'] == 'acquire'
             page.locator('[data-page="overview"]').click()
             page.wait_for_function("!document.querySelector('[data-axis=forward]').disabled")
