@@ -72,7 +72,7 @@ static void checkBoard() {
   frame.tailFrontDegrees = 0; frame.tailRearDegrees = 180;
   frame.pectoralLeftDegrees = 0; frame.pectoralRightDegrees = 180;
   assert(board::applyFrameMask(frame) == 0x3f && pulseIs(4,2000) && pulseIs(5,2000));
-  assert(pulseIs(0,500+20*2000.0/180) && pulseIs(1,500+152*2000.0/180));
+  assert(pulseIs(0,500+122*2000.0/180) && pulseIs(1,500+45*2000.0/180));
   assert(pulseIs(2,1000) && pulseIs(3,500+155*2000.0/180));
   frame.tailFrontDegrees = std::numeric_limits<float>::quiet_NaN();
   const unsigned calls = dutyCalls;
@@ -105,7 +105,7 @@ esp_err_t uart_param_config(uart_port_t port, const uart_config_t *config) {
   return ESP_OK;
 }
 esp_err_t uart_set_pin(uart_port_t, int txPin, int rxPin, int, int) {
-  assert(txPin == 1 && rxPin == 2); return ESP_OK;
+  assert(txPin == 2 && rxPin == 1); return ESP_OK;
 }
 esp_err_t uart_driver_install(uart_port_t, int, int, int size, QueueHandle_t *out, int) {
   assert(size > 0 && out); *out = &queue; return ESP_OK;
@@ -140,9 +140,10 @@ static bool submitControl(const robofish::lora::Command &command, void *context)
   return sink.state.accept(command,sink.now);
 }
 
-static void checkRadioLease() {
+static void checkRadioHold() {
   using namespace robofish::lora;
   ControlSink sink;
+  sink.state.stopPending=false; // The real owner confirms startup neutral before accepting motion.
   LoRaService service(submitControl,&sink);
   assert(service.begin());
   auto send = [&](uint32_t now, unsigned sequence, unsigned code, int knob = -1) {
@@ -154,22 +155,22 @@ static void checkRadioLease() {
   assert(sink.state.leaseActive && sink.state.target.surgePercent == 100);
   send(3099,1,2,1000);
   assert(sink.state.lastMotionMs == 100 && service.status().accepted == 1);
-  assert(!sink.state.expire(3099) && sink.state.expire(3100));
+  assert(!sink.state.expire(3099) && !sink.state.expire(3100));
   send(3101,1,2,1000);
-  assert(!sink.state.leaseActive && sink.state.expired);
+  assert(sink.state.leaseActive && !sink.state.expired && sink.state.target.surgePercent==100);
   send(3102,2,6);
   assert(sink.state.leaseActive && sink.state.target.pitchPercent == 100 &&
-      sink.state.target.surgePercent == 0 && sink.state.knob == 0);
+      sink.state.target.surgePercent == 100 && sink.state.knob == 1000);
   send(3200,3,1);
   assert(sink.state.lastMotionMs == 3200 && sink.state.target.pitchPercent == 100 &&
       !sink.state.target.allowFlowAssist);
   send(5000,4,16,1000);
-  assert(sink.state.lastMotionMs == 3200 && sink.state.expire(6200));
+  assert(sink.state.lastMotionMs == 3200 && !sink.state.expire(6200));
   send(6500,5,14,1000);
-  assert(!sink.state.leaseActive && sink.state.target.pitchPercent == 0);
+  assert(sink.state.leaseActive && sink.state.target.pitchPercent == 100);
   send(6501,6,3);
   assert(sink.state.leaseActive && sink.state.target.yawPercent == -100 &&
-      sink.state.target.pitchPercent == 0 && sink.state.target.surgePercent == 0);
+      sink.state.target.pitchPercent == 100 && sink.state.target.surgePercent == 0);
   send(6600,7,17);
   assert(!sink.state.leaseActive && sink.state.stopPending && sink.state.knob == 0);
   send(6601,6,3);
@@ -177,9 +178,10 @@ static void checkRadioLease() {
   service.stop(); service.poll(6602);
 
   ControlState wrap;
+  wrap.stopPending=false;
   assert(wrap.accept(Command{0,2,false,0},0xfffffff0U));
   assert(!wrap.expire(uint32_t(0xfffffff0U + 2999U)) &&
-      wrap.expire(uint32_t(0xfffffff0U + 3000U)));
+      !wrap.expire(uint32_t(0xfffffff0U + 30000U)) && wrap.target.surgePercent==100);
 }
 
 int main() {
@@ -253,6 +255,6 @@ int main() {
   assert(!parseLine("100,1,1,65536,2", command));
   assert(parseLine("100,1,65535,65535,19,1000", command) && command.source == 65535);
   assert(sequenceAfter(0,65535) && !sequenceAfter(32768,0));
-  checkRadioLease();
-  puts("PASS: PWM pins/limits/direction/partial writes, absent pump, source ordering, STOP replay barrier, wrap, source limit, ACK addressing, UART resynchronization, duplicate/STOP/expiry leases");
+  checkRadioHold();
+  puts("PASS: PWM pins/limits/direction/partial writes, absent pump, source ordering, STOP replay barrier, wrap, source limit, ACK addressing, UART resynchronization, held radio commands");
 }

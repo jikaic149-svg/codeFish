@@ -45,7 +45,7 @@ class DualLinkTests(unittest.TestCase):
             link = LoRaLink(Serial, path, lambda: now[0])
             link.thread = object()  # Drive the actual worker synchronously.
             self.assertFalse(link.status()['connected'])
-            link.configure('192.168.4.1')
+            link.configure('192.168.4.1',port='COM28')
             uart = link.serial
             self.assertEqual(uart.args, ('COM28', 115200))
             link.step()
@@ -66,7 +66,7 @@ class DualLinkTests(unittest.TestCase):
             link.step()
             self.assertEqual(wire(uart.writes[-1])[4], 17)
             previous = link.sequence
-            link.close(); link.configure('192.168.4.1'); link.step()
+            link.close(); link.configure('192.168.4.1',port='COM28'); link.step()
             self.assertEqual(link.sequence, previous + 1)
             link.serial.partial = True
             now[0] += 1; link.step()

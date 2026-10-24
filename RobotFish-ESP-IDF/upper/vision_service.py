@@ -20,6 +20,9 @@ class VisionService:
         self.guard=threading.Lock();self.process=None;self.port=None;self.token=None
         self.logs=deque(maxlen=40);self.source='';self.ready=threading.Event()
         self.model=''
+        self.recording={'active':False,'saved':False,'error':''}
+        self.reader=None
+        self.output=WORKSPACE/'build/vision'
 
     def configuration(self):
         models=[]
@@ -37,10 +40,11 @@ class VisionService:
                     item['values']=json.loads(path.read_text(encoding='utf8'))
                 except (OSError,ValueError) as error:item['error']=str(error)
             profiles.append(item)
-        return {'models':models,'default_model':'vision/models/fish.pt','calibration':profiles,'output':str(WORKSPACE/'build/vision')}
+        return {'models':models,'default_model':'','model_required':False,'algorithm':'OpenCV 颜色跟踪',
+                'calibration':profiles,'output':str(self.output)}
 
     def model_path(self,value=None):
-        if value is None:value='vision/models/fish.pt'
+        if value in (None,''):return None
         if not isinstance(value,str):raise ValueError('请选择工程内的PT模型')
         path=(WORKSPACE/value).resolve()
         if not path.is_relative_to((WORKSPACE/'vision/models').resolve()) or path.suffix.lower()!='.pt' or not path.is_file():
@@ -48,7 +52,7 @@ class VisionService:
         return path
 
     def open_output(self):
-        folder=WORKSPACE/'build/vision';folder.mkdir(parents=True,exist_ok=True)
+        folder=self.output;folder.mkdir(parents=True,exist_ok=True)
         if not hasattr(os,'startfile'):raise RuntimeError('当前系统不支持直接打开文件夹')
         os.startfile(str(folder))
         return {'opened':True,'path':str(folder)}
@@ -58,29 +62,31 @@ class VisionService:
         with self.guard:
             if type(source) is int and 0<=source<=9:argument=str(source)
             elif source=='sample':
-                samples=Path(r'C:\Users\rlyoulo\Desktop\codeFish(1)\codeFish\VISION')
+                samples=Path(os.environ.get('ROBOFISH_VISION_SAMPLES',str(WORKSPACE.parent/'codefish/VISION')))
                 sample=next(iter(sorted(samples.glob('auv_record_*.mp4'))),None)
                 if not sample:raise RuntimeError('原项目录像不存在')
                 argument=str(sample)
             else:raise ValueError('无效视觉源')
             if self.process and self.process.poll() is None:
-                if argument!=self.source or str(model)!=self.model:raise RuntimeError('请先停止视觉，再应用新的相机或模型参数')
+                if argument!=self.source or (str(model) if model else '')!=self.model:raise RuntimeError('请先停止视觉，再应用新的相机或模型参数')
                 return self.state()
             python=Path(os.environ.get('ROBOFISH_VISION_PYTHON',r'D:\python\venvs\yolo\ultralytics\8.4.118\Scripts\python.exe'))
             if not python.is_file():raise RuntimeError('找不到视觉Python环境')
-            output=WORKSPACE/'build/vision';output.mkdir(parents=True,exist_ok=True)
+            output=self.output;output.mkdir(parents=True,exist_ok=True)
             self.token=secrets.token_hex(24);self.port=None;self.ready.clear();self.logs.clear();self.source=argument
-            self.model=str(model)
+            self.model=str(model) if model else ''
+            self.recording={'active':False,'saved':False,'error':''}
             environment={**os.environ,'ROBOFISH_PARENT_TOKEN':parent_token,'ROBOFISH_PARENT_PORT':str(parent_port),
                 'ROBOFISH_VISION_TOKEN':self.token,'ROBOFISH_VISION_OUTPUT':str(output),
                 'YOLO_CONFIG_DIR':str(output/'ultralytics'),'MPLCONFIGDIR':str(output/'matplotlib'),
                 'PYTHONIOENCODING':'utf-8','PYTHONDONTWRITEBYTECODE':'1'}
-            command=[str(python),'-B','-u',str(WORKSPACE/'vision/web_runtime.py'),'--source',argument,
-                     '--model',str(model)]
+            command=[str(python),'-B','-u',str(WORKSPACE/'vision/web_runtime.py'),'--source',argument]
+            if model:command.extend(['--model',str(model)])
             self.process=subprocess.Popen(command,cwd=WORKSPACE/'vision',env=environment,
                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace',
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-            threading.Thread(target=self._reader,args=(self.process,),daemon=True).start()
+            self.reader=threading.Thread(target=self._reader,args=(self.process,),daemon=True)
+            self.reader.start()
         self.ready.wait(3)
         return self.state()
 
@@ -88,6 +94,8 @@ class VisionService:
         for line in process.stdout:
             if line.startswith('ROBOFISH_VISION_READY '):
                 value=json.loads(line.split(' ',1)[1]);self.port=value['port'];self.ready.set()
+            elif line.startswith('ROBOFISH_VISION_RECORDING '):
+                self.recording=json.loads(line.split(' ',1)[1])
             else:self.logs.append(line.rstrip())
 
     def call(self,path,body=None,binary=False):
@@ -105,7 +113,10 @@ class VisionService:
 
     def state(self):
         running=bool(self.process and self.process.poll() is None)
-        result={'running':running,'ready':False,'source':self.source,'model':self.model,'logs':list(self.logs),'process_id':self.process.pid if running else None}
+        result={'running':running,'ready':False,'source':self.source,'model':self.model,'recording':dict(self.recording),
+                'logs':list(self.logs),'process_id':self.process.pid if running else None}
+        if not running and result['recording'].get('active'):
+            result['recording'].update(active=False,saved=False,error='视觉进程已退出，录像尚未确认保存')
         if running and self.port:
             try:result.update(self.call('/state'))
             except (RuntimeError,OSError):pass
@@ -130,9 +141,10 @@ class VisionService:
         if self.process and self.process.poll() is None:
             try:self.action({'task':'EXIT'})
             except (OSError,RuntimeError):pass
-            try:self.process.wait(timeout=4)
+            try:self.process.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 self.process.terminate();self.process.wait(timeout=3)
+        if self.reader and self.reader.is_alive():self.reader.join(timeout=1)
         self.port=None
         return self.state()
 

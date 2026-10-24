@@ -97,6 +97,7 @@ def normalize(raw, host, elapsed_ms=0):
                        '2.4G Wi-Fi 运动控制与遥测；六路数值为驱动写入目标，非位置反馈' if wifi else
                        '单 ESP32-S3 实际驱动写入目标（非位置反馈）；电池状态未上报；LoRa 接收运动指令'),
             'control': {'mode': mode, 'source': source, 'route': raw.get('preferred_control', 'wifi' if wifi else 'lora'),
+                        'motion_timeout_ms': number(raw.get('motion_timeout_ms')),
                         'lora_healthy': raw.get('lora', {}).get('healthy'), 'lora_age_ms': raw.get('lora', {}).get('age_ms'), 'axes': {
                 name: number(target.get(key)) for name, key in (
                     ('surge', 'surge_pct'), ('yaw', 'yaw_pct'), ('heave', 'heave_pct'))}},

@@ -19,12 +19,13 @@ PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
 URL = f'http://127.0.0.1:{PORT}'
 LOG = ROOT / 'server.log'
 SERVICE_ID = 'robotfish-local'
+REVISION = 'workstation-17-lora-sender-latency'
 BOOT_TIMEOUT_SECONDS = 20.0
 
 
 def alert(message):
     """Report a startup failure without depending on a console."""
-    if os.name == 'nt':
+    if os.name == 'nt' and sys.stderr is None:
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, '机器鱼工作站', 0x10)
     print(message, file=sys.stderr)
@@ -58,9 +59,97 @@ def spawn():
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
+def local_request(path, body=None):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    headers = {'Content-Type': 'application/json', 'Origin': URL}
+    if body is not None:
+        headers['X-AmphiLink-Token'] = local_request('session')['token']
+    request = urllib.request.Request(URL + '/api/' + path, headers=headers,
+        data=json.dumps(body).encode() if body is not None else None)
+    with opener.open(request, timeout=8) as response:
+        return json.load(response)
+
+
+def same_instance(identity):
+    return (isinstance(identity, dict) and identity.get('service') == SERVICE_ID and
+            os.path.normcase(identity.get('instance', '')) == os.path.normcase(str(ROOT)))
+
+
+def legacy_stop():
+    """Old releases have no exit API: verify this exact server process first."""
+    if os.name != 'nt':
+        raise RuntimeError('旧版服务不支持退出接口，请手动结束本目录的 server.py')
+    state = local_request('state')
+    if state.get('connected') or state.get('session_active'):
+        raise RuntimeError('旧版仍连接调试目标，请先断开调试会话再结束')
+    try:
+        view = local_request('station')
+        control = view.get('control', {})
+        if control.get('connected') and control.get('session'):
+            local_request('station/control', {'action':'stop','session':control['session'],
+                'sequence':1,'client_id':'exit-' + str(time.monotonic_ns())})
+    except urllib.error.URLError:
+        pass  # The explicitly requested local exit must also work when the fish is offline.
+    output = subprocess.check_output(['netstat', '-ano', '-p', 'tcp'],
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).decode('ascii', errors='ignore')
+    pids = {int(parts[-1]) for line in output.splitlines() if len(parts := line.split()) == 5
+            and parts[1] == f'127.0.0.1:{PORT}' and parts[3] == 'LISTENING'}
+    if len(pids) != 1:
+        raise RuntimeError('无法唯一确认本机上位机监听进程，未结束任何程序')
+    script = r'''
+$ErrorActionPreference = 'Stop'
+$taskProcess = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $env:ROBOTFISH_STOP_PID)
+$taskExpected = [regex]::Escape($env:ROBOTFISH_SERVER_SCRIPT) + '(?=["\s]|$)'
+if ($taskProcess.Name -notin @('python.exe','pythonw.exe') -or
+    $taskProcess.CommandLine -notmatch $taskExpected) { throw 'Process is not this RobotFish server.py' }
+Stop-Process -Id ([int]$env:ROBOTFISH_STOP_PID) -ErrorAction Stop
+'''
+    env = dict(os.environ, ROBOTFISH_STOP_PID=str(pids.pop()), ROBOTFISH_SERVER_SCRIPT=str(ROOT / 'server.py'))
+    subprocess.run(['powershell.exe', '-NoProfile', '-Command', script], env=env,
+        check=True, timeout=10, capture_output=True,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+
+
+def stop_service(identity):
+    if not same_instance(identity):
+        raise RuntimeError('端口属于其他程序或其他目录，未结束该进程')
+    saved, raw = local_request('data'), local_request('telemetry')
+    unsaved = saved.get('recording') or saved.get('count') or raw.get('count')
+    if unsaved:
+        import ctypes
+        if os.name != 'nt' or ctypes.windll.user32.MessageBoxW(None,
+                f"当前有 {saved.get('count',0)} 条状态记录、{raw.get('count',0)} 条原始记录。\n"
+                '结束后台会丢失未导出的数据。确认放弃并结束？', '机器鱼工作站', 0x24) != 6:
+            raise RuntimeError('已取消退出，请先导出实验数据')
+    if identity.get('shutdown_supported') is True:
+        local_request('shutdown', {'discard_records': bool(unsaved)})
+    else:
+        legacy_stop()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if probe() is None:
+            return
+        time.sleep(.1)
+    raise RuntimeError('旧后台尚未退出，未重复启动新进程')
+
+
 def main():
     open_browser = '--no-browser' not in sys.argv[1:]
     identity = probe()
+
+    if identity is not None and same_instance(identity) and ('--stop' in sys.argv[1:] or
+            '--restart' in sys.argv[1:] or identity.get('revision') != REVISION):
+        try:
+            stop_service(identity)
+            identity = None
+        except Exception as error:
+            alert('无法结束旧上位机：' + str(error))
+            return 1
+    if '--stop' in sys.argv[1:]:
+        if identity is not None:
+            alert('端口属于其他程序或其他目录，未结束该进程')
+            return 1
+        return 0
 
     if identity is None:
         process = spawn()
@@ -84,7 +173,7 @@ def main():
               '请关闭占用该端口的程序后重试。')
         return 1
 
-    if identity.get('revision') != 'workstation-10-attitude-control' or os.path.normcase(identity.get('instance','')) != os.path.normcase(str(ROOT)):
+    if identity.get('revision') != REVISION or not same_instance(identity):
         alert('本机正在运行旧版或其他目录的上位机。\n\n请先保存实验数据并结束旧服务，再重新双击图标。\n当前入口：'+str(ROOT))
         return 1
 

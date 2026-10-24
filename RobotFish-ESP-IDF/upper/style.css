@@ -60,7 +60,20 @@ body[data-workspace=debug] .capture-overview{display:none}
 body[data-device="robotfish"] #page-debug > :not(#robotfish-maintenance) { display:none !important; }
 body[data-device="robotfish"] #robotfish-maintenance,
 body[data-device="robotfish"] #robotfish-maintenance #firmware-esp32 { display:block !important; }
-body[data-device="robotfish"] [data-page="vision"],
 body[data-device="robotfish"] #page-overview .control-view > .card:first-child,
 body[data-device="robotfish"] #login-saved,
 body[data-device="robotfish"] #device-session .two-columns > .stack { display:none !important; }
+body[data-workspace="data"] .capture-overview { display:none; }
+#page-data .chart-legend { display:flex;flex-wrap:wrap;gap:8px; }
+#page-data .chart-series { display:inline-flex;align-items:center;gap:6px;padding:6px 10px;min-height:32px;border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);font:inherit;cursor:pointer; }
+#page-data .chart-series[aria-pressed="false"] { opacity:.45;text-decoration:line-through; }
+#page-data .capture-guide summary { cursor:pointer;font-weight:600; }
+#vision-recording-state { padding:10px 12px;background:var(--soft);border-radius:7px;font-size:12px;overflow-wrap:anywhere; }
+.control-connections { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;margin-bottom:16px;border:1px solid var(--line);border-radius:8px;background:var(--card); }
+.control-connections>div { display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:13px; }
+#lora-control-detail { color:var(--muted); }
+#lora-config { margin-bottom:20px;scroll-margin-top:90px; }
+#lora-config .input-row select { flex:1;min-width:0; }
+#lora-refresh-ports { flex-shrink:0;white-space:nowrap; }
+body[data-device="robotfish"] .vision-layout-bar,
+body[data-device="robotfish"] .vision-board-setting { display:none; }

@@ -39,7 +39,7 @@ HEALTH = dict(firmware='robotfish', hardware='robotfish-esp32s3', project_name='
               sta_ip='192.168.4.2', sta_ssid='lab', ap_ip='192.168.4.1',
               wifi_control_allowed=True, control_protocol=1)
 MOTION = dict(version=1, source='wifi', last_source='wifi', attempts=5, failures=0,
-              mode=3, action=1, failsafe_active=False, lease_remaining_ms=2500,
+              mode=3, action=1, failsafe_active=False, motion_timeout_ms=0, lease_remaining_ms=0,
               wifi_control_allowed=True, control_protocol=1, remote_active=False,
               remote_target=dict(surge_pct=40, yaw_pct=10, heave_pct=0),
               last_written=dict(tail_front_deg=91, tail_rear_deg=92,
@@ -87,7 +87,8 @@ class Target(BaseHTTPRequestHandler):
             return self.reply(dict(HEALTH, running_slot='app1' if self.uploads else 'app0'))
         if self.path == '/motion_status':
             owner = type(self)
-            if owner.motion['remote_active'] and time.monotonic() - owner.last_motion >= 3:
+            timeout = owner.motion.get('motion_timeout_ms', 3000)
+            if timeout > 0 and owner.motion['remote_active'] and (time.monotonic() - owner.last_motion) * 1000 >= timeout:
                 owner.motion.update(remote_active=False, failsafe_active=True, lease_remaining_ms=0)
                 owner.motion['remote_target'] = dict(surge_pct=0, yaw_pct=0, heave_pct=0)
             return self.reply(owner.motion)
@@ -124,7 +125,8 @@ class Target(BaseHTTPRequestHandler):
                 if action == 'target':
                     axes = command['axes']
                     active = any(axes.values())
-                    owner.motion.update(remote_active=active, failsafe_active=False, lease_remaining_ms=3000 if active else 0)
+                    owner.motion.update(remote_active=active, failsafe_active=False,
+                                        lease_remaining_ms=owner.motion.get('motion_timeout_ms', 3000) if active else 0)
                     owner.motion['remote_target'] = dict(surge_pct=axes['surge'], yaw_pct=axes['yaw'], heave_pct=axes['heave'])
                     owner.last_motion = time.monotonic()
                 elif action == 'mode':
@@ -243,6 +245,24 @@ class RobotFishTests(unittest.TestCase):
         with self.assertRaises(device_client.DeviceError):
             client.wifi_control(self.host, 'target', 'test-session', 1, axes=dict(surge=35, yaw=0, heave=0))
         self.assertFalse(client.robot(self.host)['control']['connected'])
+
+    def test_target_is_held_without_refresh_and_stop_still_clears_it(self):
+        client = self.connected()
+        axes = dict(surge=35, yaw=-40, heave=50)
+        client.wifi_control(self.host, 'target', 'test-session', 1, axes=axes)
+        Target.last_motion = time.monotonic() - 30
+        held = client.robot(self.host)
+        self.assertEqual(held['control']['motion_timeout_ms'], 0)
+        self.assertEqual(held['control']['axes'], axes)
+        self.assertFalse(held['motion']['failsafe'])
+        client.wifi_control(self.host, 'stop', 'test-session', 2)
+        self.assertEqual(Target.motion['remote_target'], dict(surge_pct=0, yaw_pct=0, heave_pct=0))
+        self.assertFalse(Target.motion['remote_active'])
+
+    def test_old_firmware_timeout_is_still_reported_as_old_policy(self):
+        raw = copy.deepcopy(MOTION)
+        raw.pop('motion_timeout_ms')
+        self.assertIsNone(robotfish.normalize(raw, self.host)['control']['motion_timeout_ms'])
 
     def test_local_sequence_and_station_axis_validation_never_contact_device(self):
         import station

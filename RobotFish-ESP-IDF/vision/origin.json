@@ -1,0 +1,16 @@
+{
+  "source": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\robofish_new\\vision",
+  "purpose": "Restore the existing OpenCV runtime and repair video recording in this workspace; upstream kept unchanged",
+  "files": {
+    "fixed_reference_tracker.py": "320e36e2cd4ecdbc627c546a3c23a80b1f3681b4305d2326aad7c385c969252c",
+    "path_guidance.py": "57657c4458b2c8df181f06b61bee12c9f283f7e0656bde8cf5c2b8e9dd55c62a",
+    "position_yaw.py": "2feb646361311fbfc0ee15147b2ed24f36f4a88fd49a4f48f14ddf0bd9f36ec0",
+    "turn_calibration.py": "d5c1f5bcced8b01183ff8153598f6876a43364a704e653e628a17e9577d3b5bf",
+    "vision_app.py": "e8047f1bbf4418b92b7963a02a752f18c9bff5e781bf22d9ad65b669d64dc41c",
+    "vision_protocol.py": "f1716600c40b63c4c04c906ee281a9c3edd2468dd8108c39103ae02d6fc9ce8b",
+    "vision_speed.py": "411f2cda8a76d3e7390f53f909030f3563ca48064d60995fe24d3f220f870ff2",
+    "vision_toolbar.py": "fd01e634c5962aa54f027b0be722f84663b4fd672cdca913bca1344019a4caee",
+    "web_runtime.py": "3135ad7fb8a349b9d2c76d75de5da723cc12cc65870239bc09e57d48a332ce3c",
+    "white_black_tracker.py": "0e890d8256c8c862478c1bc8d4ef37294ad80103cd19e2e143290fbf63f4fc02"
+  }
+}

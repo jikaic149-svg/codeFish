@@ -1,6 +1,7 @@
 'use strict';
 let visionState={running:false,ready:false},visionPolling=false,visionStarting=false,visionConfiguration=null;
 let controlVideoActive=false,pointerDown=false,lastPointerAt=0,boardCameraActive=false,lastCalibrationTask='';
+let recordingRequest='',recordingTarget=null;
 function visionSaved(key,fallback){try{return localStorage.getItem('robofish-vision-'+key)||fallback;}catch(_){return fallback;}}
 function saveVision(key,value){try{localStorage.setItem('robofish-vision-'+key,value);}catch(_){}}
 let visionLayout=visionSaved('layout','control');
@@ -16,11 +17,17 @@ function applyVisionLayout(value){
   renderVisionControls();updateVisionImages();
 }
 function renderVisionControls(){
+  if(isRobotFish()&&visionLayout!=='control'){applyVisionLayout('control');return;}
   $('vision-start').hidden=visionLayout==='board';$('vision-stop').hidden=visionLayout==='board'&&!visionState.running;
-  $('vision-start').disabled=visionStarting||visionState.running||!$('vision-model').value;
+  $('vision-start').disabled=visionStarting||visionState.running||(visionConfiguration?.model_required!==false&&!$('vision-model').value);
   $('vision-stop').disabled=!visionState.running||visionStarting;
   for(const id of ['vision-camera-index','vision-source','vision-model'])$(id).disabled=visionState.running||visionStarting;
+  if(visionConfiguration?.model_required===false)$('vision-model').disabled=true;
   document.querySelectorAll('[data-vision-task]').forEach(button=>button.disabled=!visionState.running||!visionState.ready);
+  const recorder=visionState.recording||{},record=document.querySelector('[data-vision-task="RECORD"]');
+  record.textContent=recorder.active?'停止录制':'录制视频';record.setAttribute('aria-pressed',String(recorder.active===true));
+  if(recordingRequest||recorder.saving)record.disabled=true;
+  robotText('vision-recording-state',recorder.error?'录像未保存：'+recorder.error:recorder.saving?'正在保存录像…':recorder.active?`正在录制 · ${recorder.elapsed_s||0} 秒 · ${recorder.frames||0} 帧${recorder.dropped_frames?' · 丢帧 '+recorder.dropped_frames:''}`:recorder.saved?`已保存 ${recorder.file} · ${recorder.frames} 帧`:'未录制；停止录制后自动保存 MP4 和对应数据 CSV。');
   $('vision-board-toggle').textContent=boardCameraActive?'关闭板载相机':'打开板载相机';
 }
 function syncVisionParameters(){
@@ -34,8 +41,11 @@ function syncVisionParameters(){
 async function loadVisionConfiguration(){
   try{
     visionConfiguration=await service('vision/config');
+    document.querySelector('label[for="vision-model"]').textContent=visionConfiguration.model_required===false?'视觉算法':'视觉控制模型（.pt）';
+    document.querySelector('#vision-settings>summary').textContent=visionConfiguration.model_required===false?'相机与标定配置':'相机、模型与标定配置';
     const select=$('vision-model'),previous=select.value||visionSaved('model',visionConfiguration.default_model);
     select.replaceChildren();
+    if(visionConfiguration.model_required===false)select.add(new Option(visionConfiguration.algorithm||'OpenCV（无需模型）',''));
     for(const model of visionConfiguration.models){const option=new Option(`${model.name} · ${(model.bytes/1024/1024).toFixed(1)} MiB`,model.path);select.add(option);}
     select.value=visionConfiguration.models.some(item=>item.path===previous)?previous:visionConfiguration.default_model;
     for(const profile of visionConfiguration.calibration){
@@ -47,7 +57,7 @@ async function loadVisionConfiguration(){
       }
       robotText('vision-calibration-'+profile.key,text);
     }
-    robotText('vision-model-state',visionState.running?'正在使用：'+visionState.model:'选择工程中的.pt模型；停止视觉控制后可修改相机和模型，再启动应用。');
+    robotText('vision-model-state',visionState.running?'正在使用：'+(visionState.model||visionConfiguration.algorithm):visionConfiguration.model_required===false?'OpenCV 颜色跟踪无需加载模型。选择摄像头或录像回放后启动。':'选择工程中的.pt模型；停止视觉控制后可修改相机和模型，再启动应用。');
     syncVisionParameters();renderVisionControls();
   }catch(error){robotText('vision-model-state',error.message);}
 }
@@ -63,9 +73,10 @@ async function startVision(){
   finally{visionStarting=false;renderVisionControls();}
 }
 async function visionTask(task){
+  if(task==='RECORD'&&recordingRequest)return;
   if(['MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB'].includes(task)&&visionLayout==='board')applyVisionLayout('control');
-  try{const result=await service('vision/action',{event:{task}});visionNotice(`视觉操作已排队：${task} · ${result.id.slice(0,8)}`);}
-  catch(error){visionNotice(error.message);toast(error.message);}
+  try{if(task==='RECORD'){recordingTarget=!visionState.recording?.active;recordingRequest='pending';renderVisionControls();}const result=await service('vision/action',{event:{task}});if(task==='RECORD')recordingRequest=result.id;visionNotice(`视觉操作已排队：${task} · ${result.id.slice(0,8)}`);await pollVision();}
+  catch(error){if(task==='RECORD')recordingRequest='';visionNotice(error.message);toast(error.message);renderVisionControls();}
 }
 function updateBoardImage(){
   if(!boardCameraActive||state.page!=='vision'||visionLayout==='control'){clearVisionImage('vision-board','vision-board-empty');return;}
@@ -101,9 +112,10 @@ async function pollVision(){
   if(visionPolling)return;visionPolling=true;
   try{
     visionState=await service('vision/state');
+    if(!visionState.running||visionState.last_task?.id===recordingRequest&&visionState.last_task?.state==='processed'||recordingRequest&&!visionState.recording?.saving&&visionState.recording?.active===recordingTarget)recordingRequest='';
     robotText('vision-service-state',!visionState.running?'视觉控制未运行':visionState.ready?`视觉控制运行中 · 画面 ${visionState.frame_age_ms??'—'} ms前`:'相机或模型初始化中');
     robotText('vision-config-path',visionState.source?'当前视觉输入：'+visionState.source+(visionState.width&&visionState.height?` · ${visionState.width}×${visionState.height}`:''):'外部视觉使用所选摄像头或录像回放；板载相机单独打开。');
-    if(visionState.running)robotText('vision-model-state','正在使用：'+visionState.model);
+    if(visionState.running)robotText('vision-model-state','正在使用：'+(visionState.model||visionConfiguration?.algorithm||'OpenCV'));
     if(visionState.last_task?.state==='processed'){
       robotText('vision-task-state',`已处理：${visionState.last_task.task} · ${visionState.last_task.status}${visionState.last_task.task==='START'&&!visionState.last_task.tracking?'（循迹未启动，请检查标定、目标和控制链路）':''}`);
       if(visionState.last_task.id!==lastCalibrationTask&&['MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB'].includes(visionState.last_task.task)){lastCalibrationTask=visionState.last_task.id;loadVisionConfiguration();}

@@ -75,12 +75,13 @@ class Workstation:
                 if capture:
                     self.last_sample = time.monotonic()
                     generation = self.generation
+                    source = 'robotfish_http' if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else {'simulation':'simulation','mission':'wifi_spi','bench':'http_spi'}[self.mode]
             if capture:
                 try:
                     snapshot = self.read()
                     error = ''
                 except device_client.DeviceError as exc:
-                    snapshot = empty_state('http_spi', str(exc))
+                    snapshot = empty_state(source, str(exc))
                     error = str(exc)
                 with self.guard:
                     if self.recording and generation == self.generation:
@@ -287,7 +288,9 @@ class Workstation:
         with self.command_guard:
             with self.guard:
                 hardware_host = self.host if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else ''
-            if hardware_host:
+                hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
+                if hardware_radio:hardware_host=self.host
+            if hardware_host or hardware_radio:
                 if action == 'source':
                     if value not in ('wifi', 'auto'):
                         raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
@@ -356,7 +359,9 @@ class Workstation:
         with self.command_guard:
             with self.guard:
                 hardware_host = self.host if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else ''
-            if hardware_host:
+                hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
+                if hardware_radio:hardware_host=self.host
+            if hardware_host or hardware_radio:
                 if source not in (None, 'auto', 'wifi', 'lora'):
                     raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
                 result = device_client.CLIENT.motion_control(hardware_host, 'target', session, sequence, client_id=client_id, axes=dict(axes))
@@ -425,11 +430,14 @@ class Workstation:
     def _append(self, view):
         act, battery = view.get('actuators', {}), view.get('battery', {})
         valid = bool(view.get('online'))
+        latency_ms = view.get('telemetry_rtt_ms')
+        if latency_ms is None and view.get('link', {}).get('round_trip_us') is not None:
+            latency_ms = view['link']['round_trip_us'] / 1000
         row = {'time': datetime.now(timezone.utc).isoformat(timespec='milliseconds'),
                'source': view['telemetry_source'], 'valid': valid,
                'battery_v': battery.get('voltage') if valid and battery.get('valid') else None,
                'power_pct': view.get('motion', {}).get('power') if valid else None,
-               'latency_ms': view.get('link', {}).get('round_trip_us') / 1000 if valid and view.get('link', {}).get('round_trip_us') is not None else None,
+               'latency_ms': latency_ms if valid else None,
                'owner': view.get('owner', 'unknown'), 'safety': view.get('safety_mode', 'UNKNOWN'),
                'reason': view.get('reason', ''),
                'imu_valid': bool(valid and view.get('imu', {}).get('valid')),

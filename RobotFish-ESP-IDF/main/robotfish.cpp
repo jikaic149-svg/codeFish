@@ -164,14 +164,17 @@ extern "C" void app_main() {
          (!control.stopPending || control.outputRecovery || control.outputFault); ++processed) {
       robofish::wifi::Command command;
       if (xQueueReceive(commands, &command, 0) != pdTRUE) break;
-      const auto result = control.accept(command, now);
+      // HTTP can publish after this loop captured `now`. Re-read the clock
+      // after dequeue so an otherwise fresh command cannot underflow its age.
+      const auto result = control.accept(command, board::nowMs());
       if (xQueueSend(commandResults, &result, 0) != pdTRUE) ++control.wifi.resultDrops;
     }
-    if (uint32_t(now - lastControl) >= appconfig::kControlMs) {
-      tick(now, now - lastControl);
-      lastControl = now;
+    const uint32_t controlNow = board::nowMs();
+    if (uint32_t(controlNow - lastControl) >= appconfig::kControlMs) {
+      tick(controlNow, controlNow - lastControl);
+      lastControl = controlNow;
     }
-    snapshot.nowMs = now;
+    snapshot.nowMs = controlNow;
     snapshot.control = control;
     snapshot.wifi = control.wifi;
     snapshot.lora = radio.status();

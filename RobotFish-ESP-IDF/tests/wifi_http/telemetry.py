@@ -79,6 +79,8 @@ int main() {
   fixture.attitude.headingTargetDegrees=13.123456f;
   if(telemetry(nullptr)!=0 || !captured) return 2;
   if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"imu"),"baud")->valuedouble!=9600) return 4;
+  if(cJSON_GetObjectItemCaseSensitive(captured,"motion_timeout_ms")->valuedouble!=0 ||
+      std::strcmp(cJSON_GetObjectItemCaseSensitive(captured,"lease_servo_action")->valuestring,"hold")) return 5;
   inflate(captured);
   char *encoded=cJSON_PrintUnformatted(captured);
   if(!encoded) return 3;
