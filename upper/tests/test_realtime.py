@@ -24,6 +24,32 @@ RAW = dict(version=1, imu=dict(model='JY61P', baud=115200, uart_ready=True,
 
 
 class RealtimeTests(unittest.TestCase):
+    def test_capture_records_wifi_rtt_and_leaves_missing_battery_empty(self):
+        from station import Workstation
+        station = Workstation()
+        view = robotfish.normalize(copy.deepcopy(RAW), '192.168.4.1')
+        view['telemetry_rtt_ms'] = 24.5
+        station._append(view)
+        row = station.data()['rows'][-1]
+        self.assertEqual(row['latency_ms'], 24.5)
+        self.assertEqual(row['roll_deg'], -45)
+        self.assertIsNone(row['battery_v'])
+
+    def test_capture_outage_keeps_device_source_and_can_resume(self):
+        from station import Workstation
+        station = Workstation()
+        station.host = '192.168.4.1'
+        with patch('station.device_client.CLIENT.is_robotfish', return_value=True):
+            station.capture('start')
+            with patch('station.time.sleep', side_effect=[None, RuntimeError('one pass')]), \
+                    patch.object(station, 'read', side_effect=device_client.DeviceError('fixture offline')), \
+                    patch.object(station, 'poll_raw'), self.assertRaisesRegex(RuntimeError, 'one pass'):
+                station._run()
+            self.assertEqual(station.rows[-1]['source'], 'robotfish_http')
+            self.assertFalse(station.rows[-1]['valid'])
+            station.capture('stop')
+            self.assertTrue(station.capture('start')['recording'])
+
     def test_shared_sample_age_and_slow_response_are_never_marked_fresh(self):
         client, host, now = device_client.DeviceClient(), '192.168.4.1', [100.0]
         client._profiles[host] = 'robotfish'

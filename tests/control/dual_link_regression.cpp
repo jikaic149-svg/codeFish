@@ -35,7 +35,11 @@ int main() {
     assert(acquired.code==wifi::Code::Accepted && state.leaseActive && !state.stopPending);
     assert(state.accept(request(wifi::Action::Target,1,start+2999),start+2999).code==wifi::Code::LoRaActive);
     assert(state.loraHealthy(start+2999) && !state.loraHealthy(start+3000));
-    assert(state.accept(request(wifi::Action::Target,1,start+3000),start+3000).code==wifi::Code::Accepted);
+    assert(state.accept(request(wifi::Action::Target,1,start+3000),start+3000).code==wifi::Code::NeutralPending);
+    assert(state.stopPending && !state.leaseActive && !state.wifiOwner && state.wifi.sequence==0);
+    assert(state.accept(request(wifi::Action::Target,1,start+3001),start+3001).code==wifi::Code::NeutralPending);
+    state.stopPending=false; // Sole owner has successfully submitted neutral outputs.
+    assert(state.accept(request(wifi::Action::Target,1,start+3020),start+3020).code==wifi::Code::Accepted);
     assert(state.wifiOwner && state.target.surgePercent==35);
     const auto lease=state.lastMotionMs;
     assert(state.accept(heartbeat,start+3100));
@@ -46,7 +50,7 @@ int main() {
     state.stopPending=false;
     assert(state.accept(target,start+3120) && state.leaseActive && !state.wifiOwner);
     assert(state.accept(heartbeat,start+6000) && state.lastMotionMs==start+3120);
-    assert(state.expire(start+6120) && state.loraHealthy(start+6120));
+    assert(!state.expire(start+6120) && state.leaseActive && state.loraHealthy(start+6120));
     auto stop=request(wifi::Action::Stop,2,start+6121);
     assert(state.accept(stop,start+6121).code==wifi::Code::Accepted && state.stopPending);
     state.maintenance=true;
@@ -57,10 +61,11 @@ int main() {
   ControlState switcher; switcher.stopPending=false;
   assert(switcher.accept(target,0)); assert(switcher.accept(heartbeat,100));
   assert(switcher.accept(request(wifi::Action::Acquire,0,3090),3090).code==wifi::Code::Accepted);
-  // A later heartbeat has not renewed the original motion lease.
-  assert(switcher.expire(3000));
+  // Silence keeps the last command; a new fallback target must pass neutral.
+  assert(!switcher.expire(3000) && switcher.leaseActive);
+  assert(switcher.accept(request(wifi::Action::Target,1,3100),3100).code==wifi::Code::NeutralPending);
   switcher.stopPending=false;
-  assert(switcher.accept(request(wifi::Action::Target,1,3100),3100).code==wifi::Code::Accepted);
+  assert(switcher.accept(request(wifi::Action::Target,1,3120),3120).code==wifi::Code::Accepted);
   for(unsigned i=0;i<5;++i) switcher.observeOutput(31);
   assert(switcher.outputRecovery && !switcher.leaseActive);
   assert(switcher.accept(request(wifi::Action::Target,2,3120),3120).code==wifi::Code::OutputRecovery);
@@ -74,7 +79,7 @@ int main() {
   assert(radioAttitude.accept(attitudeOn,10) && radioAttitude.attitudeEnabled && !radioAttitude.leaseActive);
   assert(radioAttitude.accept(target,20) && radioAttitude.leaseActive);
   assert(radioAttitude.accept(attitudeOff,2000) && !radioAttitude.attitudeEnabled && radioAttitude.lastMotionMs==20);
-  assert(radioAttitude.expire(3020));
+  assert(!radioAttitude.expire(30020) && radioAttitude.leaseActive);
   ControlState wifiAttitude; wifiAttitude.stopPending=false;
   assert(wifiAttitude.accept(request(wifi::Action::Acquire,0,0),0).code==wifi::Code::Accepted);
   const auto enabled=wifiAttitude.accept(request(wifi::Action::AttitudeOn,1,10),10);
@@ -83,7 +88,7 @@ int main() {
   assert(wifiAttitude.accept(request(wifi::Action::AttitudeOff,3,2000),2000).code==wifi::Code::Accepted);
   assert(!wifiAttitude.attitudeEnabled && wifiAttitude.lastMotionMs==20 && wifiAttitude.leaseActive);
   assert(wifiAttitude.accept(request(wifi::Action::AttitudeOn,3,2001),2001).code==wifi::Code::StaleSequence);
-  assert(wifiAttitude.expire(3020));
+  assert(!wifiAttitude.expire(30020) && wifiAttitude.leaseActive);
   std::puts("PASS: ordered LoRa/Wi-Fi attitude switches never start or renew motion; replay rejected");
-  std::puts("PASS: CRC targets, 3s LoRa priority/wrap, fallback, recovery neutral barrier, heartbeat/lease separation, OTA and output-fault ownership");
+  std::puts("PASS: CRC targets, held commands, 3s LoRa priority/wrap, fallback neutral barrier, STOP, OTA and output-fault ownership");
 }

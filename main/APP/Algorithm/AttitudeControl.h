@@ -98,6 +98,12 @@ inline Vector toBody(const Settings &settings, Vector sensor) {
 inline bool finite(Vector value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
+// One signed shortest turn in [-180, 180). A half-turn always chooses -180,
+// independent of whether the sensor encoded the boundary as +180 or -180.
+inline float wrapDegrees(float degrees) {
+  const float wrapped = std::remainder(degrees, 360.0f);
+  return wrapped >= 180.0f ? wrapped - 360.0f : wrapped;
+}
 
 // Stateless PD: angle error supplies restoring demand, measured body rate damps it.
 // The caller owns the motion lease and must pass motionAllowed=false on any STOP.
@@ -126,7 +132,7 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
     return unavailable(Reason::Stale);
   }
   if (!finite(sample.anglesDegrees) || !finite(sample.ratesDps) ||
-      std::abs(sample.anglesDegrees.x) > 180 || std::abs(sample.anglesDegrees.y) > 90 ||
+      std::abs(sample.anglesDegrees.x) > 180 || std::abs(sample.anglesDegrees.y) > 90 || std::abs(sample.anglesDegrees.z) > 180 ||
       std::abs(sample.ratesDps.x) > 2000 || std::abs(sample.ratesDps.y) > 2000 || std::abs(sample.ratesDps.z) > 2000) {
     return unavailable(Reason::Invalid);
   }
@@ -136,7 +142,7 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
   // vector, not Euler components: swapping angles is wrong for a rotated mount.
   const Vector down = toBody(s, {std::sin(pitch), -std::sin(roll)*std::cos(pitch), -std::cos(roll)*std::cos(pitch)});
   const Vector rates = toBody(s, sample.ratesDps);
-  result.rollDegrees = std::atan2(down.y, down.z) / radians;
+  result.rollDegrees = wrapDegrees(std::atan2(down.y, down.z) / radians);
   result.pitchDegrees = std::atan2(-down.x, std::hypot(down.y, down.z)) / radians;
   result.rollRateDps = rates.x;
   result.pitchRateDps = rates.y;
@@ -151,7 +157,7 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
     const int axis=s.sensorToBody[0], column=(axis>0?axis:-axis)-1;
     const int sign=axis>0?1:-1;
     // Local heading, clockwise positive. No magnetic-north reference is implied.
-    result.yawDegrees=std::atan2(-sign*sensorForwardY[column],sign*sensorForwardX[column])/radians;
+    result.yawDegrees=wrapDegrees(std::atan2(-sign*sensorForwardY[column],sign*sensorForwardX[column])/radians);
     result.yawRateDps=(rates.y*down.y+rates.z*down.z)/horizontalSquared;
     result.yawProjection=down.z;
     result.headingValid=true;
@@ -161,7 +167,7 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
   result.pitchActive = result.pitchCalibrated && !manualPitch;
   result.rollActive = result.rollCalibrated;
   const auto correction = [&](float angle, float trim, float rate, float kp, float kd, int sign) {
-    const float error = std::remainder(trim - angle, 360.0f);
+    const float error = wrapDegrees(trim - angle);
     return std::clamp(sign * (kp * error - kd * rate), -s.maximumCorrectionPercent, s.maximumCorrectionPercent);
   };
   if (result.pitchActive) result.pitchCorrectionPercent = correction(result.pitchDegrees, s.pitchTrimDegrees,
@@ -191,7 +197,7 @@ inline void holdHeading(const Settings &s, Result &result, HeadingState &state,
   if (!state.locked) { state.targetDegrees=result.yawDegrees; state.locked=true; }
   result.headingLocked=result.yawActive=true;
   result.headingTargetDegrees=state.targetDegrees;
-  const float error=std::remainder(state.targetDegrees-result.yawDegrees,360.0f);
+  const float error=wrapDegrees(state.targetDegrees-result.yawDegrees);
   const float correction=s.yawCommandSign*(s.yawKp*error-s.yawKd*result.yawRateDps)*result.yawProjection;
   result.yawCorrectionPercent=std::clamp(correction,-s.maximumCorrectionPercent,s.maximumCorrectionPercent);
   result.reason=Reason::Active;

@@ -124,7 +124,8 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(body, "action", static_cast<int>(action));
   cJSON_AddBoolToObject(body, "remote_active", s.control.leaseActive);
   cJSON_AddBoolToObject(body, "failsafe_active", failsafe);
-  cJSON_AddStringToObject(body, "lease_servo_action", "center");
+  cJSON_AddNumberToObject(body, "motion_timeout_ms", appconfig::kLeaseMs);
+  cJSON_AddStringToObject(body, "lease_servo_action", appconfig::kLeaseMs ? "center" : "hold");
   cJSON_AddStringToObject(body, "safety_state", s.control.safetyState());
   cJSON_AddBoolToObject(body, "output_warning", s.control.outputFailureStreak > 0 && !s.control.outputRecovery && !s.control.outputFault);
   cJSON_AddBoolToObject(body, "output_recovery", s.control.outputRecovery);

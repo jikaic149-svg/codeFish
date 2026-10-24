@@ -6,8 +6,12 @@ let wifiArmed=false,controlConfigPending=false;
 let appliedProfile='',robotTimer=0,robotFrame=0;
 let controlSuspended=false,recoveryPending=false,recoveryAttempts=0,recoveryAt=0,robotFailures=0;
 let autoConnectPending=false,autoConnectAttempted=false,autoConnectError='';
+let localRadio={connected:false,mode:3},radioPolling=false,radioEpoch=0;
+let radioPortsBusy=false,radioConfigBusy=false;
 function dualLink(){return isRobotFish()&&robotIdentity?.lora_protocol===2;}
 function isRobotFish(){return robotIdentity?.firmware==='robotfish';}
+function loraControlReady(){return stationMode!=='simulation'&&localRadio.connected===true&&(!localRadio.host||!robotHost()||localRadio.host===robotHost());}
+function manualControlReady(){return stationMode==='simulation'||loraControlReady()||wifiControlReady();}
 function wifiControlReady(){const view=currentRobot();return wifiArmed&&!controlSuspended&&isRobotFish()&&view?.wifi_control_allowed&&view?.control?.connected&&view.control.session_confirmed!==false&&!view.control.recovery_required&&view.control.session===controlSession;}
 function clearControlInputs(){heldKeys.clear();heldPointers.clear();desiredAxes={surge:0,yaw:0,heave:0};inputVersion++;sentVersion=inputVersion;}
 function suspendControl(error){
@@ -34,7 +38,7 @@ async function recoverControl(view,epoch){
   }finally{recoveryPending=false;}
 }
 function applyDeviceProfile(){
-  const profile=JSON.stringify([robotIdentity?.firmware,dualLink()]);
+  const radio=loraControlReady(),profile=JSON.stringify([robotIdentity?.firmware,dualLink(),radio,stationMode]);
   if(profile===appliedProfile)return;
   appliedProfile=profile;
   const single=isRobotFish();document.body.dataset.device=single?'robotfish':'legacy';
@@ -60,13 +64,13 @@ function applyDeviceProfile(){
   $('robot-remember').checked=single;
   $('login-saved').hidden=single;
   for(const id of ['robot-password','robot-remember','forget-key'])$(id).disabled=false;
-  $('control-source').disabled=single;
-  if(single)$('control-source').value=dualLink()?'auto':'wifi';
-  for(const option of $('control-source').options)option.hidden=single?option.value!==(dualLink()?'auto':'wifi'):option.value==='auto';
-  document.querySelector('label[for="control-source"]').textContent=single?'控制通道':'指令来源（仅仿真）';
+  $('control-source').disabled=single||radio;
+  if(single||radio)$('control-source').value=radio||dualLink()?'auto':'wifi';
+  for(const option of $('control-source').options)option.hidden=single||radio?option.value!==((radio||dualLink())?'auto':'wifi'):option.value==='auto';
+  document.querySelector('label[for="control-source"]').textContent=single||radio?'控制通道':'指令来源（仅仿真）';
   $('control-source').querySelector('option[value="wifi"]').textContent=single?'2.4G Wi-Fi':'2.4G 备用手动';
-  $('lora-state').parentElement.hidden=single&&!dualLink();$('spi-state').parentElement.hidden=single;
-  $('lora-config').hidden=!dualLink();
+  $('lora-state').parentElement.hidden=false;$('spi-state').parentElement.hidden=single;
+  $('lora-config').hidden=stationMode==='simulation';
   $('wifi-state').parentElement.querySelector('span').textContent=single?(dualLink()?'Wi-Fi 遥测 / 备用控制':'2.4G Wi-Fi 控制与遥测'):'2.4G 备用';
   for(const id of ['vision-board-toggle','control-video-start','network-refresh','network-scan','network-connect'])if($(id))$(id).disabled=single;
 }
@@ -87,6 +91,48 @@ function robotHost(){
 function robotText(id,value){const el=$(id);if(el&&el.textContent!==String(value))el.textContent=value;}
 function robotNumber(value,suffix='',digits=0){return typeof value==='number'&&Number.isFinite(value)?value.toFixed(digits)+suffix:'—';}
 function robotBadge(id,label,tone='unknown'){const el=$(id);if(el){robotText(id,label);if(el.dataset.state!==tone)el.dataset.state=tone;}}
+function renderRadioStatus(){
+  const simulated=stationMode==='simulation',radio=loraControlReady(),view=currentRobot(),wifi=!simulated&&view?.online===true;
+  const connected=localRadio.connected===true,port=localRadio.port||$('lora-port').value||'未选择串口';
+  const label=connected?`已连接 · ${port}`:localRadio.error?'串口异常':'未连接';
+  const reception=wifi&&view.control?.lora_healthy===true?'鱼端接收正常':'鱼端执行未确认';
+  robotBadge('lora-control-state',simulated?'LoRa · 仿真':`LoRa ${label}`,radio?'online':localRadio.error?'error':'unknown');
+  robotBadge('wifi-telemetry-state',simulated?'Wi-Fi · 仿真':wifi?'Wi-Fi 遥测在线':'Wi-Fi 遥测未连接',wifi?'online':'unknown');
+  robotBadge('lora-port-state',label,connected?'online':localRadio.error?'error':'unknown');
+  robotText('lora-control-detail',simulated?'当前为离线测试':radio?`可通过 LoRa 手动控制 · ${reception}`:localRadio.error||'连接 LoRa 串口后即可手动控制，无需 Wi-Fi。');
+  robotText('lora-port-detail',localRadio.error||`${port} · 115200 / 8N1 · 地址 0x${localRadio.address||'0102'} / 信道 0x${localRadio.channel||'20'} · 已发送 ${localRadio.sent||0} 帧${connected?' · '+reception:''}`);
+  if(!simulated)robotText('lora-state',connected?`串口已连接 · ${reception}`:localRadio.error?'串口异常':'未连接');
+  if(!wifi&&radio)robotText('robot-link-detail','LoRa 已连接 · 鱼端执行未确认');
+  for(const [id,disabled] of [['lora-connect',simulated||radioPortsBusy||radioConfigBusy||!$('lora-port').value],['lora-disconnect',!connected||radioConfigBusy],['lora-port',simulated||radioPortsBusy||radioConfigBusy],['lora-refresh-ports',radioPortsBusy||radioConfigBusy]])if($(id).disabled!==disabled)$(id).disabled=disabled;
+  robotText('lora-connect',connected?'重新连接 LoRa':'连接 LoRa');
+  if(typeof renderLoraTiming==='function')renderLoraTiming();
+}
+async function refreshRadioPorts(){
+  if(radioPortsBusy||radioConfigBusy||location.protocol==='file:')return;
+  radioPortsBusy=true;renderRadioStatus();robotText('lora-ports-detail','正在扫描串口…');
+  const select=$('lora-port'),selected=select.value||(localRadio.connected?localRadio.port:'');
+  try{
+    const result=await service('station/lora/ports');
+    const ports=result.ports;
+    select.replaceChildren(new Option(ports.length?'请选择 LoRa 发送端串口':'未检测到串口',''),...ports.map(item=>new Option(`${item.port} · ${item.description}`,item.port)));
+    select.value=[...select.options].some(option=>option.value===selected)?selected:'';
+    robotText('lora-ports-detail',ports.length?`检测到 ${ports.length} 个串口，请选择 LoRa 发送端；插拔后点击“刷新串口”。`:'未检测到串口，请接入 USB 转 TTL 后点击“刷新串口”。');
+  }catch(error){select.replaceChildren(new Option('串口扫描失败，请重试',''));robotText('lora-ports-detail',error.message);}
+  finally{radioPortsBusy=false;renderRadioStatus();}
+}
+async function pollRadioStatus(){
+  if(radioPolling||location.protocol==='file:')return;
+  radioPolling=true;const epoch=radioEpoch,previous=localRadio.connected;
+  try{
+    const status=await service('station/lora');if(epoch!==radioEpoch)return;
+    localRadio=status;
+    if(previous&&!status.connected)clearControlInputs();
+  }catch(error){
+    if(epoch!==radioEpoch)return;
+    localRadio={...localRadio,connected:false,error:error.message};
+    if(previous)clearControlInputs();
+  }finally{radioPolling=false;applyDeviceProfile();requestRobotRender();}
+}
 function robotMeter(id,value,min,max,centered=false){
   const el=$(id);if(!Number.isFinite(value)){el.style.width='0%';return;}
   const ratio=Math.max(0,Math.min(1,(value-min)/(max-min)));
@@ -106,7 +152,7 @@ function renderRobot(){
   const view=currentRobot(),valid=!!view?.online,battery=view?.battery||{},motion=view?.motion||{},act=valid?view.actuators||{}:{};
   const simulated=stationMode==='simulation',single=isRobotFish(),source=view?.telemetry_source||({mission:'wifi_spi',bench:'http_spi',simulation:'simulation'})[stationMode];
   robotText('source-label',MODE_LABELS[stationMode]);
-  robotText('source-description',robotError||(single?(dualLink()?'LoRa 传输指令，Wi-Fi 回传 IMU；LoRa 超过 3 秒无新帧时切换 Wi-Fi 备用。':'RobotFish 单 ESP32-S3：2.4G Wi-Fi 控制与遥测。'):simulated?'离线测试，未连接实物。':stationMode==='bench'?'台架遥测；运动控制仍走LoRa。':'S3 Wi-Fi回传遥测，运动指令使用LoRa。'));
+  robotText('source-description',loraControlReady()?'LoRa 可独立发送控制指令；Wi-Fi 用于遥测和接收确认。':robotError||(single?(dualLink()?'LoRa 主控，Wi-Fi 遥测与备用控制。':'RobotFish 单 ESP32-S3：2.4G Wi-Fi 控制与遥测。'):simulated?'离线测试，未连接实物。':stationMode==='bench'?'台架遥测；运动控制仍走LoRa。':'Wi-Fi回传遥测；连接 LoRa 后可独立手动控制。'));
   const strip=document.querySelector('.source-strip');if(strip.dataset.source!==source)strip.dataset.source=source;
   robotText('source-age',robotSeen?new Date(robotSeen).toLocaleTimeString('zh-CN',{hour12:false}):'未收到数据');
   robotBadge('global-source',simulated?'仿真模式':stationMode==='bench'?'台架只读':'Wi-Fi遥测',simulated?'warning':valid?'online':'unknown');
@@ -134,25 +180,24 @@ function renderRobot(){
   robotText('robot-pitch',robotNumber(act.pitch,'°'));
   renderImu();
   renderAttitudeControl(view);
-  const sender=view?.lora_sender||{};
-  robotBadge('lora-port-state',sender.connected?'串口已连接':'未连接',sender.connected?'online':'unknown');
-  robotText('lora-port-detail',sender.error||`${sender.port||'COM28'} · 已发送 ${sender.sent||0} 帧 · 鱼端接收结果通过 Wi-Fi 确认`);
   const route=view?.control?.route==='lora'?'LoRa 主控':'Wi-Fi 备用';
-  if(dualLink())robotText('lora-state',view?.control?.lora_healthy===true?'鱼端接收正常':valid?'失联 / 尚未接收':'遥测未知');
   robotText('robot-age',valid?Math.max(0,Math.floor((Date.now()-robotSeen)/1000))+'秒前':'—');
-  if(!dualLink())robotText('lora-state',simulated?(view?.links?.lora?'可用 · 仿真':'断开 · 仿真'):'待接入');
+  if(simulated)robotText('lora-state',view?.links?.lora?'可用 · 仿真':'断开 · 仿真');
   robotText('wifi-state',simulated?(view?.links?.wifi?'可用 · 仿真':'断开 · 仿真'):(valid?'遥测在线':'遥测未连接'));
   robotText('spi-state',simulated?(view?.links?.spi?'可用 · 仿真':'断开 · 仿真'):(valid?'在线':'离线 / 未知'));
-  const connected=wifiControlReady(),controllable=simulated||connected;
+  const connected=wifiControlReady(),radio=loraControlReady(),controllable=manualControlReady();
   if(single){robotText('robot-link-detail',dualLink()?`${route} · 已接收 ${view?.link?.received||0} 帧`:`2.4G Wi-Fi · 已接受 ${view?.link?.received||0} 条指令`);robotText('wifi-state',connected?'控制已连接':wifiArmed&&controlSuspended?'连接待验证':valid?'遥测在线 · 控制未连接':'未连接');}
   document.querySelectorAll('[data-axis]').forEach(el=>el.disabled=!controllable||modePending||controlConfigPending||$('control-source').value==='vision');
-  $('control-stop').disabled=!(simulated||(single&&wifiArmed))||modePending;
+  $('control-stop').disabled=!(simulated||wifiArmed||radio)||modePending;
   $('robot-control-mode').disabled=!controllable||modePending||controlConfigPending;
-  if(!controlConfigPending&&[1,2,3].includes(view?.control?.mode))$('robot-control-mode').value=String(view.control.mode);
-  robotBadge('robot-gate-badge',simulated?'仿真可控制':connected?(dualLink()?route:'2.4G 可控制'):single?(wifiArmed&&controlSuspended?'连接待验证':'控制未连接'):'LoRa发送端待接入',simulated?'warning':connected?'online':'unknown');
-  robotText('robot-gate-note',simulated?'离线测试：输出由STM32原分配算法计算。':connected?'按住续期，松开全停；超过3秒无新目标时双桨停止、舵机回中。':single?(wifiArmed&&controlSuspended?'认证暂时保留；旧按键已清除，验证同一会话并确认全停后再操作。':view?.wifi_control_allowed?'在设备设置输入控制密码并点击“连接控制”。':'当前固件未开放 Wi-Fi 控制，请先升级固件。'):'LoRa发送端未接入，未向实物发送。');
-  if(!connected&&autoConnectPending)robotText('robot-gate-note','正在自动识别并连接机器鱼…');
-  else if(!connected&&autoConnectError)robotText('robot-gate-note',autoConnectError);
+  const shownMode=radio&&!connected?localRadio.mode:view?.control?.mode;
+  if(!controlConfigPending&&[1,2,3].includes(shownMode))$('robot-control-mode').value=String(shownMode);
+  robotBadge('robot-gate-badge',simulated?'仿真可控制':radio?'LoRa 可控制':connected?(dualLink()?route:'2.4G 可控制'):single?(wifiArmed&&controlSuspended?'连接待验证':'控制未连接'):'连接 LoRa 或 Wi-Fi 后控制',simulated?'warning':radio||connected?'online':'unknown');
+  robotText('robot-gate-note',simulated?'离线测试：输出由STM32原分配算法计算。':connected?(view.control.motion_timeout_ms===0?'按住操作，松开发送停止目标；遥控指令保持至新指令或全停，不因3秒没有变化而停止。':'按住操作，松开发送停止目标；当前鱼端仍使用旧版指令超时策略。'):single?(wifiArmed&&controlSuspended?'认证暂时保留；旧按键已清除，验证同一会话并确认全停后再操作。':view?.wifi_control_allowed?'在设备设置输入控制密码并点击“连接控制”。':'当前固件未开放 Wi-Fi 控制，请先升级固件。'):'LoRa发送端未接入，未向实物发送。');
+  if(radio)robotText('robot-gate-note','LoRa 已连接，可按住操作、松开发送停止；无需 Wi-Fi。没有遥测时，鱼端执行结果保持未确认。');
+  if(!connected&&!radio&&autoConnectPending)robotText('robot-gate-note','正在自动识别并连接机器鱼…');
+  else if(!connected&&!radio&&autoConnectError)robotText('robot-gate-note',autoConnectError);
+  renderRadioStatus();
   if(!controllable&&(heldKeys.size||heldPointers.size))releaseControl();
 
   $('robot-sim-panel').hidden=!simulated;
@@ -195,7 +240,7 @@ function renderRobotSession(){
   else{robotBadge('robot-device-badge',robotIdentity.authenticated?'已登录':'设备在线',robotIdentity.authenticated?'online':'unknown');robotText('robot-device-detail',robotIdentity.authenticated?'管理会话已建立；运动控制仍走LoRa。':'设备可达，请输入管理密钥登录。');}
   for(const [id,key] of [['robot-version','version'],['robot-slot','running_slot'],['robot-ssid','ssid']])robotText(id,robotIdentity?.[key]||'—');
   $('login-saved').disabled=!robotIdentity?.key_saved;
-  if(isRobotFish()){robotBadge('robot-device-badge',wifiControlReady()?'2.4G 控制已连接':'RobotFish 在线','online');robotText('robot-device-detail',dualLink()?'单 ESP32-S3；连接控制后可打开 LoRa，失联时自动使用 Wi-Fi。':'单 ESP32-S3；遥测免登录。输入控制密码并连接后可操控。');}
+  if(isRobotFish()){robotBadge('robot-device-badge',wifiControlReady()?'2.4G 控制已连接':'RobotFish 在线','online');robotText('robot-device-detail',dualLink()?'单 ESP32-S3；LoRa 可独立连接控制，Wi-Fi 用于遥测与备用控制。':'单 ESP32-S3；遥测免登录。输入控制密码并连接后可操控。');}
   applyDeviceProfile();
 }
 async function pollIdentity(){
@@ -224,7 +269,7 @@ async function autoConnect(force=false){
     autoConnectAttempted=true;
     const result=await queueControl(()=>epoch!==identityEpoch?{skipped:true}:service('device/auto-connect',{host,session:controlSession,force}));
     if(result.skipped||epoch!==identityEpoch)return;
-    clearControlInputs();stationEpoch++;identityEpoch++;
+    if(!loraControlReady()){clearControlInputs();stationEpoch++;}identityEpoch++;
     $('robot-host').value=result.identity.host;robotfishBoundHost=result.identity.host;robotIdentity=result.identity;
     controlSession=result.session;controlSequence=Math.max(controlSequence,result.sequence||0);
     robotState=result.view;stationMode=result.view.mode||stationMode;robotSeen=Date.now();robotError='';
@@ -245,14 +290,17 @@ async function pollRobot(){
   clearTimeout(robotTimer);robotPending=true;const epoch=stationEpoch,started=performance.now();
   try{const view=await service('station');if(epoch!==stationEpoch)return;robotState=view;stationMode=view.mode||stationMode;$('station-mode').value=stationMode;robotError='';robotSeen=Date.now();robotFailures=0;
     if(wifiArmed&&view.firmware==='robotfish'){
-      if(view.control?.session_confirmed!==false&&(!view.control?.connected||view.control.session!==controlSession))loseControl({message:'控制会话已变化，请重新连接控制',code:'control_session_changed'});
-      else if(view.control?.recovery_required)suspendControl({message:'上次指令结果未确认，正在验证全停',code:'recovery_required'});
-      await recoverControl(view,epoch);
+      if(view.control?.session_confirmed!==false&&(!view.control?.connected||view.control.session!==controlSession)){
+        if(loraControlReady()){wifiArmed=false;controlSuspended=false;}else loseControl({message:'控制会话已变化，请重新连接控制',code:'control_session_changed'});
+      }else if(view.control?.recovery_required){
+        if(loraControlReady())controlSuspended=true;else suspendControl({message:'上次指令结果未确认，正在验证全停',code:'recovery_required'});
+      }
+      if(!loraControlReady())await recoverControl(view,epoch);
     }
   }
-  catch(e){if(epoch===stationEpoch){robotFailures++;if(wifiArmed)suspendControl(e);robotState=null;robotSeen=0;robotError=e.message;}}
+  catch(e){if(epoch===stationEpoch){robotFailures++;if(wifiArmed){if(loraControlReady())controlSuspended=true;else suspendControl(e);}robotState=null;robotSeen=0;robotError=e.message;}}
   finally{
-    robotPending=false;requestRobotRender();
+    robotPending=false;requestRobotRender();if(typeof updateDataTelemetry==='function')updateDataTelemetry(currentRobot());
     const interval=robotFailures?Math.min(3000,250*2**Math.min(robotFailures-1,4)):document.hidden?1000:isRobotFish()?100:250;
     robotTimer=setTimeout(pollRobot,Math.max(0,interval-(performance.now()-started)));
   }
@@ -290,14 +338,14 @@ const keyboardAxes={w:'forward',s:'back',a:'left',d:'right',r:'up',f:'down'};
 let robotHistory=[];
 function renderControl(){
  const actual=currentRobot()?.control?.axes;
- robotText('control-axis-value',actual?`已确认：前后 ${actual.surge} · 转向 ${actual.yaw} · 浮沉 ${actual.heave}`:'目标尚未确认');
+ robotText('control-axis-value',actual?`已确认：前后 ${actual.surge} · 转向 ${actual.yaw} · 浮沉 ${actual.heave}`:loraControlReady()?`LoRa 指令目标：前后 ${desiredAxes.surge} · 转向 ${desiredAxes.yaw} · 浮沉 ${desiredAxes.heave} · 鱼端执行未确认`:'目标尚未确认');
  document.querySelectorAll('[data-axis]').forEach(button=>button.classList.toggle('pressed',[...heldKeys,...heldPointers.values()].includes(button.dataset.axis)));
 }
 function queueControl(callback){const result=controlQueue.then(callback);controlQueue=result.catch(()=>{});return result;}
 async function configureControl(action,value){
  controlConfigPending=true;renderRobot();
- try{const result=await queueControl(()=>service('station/control',{action,value,session:controlSession,sequence:++controlSequence,client_id:controlClientId}));const message=result.queued?'已排队经 LoRa 发送，等待遥测确认':result.waiting?'等待主备通道切换':result.message;robotText('control-configuration-state',message);log(message,'ok');await pollRobot();}
- catch(error){if(isRobotFish()&&!['unsupported_control','attitude_not_calibrated'].includes(error.code)){if(error.retryable)suspendControl(error);else loseControl(error);}robotText('control-configuration-state',error.message);toast(error.message);$('robot-control-mode').value=String(currentRobot()?.control?.mode||3);$('control-source').value=isRobotFish()?(dualLink()?'auto':'wifi'):currentRobot()?.control?.source||'lora';}
+ try{const result=await queueControl(()=>service('station/control',{action,value,session:controlSession,sequence:++controlSequence,client_id:controlClientId}));if(action==='mode'&&(result.queued||result.accepted))localRadio.mode=value;const message=result.queued?'已排队经 LoRa 发送，鱼端执行未确认':result.waiting?'等待主备通道切换':result.message;robotText('control-configuration-state',message);log(message,'ok');await pollRobot();}
+ catch(error){if(isRobotFish()&&!['unsupported_control','attitude_not_calibrated'].includes(error.code)){if(error.retryable)suspendControl(error);else loseControl(error);}robotText('control-configuration-state',error.message);toast(error.message);$('robot-control-mode').value=String(loraControlReady()?localRadio.mode:currentRobot()?.control?.mode||3);$('control-source').value=loraControlReady()?'auto':isRobotFish()?(dualLink()?'auto':'wifi'):currentRobot()?.control?.source||'lora';}
  finally{controlConfigPending=false;renderRobot();}
 }
 function updateAxes(sourceOverride){
@@ -308,16 +356,16 @@ function releaseControl(sourceOverride){heldKeys.clear();heldPointers.clear();up
 async function stopControl(){
  heldKeys.clear();heldPointers.clear();desiredAxes={surge:0,yaw:0,heave:0};inputVersion++;sentVersion=inputVersion;renderControl();
  if(stationMode==='simulation'){sentVersion--;await pumpTarget();return;}
- if(!wifiArmed)return;
- try{const result=await queueControl(()=>service('station/control',{action:'stop',session:controlSession,sequence:++controlSequence,client_id:controlClientId}));if(result.accepted===true&&result.session===controlSession){controlSuspended=false;recoveryAttempts=0;}else if(result.queued)suspendControl({message:'停止帧已排队（LoRa），等待鱼端确认',code:'stop_unconfirmed'});robotText('robot-command-result',result.queued?'停止帧已排队（LoRa），等待鱼端确认':'已全停');}
+ if(!wifiArmed&&!loraControlReady())return;
+ try{const result=await queueControl(()=>service('station/control',{action:'stop',session:controlSession,sequence:++controlSequence,client_id:controlClientId}));if(result.accepted===true&&result.session===controlSession){controlSuspended=false;recoveryAttempts=0;}else if(result.queued&&!loraControlReady())suspendControl({message:'停止帧已排队（LoRa），等待鱼端确认',code:'stop_unconfirmed'});robotText('robot-command-result',result.queued?'LoRa 停止帧已排队，鱼端执行未确认':'已全停');}
  catch(error){if(error.retryable)suspendControl(error);else loseControl(error);robotText('robot-command-result',error.message);log(error.message,'warn');}
 }
 async function pumpTarget(){
- if(targetPending||modePending||!(stationMode==='simulation'||wifiControlReady()))return;
+ if(targetPending||modePending||!manualControlReady())return;
  const active=Object.values(desiredAxes).some(value=>value!==0),now=Date.now();
  if(inputVersion===sentVersion&&(!active||now-lastRenewal<150))return;
  targetPending=true;const version=inputVersion,axes={...desiredAxes},source=desiredSource,epoch=stationEpoch;
- try{const result=await queueControl(()=>version!==inputVersion||controlSuspended?{skipped:true}:service('station/target',{axes,source,session:controlSession,sequence:++controlSequence,client_id:controlClientId}));
+ try{const result=await queueControl(()=>version!==inputVersion||controlSuspended&&!loraControlReady()?{skipped:true}:service('station/target',{axes,source,session:controlSession,sequence:++controlSequence,client_id:controlClientId}));
    if(result.skipped)return;
    if(epoch===stationEpoch){sentVersion=version;lastRenewal=Date.now();robotText('robot-command-result',result.queued?`目标已排队（LoRa），等待鱼端遥测确认 #${result.id}`:result.waiting?'等待通道切换，下次新目标继续发送':`目标已接受（${result.simulated?'仿真':'Wi-Fi 备用'}） #${result.id}`);}
  }catch(error){if(epoch===stationEpoch){if(error.retryable)suspendControl(error);else loseControl(error);robotText('robot-command-result',error.message);log(error.message,'warn');renderControl();renderRobot();}}
@@ -325,9 +373,17 @@ async function pumpTarget(){
 }
 function renderRobotHistory(){$('robot-history').replaceChildren(...robotHistory.slice(-12).reverse().map(entry=>{const row=document.createElement('div');row.textContent=entry;return row;}));}
 for(const connected of [true,false])$('lora-'+(connected?'connect':'disconnect')).onclick=async()=>{
- try{await service('station/lora',{connected,port:$('lora-port').value.trim(),address:$('lora-address').value.trim(),channel:$('lora-channel').value.trim()});await pollRobot();}
+ if(radioConfigBusy)return;
+ const port=$('lora-port').value;
+ if(connected&&!port){toast('请先扫描并选择 LoRa 发送端串口');return;}
+ radioConfigBusy=true;renderRadioStatus();
+ try{await stopControl();clearControlInputs();radioEpoch++;localRadio=await queueControl(()=>service('station/lora',{connected,port,address:$('lora-address').value.trim(),channel:$('lora-channel').value.trim()}));radioEpoch++;applyDeviceProfile();renderRobot();await pollRadioStatus();}
  catch(error){robotText('lora-port-detail',error.message);toast(error.message);}
+ finally{radioConfigBusy=false;renderRadioStatus();}
 };
+$('lora-refresh-ports').onclick=refreshRadioPorts;
+$('lora-port').onchange=renderRadioStatus;
+$('lora-open-settings').onclick=()=>{go('network');$('lora-config').scrollIntoView({behavior:'smooth',block:'start'});};
 $('station-mode').onchange=e=>switchStationMode(e.target.value);
 $('robot-login').onclick=()=>robotLogin();$('login-saved').onclick=()=>robotLogin(true);$('robot-refresh').onclick=()=>{autoConnectAttempted=false;autoConnect();};
 $('forget-key').onclick=async()=>{try{autoConnectAttempted=true;identityEpoch++;await stopControl();wifiArmed=false;await service('device/forget',{host:robotHost()});robotIdentity=null;robotText('robot-login-state','已退出并删除该设备的本机密钥');await pollIdentity();}catch(error){toast(error.message);}};
@@ -342,16 +398,17 @@ document.querySelectorAll('[data-axis]').forEach(button=>{
 });
 $('control-stop').onclick=()=>{stopControl();robotHistory.push(new Date().toLocaleTimeString()+' 全停');renderRobotHistory();};
 $('robot-clear-history').onclick=()=>{robotHistory=[];renderRobotHistory();};
-window.addEventListener('keydown',event=>{if(state.page!=='overview'||/INPUT|TEXTAREA|SELECT/.test(event.target.tagName))return;if(event.code==='Space'){event.preventDefault();if(!event.repeat)$('control-stop').click();return;}const key=keyboardAxes[event.key.toLowerCase()];if(key&&!event.repeat&&!modePending&&(stationMode==='simulation'||wifiControlReady())&&$('control-source').value!=='vision'){event.preventDefault();heldKeys.add(key);updateAxes();}});
+window.addEventListener('keydown',event=>{if(state.page!=='overview'||/INPUT|TEXTAREA|SELECT/.test(event.target.tagName))return;if(event.code==='Space'){event.preventDefault();if(!event.repeat)$('control-stop').click();return;}const key=keyboardAxes[event.key.toLowerCase()];if(key&&!event.repeat&&!modePending&&manualControlReady()&&$('control-source').value!=='vision'){event.preventDefault();heldKeys.add(key);updateAxes();}});
 window.addEventListener('keyup',event=>{const key=keyboardAxes[event.key.toLowerCase()];if(key&&heldKeys.delete(key))updateAxes();});
 window.addEventListener('blur',()=>{if(heldKeys.size||heldPointers.size)releaseControl();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&(heldKeys.size||heldPointers.size))releaseControl();});
-window.addEventListener('stationpage',event=>{if(event.detail!=='overview'&&(heldKeys.size||heldPointers.size))releaseControl();if(event.detail==='network')pollIdentity();});
+window.addEventListener('stationpage',event=>{if(event.detail!=='overview'&&(heldKeys.size||heldPointers.size))releaseControl();if(event.detail==='network'){pollIdentity();refreshRadioPorts();}});
 for(const key of ['lora','wifi','spi','upgrading'])$('sim-'+key).onchange=async event=>{try{robotState=await service('station/simulate',{changes:{[key]:event.target.checked}});robotSeen=Date.now();renderRobot();}catch(error){toast(error.message);}};
 $('robot-sim-fault').onchange=async event=>{try{robotState=await service('station/simulate',{changes:{battery:event.target.value}});robotSeen=Date.now();renderRobot();}catch(error){toast(error.message);}};
-setInterval(()=>{if(stationMode==='simulation'||wifiControlReady())pumpTarget();},75);
+setInterval(()=>{if(manualControlReady())pumpTarget();},75);
 setInterval(()=>{if(!document.hidden&&state.page==='overview')renderImu();},100);
 setInterval(()=>{if(!document.hidden){requestRobotRender();if(state.page==='network')pollIdentity();}},4000);
-renderRobot();pollRobot();
+renderRobot();pollRobot();pollRadioStatus();refreshRadioPorts();
+setInterval(()=>pollRadioStatus(),500);
 setTimeout(()=>autoConnect(),0);
 setInterval(()=>{if(!document.hidden&&!autoConnectAttempted&&!wifiArmed)autoConnect();},4000);

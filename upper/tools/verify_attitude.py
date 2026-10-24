@@ -75,6 +75,7 @@ def main():
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto('http://127.0.0.1:' + str(web.server_port) + '/')
                 page.wait_for_function('wifiControlReady()')
+                page.wait_for_function('document.getElementById("robot-gate-note").textContent.includes("不因3秒没有变化而停止")')
                 toggle = page.locator('#robot-attitude-enabled')
                 toggle.evaluate('element => { for(let p=element.parentElement;p;p=p.parentElement)if(p.tagName==="DETAILS")p.open=true; }')
                 assert toggle.is_disabled() and not toggle.is_checked()

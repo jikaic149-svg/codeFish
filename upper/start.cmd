@@ -2,12 +2,12 @@
 setlocal
 rem ---------------------------------------------------------------------------
 rem  rlyoulink host UI launcher
-rem  1) already running -> just open the browser
+rem  1) current version running -> reuse; same-folder old version -> replace
 rem  2) not running      -> start the local service with pythonw (no console)
 rem  3) python missing   -> show a dialog instead of failing silently
 rem  ASCII only on purpose: cmd.exe reads .cmd as ANSI, so non-ASCII comment and
 rem  dialog text here would be mis-decoded on some machines.
-rem  Optional args are forwarded to launch.py, e.g. --no-browser
+rem  Optional args: --no-browser, --stop, --restart
 rem ---------------------------------------------------------------------------
 
 set "HERE=%~dp0"

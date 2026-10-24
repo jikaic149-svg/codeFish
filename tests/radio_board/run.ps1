@@ -12,3 +12,12 @@ $executable = Join-Path $temporary 'board-regression.exe'
 if ($LASTEXITCODE -ne 0) { throw "Board compile failed: $LASTEXITCODE" }
 & $executable
 if ($LASTEXITCODE -ne 0) { throw "Board regression failed: $LASTEXITCODE" }
+$radioExecutable = Join-Path $temporary 'lora-regression.exe'
+& $Compiler -std=c++17 -O1 -Wall -Wextra -Werror `
+  "-I$PSScriptRoot/stubs" "-I$project/main" `
+  "$PSScriptRoot/lora_regression.cpp" "$project/main/bsp.cpp" `
+  "$project/main/BSP/LoRaUart.cpp" "$project/main/Service/LoRa/LoRaService.cpp" `
+  "$project/main/Service/LoRa/LoraProtocol.cpp" -o $radioExecutable
+if ($LASTEXITCODE -ne 0) { throw "LoRa compile failed: $LASTEXITCODE" }
+& $radioExecutable
+if ($LASTEXITCODE -ne 0) { throw "LoRa regression failed: $LASTEXITCODE" }

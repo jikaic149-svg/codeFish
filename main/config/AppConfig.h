@@ -9,7 +9,9 @@ inline constexpr char kOtaUser[] = "fish";
 inline constexpr char kOtaPassword[] = "fishota";
 inline constexpr uint32_t kPollMs = 10;
 inline constexpr uint32_t kControlMs = 20;
-inline constexpr uint32_t kLeaseMs = 3000;
+// Motion hold timeout, milliseconds: 0 keeps the last accepted target until a
+// new target or STOP. Event-driven handsets do not repeat unchanged commands.
+inline constexpr uint32_t kLeaseMs = 0;
 // Consecutive incomplete six-channel PWM submissions, at the 20 ms output period.
 // 1..4: warning; 5 (~100 ms): neutral/re-authorize; 15 (~300 ms): latched stop.
 inline constexpr uint8_t kOutputNeutralFailures = 5;

@@ -3,19 +3,20 @@
 #include "config/ControlConfig.h"
 
 namespace robofish::config::attitude {
-// Await the actual JY61P installation. For each body FRD axis (forward/right/down),
-// enter the corresponding signed sensor axis +/-1(X), +/-2(Y), +/-3(Z).
-// Zero explicitly means unconfirmed; no mounting or actuator direction is guessed.
-inline constexpr int kBodyXFromSensor = 0;
-inline constexpr int kBodyYFromSensor = 0;
-inline constexpr int kBodyZFromSensor = 0;
+// User measured: sensor yaw increases left, pitch decreases nose-up, roll
+// increases right. The 2026-10-23 backend log shows resting roll near +/-180
+// (e.g. -175.75), so use FRD {+1,+2,+3}, not the level-roll-zero {+1,-2,-3}.
+// Log pose is not a measured level calibration; retain zero trims below.
+// Signed sensor axes: +/-1(X), +/-2(Y), +/-3(Z). Zero means unconfirmed.
+inline constexpr int kBodyXFromSensor = 1;
+inline constexpr int kBodyYFromSensor = 2;
+inline constexpr int kBodyZFromSensor = 3;
 // +1: positive body request produces positive body torque; -1: opposite.
 // Pitch positive = nose up, roll = right side down, yaw = right turn.
-// User confirmed existing UP raises the nose and DOWN lowers it. The IMU mount
-// still awaits measurement, so this confirmation alone cannot enable feedback.
+// Existing UP raises the nose; positive yaw requests turn right.
 inline constexpr int kPitchCommandSign = 1;
 inline constexpr int kRollCommandSign = 0;
-inline constexpr int kYawCommandSign = 0;
+inline constexpr int kYawCommandSign = 1;
 // Initial PD gains, not pool-tuned: command %/degree and command %/(degree/second).
 inline constexpr float kPitchKp = 1.0f, kPitchKd = 0.10f;
 inline constexpr float kRollKp = 1.0f, kRollKd = 0.10f;

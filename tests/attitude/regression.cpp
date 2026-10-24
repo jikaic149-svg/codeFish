@@ -115,7 +115,86 @@ static void inputChecks() {
   check(evaluate().rollCorrectionPercent==20,"actuator calibration sign is explicit");
   s=settings(); s.pitchKp=std::numeric_limits<float>::max();
   check(evaluate().reason==attitude::Reason::Uncalibrated,"invalid gains cannot overflow control");
-  check(!attitude::validSettings(config::attitude::makeSettings()),"production mounting remains explicitly unconfirmed");
+  check(attitude::validSettings(config::attitude::makeSettings()),"production mounting follows logged roll near +/-180");
+}
+static void confirmedDirectionsAndWrapChecks() {
+  const auto production=config::attitude::makeSettings();
+  auto logged=sample(); logged.anglesDegrees={-175.748291f,7.020264f,113.049316f}; logged.ratesDps={0,0,0};
+  const auto pose=attitude::evaluate(production,logged,100,false,false,false);
+  check(pose.bodyValid && near(pose.rollDegrees,4.251709f) && near(pose.pitchDegrees,-7.020264f) &&
+        near(pose.yawDegrees,-113.049316f),"logged sensor pose maps to small body tilt instead of a 176-degree roll error");
+  check(!pose.pitchActive && !pose.rollActive && !pose.yawActive &&
+        production.rollTrimDegrees==0 && production.pitchTrimDegrees==0,
+        "log reading cannot silently enable assistance or declare an arbitrary pose level");
+  auto s=settings(); s.yawCommandSign=1; s.rollCommandSign=0;
+  check(config::attitude::kPitchCommandSign==1 && config::attitude::kYawCommandSign==1,
+        "existing UP and right-turn command signs are recorded");
+  auto input=sample(); input.anglesDegrees=input.ratesDps={0,0,0};
+  auto result=attitude::evaluate(s,input,100,true,true,false);
+  check(result.bodyValid && result.pitchCalibrated && result.yawCalibrated && !result.rollCalibrated,
+        "synthetic level-zero mount enables pitch/yaw while unknown roll fin response stays disabled");
+  check(near(result.rollDegrees,0) && near(result.pitchDegrees,0) && near(result.yawDegrees,0),
+        "sensor zero is level with no half-turn offset");
+  for(float angle : {-.1f,.1f,-10.0f,10.0f}) {
+    input.anglesDegrees={0,angle,0};
+    result=attitude::evaluate(s,input,100,true,true,false);
+    check(near(result.pitchDegrees,-angle) && near(result.pitchCorrectionPercent,angle),
+          "nose-up decreases sensor pitch and produces a restoring DOWN demand through zero");
+    input.anglesDegrees={angle,0,0};
+    result=attitude::evaluate(s,input,100,true,true,false);
+    check(near(result.rollDegrees,angle) && !result.rollActive,
+          "sensor roll increases to the right through zero without uncalibrated fin output");
+    input.anglesDegrees={0,0,angle};
+    result=attitude::evaluate(s,input,100,true,true,false);
+    check(near(result.yawDegrees,-angle),"sensor yaw increases to the left through zero");
+  }
+  for(float heading : {-179.0f,-.1f,0.0f,.1f,179.0f}) {
+    for(float drift : {-2.0f,2.0f}) {
+      attitude::HeadingState held;
+      input.anglesDegrees={0,0,heading}; input.ratesDps={0,0,0};
+      result=attitude::evaluate(s,input,100,true,true,false);
+      attitude::holdHeading(s,result,held,false,0);
+      input.anglesDegrees.z=std::remainder(heading+drift,360.0f);
+      result=attitude::evaluate(s,input,100,true,true,false);
+      attitude::holdHeading(s,result,held,false,0);
+      check(result.yawActive && near(result.yawCorrectionPercent,drift),
+            "left yaw drift commands right restoring demand across zero and +/-180");
+    }
+  }
+  input.anglesDegrees={0,0,0}; input.ratesDps={0,-10,10};
+  result=attitude::evaluate(s,input,100,true,true,false);
+  attitude::HeadingState held;
+  attitude::holdHeading(s,result,held,false,0);
+  check(result.pitchCorrectionPercent<0 && result.yawCorrectionPercent>0,
+        "measured rate damping opposes nose-up and left turn even at zero angle");
+  for(float origin : {-180.0f,0.0f,180.0f}) {
+    attitude::HeadingState held;
+    input.anglesDegrees={0,0,origin}; input.ratesDps={0,0,0};
+    result=attitude::evaluate(s,input,100,true,true,false);
+    attitude::holdHeading(s,result,held,false,0);
+    input.anglesDegrees.z=std::remainder(origin+180.0f,360.0f);
+    result=attitude::evaluate(s,input,100,true,true,false);
+    attitude::holdHeading(s,result,held,false,0);
+    check(result.yawCorrectionPercent==-s.maximumCorrectionPercent,
+          "exact half-turn uses one consistent direction regardless of angle encoding");
+  }
+  // Both possible level readings agree with the user's observed angle signs.
+  // Test each without choosing an unmeasured mounting for production.
+  for(int yz : {-1,1}) {
+    s.sensorToBody[1]=2*yz; s.sensorToBody[2]=3*yz;
+    s.rollCommandSign=1; // Synthetic fin response, never used in production.
+    for(float tilt : {-.1f,0.0f,.1f}) {
+      input.anglesDegrees={std::remainder((yz>0?180.0f:0.0f)+tilt,360.0f),-tilt,0};
+      input.ratesDps={0,0,0};
+      result=attitude::evaluate(s,input,100,true,true,false);
+      check(result.bodyValid && near(result.rollDegrees,tilt) && near(result.pitchDegrees,tilt),
+            "both level-zero and level-half-turn mounts cross upright continuously");
+      check(near(result.rollCorrectionPercent,-tilt) && near(result.pitchCorrectionPercent,-tilt),
+            "both mounts restore pitch and roll on each side of upright");
+    }
+  }
+  for(float halfTurn : {-540.0f,-180.0f,180.0f,540.0f})
+    check(attitude::wrapDegrees(halfTurn)==-180,"equivalent half-turn encodings have one signed result");
 }
 static void actuatorChecks() {
   auto s=settings(); const auto feedback=attitude::evaluate(s,sample(),100,true,true,false);
@@ -175,7 +254,7 @@ static void authorizationChecks() {
   check(state.accept(command,100).code==wifi::Code::Accepted && !state.attitudeMotionAllowed(),"explicit STOP removes feedback authority");
   state.stopPending=false; command.action=wifi::Action::Target;
   target(35,0,120);
-  check(state.expire(3120) && !state.attitudeMotionAllowed(),"gyro cannot extend a motion lease");
+  check(!state.expire(30120) && state.attitudeMotionAllowed(),"forward feedback remains eligible without repeated motion frames");
   target(35,0,3140);
   for(unsigned i=0;i<5;++i) state.observeOutput(31);
   check(state.outputRecovery && !state.attitudeMotionAllowed(),"output recovery keeps gyro inactive");
@@ -227,6 +306,6 @@ static void headingChecks() {
   check(owner.attitudeGeneration!=generation && !owner.leaseActive,"OFF/ON invalidates heading but never starts motion");
 }
 int main() {
-  mountingChecks(); inputChecks(); actuatorChecks(); syntheticResponse(); authorizationChecks(); headingChecks();
+  mountingChecks(); inputChecks(); confirmedDirectionsAndWrapChecks(); actuatorChecks(); syntheticResponse(); authorizationChecks(); headingChecks();
   std::printf("PASS: %u attitude checks; 24 mounts, three-axis PD, heading wrap/reanchor, stale/STOP/manual priority, fin limits, synthetic convergence; Result=%zu, HeadingState=%zu bytes\n",checks,sizeof(attitude::Result),sizeof(attitude::HeadingState));
 }

@@ -33,8 +33,8 @@ ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
-REVISION = 'workstation-10-attitude-control'
-FEATURES = {'attitude_control': True}
+REVISION = 'workstation-17-lora-sender-latency'
+FEATURES = {'attitude_control': True, 'shutdown': True}
 # Simulator controls proxy only when explicitly requested, so a normal run
 # exposes no extra surface at all.
 SIMULATOR = '--simulator' in sys.argv[1:]
@@ -381,9 +381,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():return self.reply(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT)})
+        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True})
         if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':REVISION,'features':FEATURES})
         if path=='/api/tooling':return self.reply(200,tooling.info())
+        if path=='/api/station/lora':return self.reply(200,device_client.CLIENT.lora_status())
+        if path=='/api/station/lora/ports':
+            try:return self.reply(200,device_client.CLIENT.lora_ports())
+            except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/station':
             try:return self.reply(200,dict(STATION.read(),mode=STATION.mode))
             except device_client.DeviceError as exc:return self.device_error(exc)
@@ -494,6 +498,21 @@ class Handler(BaseHTTPRequestHandler):
             body=json.loads(self.rfile.read(length))
             if not isinstance(body,dict):raise ValueError('请求须为JSON对象')
             action=urlsplit(self.path).path.removeprefix('/api/')
+            if action=='shutdown':
+                if not LOCK.acquire(blocking=False):return self.reply(409,{'error':'设备操作进行中，完成后再退出'})
+                try:
+                    with STATION.command_guard:
+                        saved=STATION.data()
+                        raw=STATION.telemetry()
+                        if (saved['recording'] or saved['count'] or raw['count']) and body.get('discard_records') is not True:
+                            return self.reply(409,{'error':'存在实验记录，请先导出，或明确确认放弃后退出','code':'unsaved_records'})
+                        STATION.capture('stop')
+                        confirmed=device_client.CLIENT.shutdown()
+                    self.reply(200,{'exiting':True,'stop_confirmed':confirmed})
+                    diagnostics.event('shutdown',stop_confirmed=confirmed)
+                    threading.Thread(target=self.server.shutdown,daemon=True).start()
+                    return
+                finally:LOCK.release()
             if action=='diagnostics':
                 entries=body.get('events')
                 if not isinstance(entries,list) or not 1<=len(entries)<=20:
@@ -533,10 +552,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError('请先结束实物调试会话，再进入测试模式')
                 return self.reply(200,dict(STATION.configure(body.get('mode'),body.get('host','')),mode=STATION.mode))
             if action=='station/lora':
-                if STATION.mode=='simulation':raise ValueError('仿真模式不连接实物 LoRa')
-                return self.reply(200,device_client.CLIENT.configure_lora(STATION.host,
-                    port=body.get('port','COM28'), address=body.get('address','0102'),
-                    channel=body.get('channel','20'), connected=body.get('connected',True)))
+                with STATION.command_guard:
+                    if STATION.mode=='simulation' and body.get('connected') is not False:raise ValueError('仿真模式不连接实物 LoRa')
+                    return self.reply(200,device_client.CLIENT.configure_lora(STATION.host,
+                        port=body.get('port',''), address=body.get('address','0102'),
+                        channel=body.get('channel','20'), connected=body.get('connected',True)))
             if action=='station/control':
                 return self.reply(200,STATION.configure_control(body.get('action'),body.get('value'),body.get('session'),body.get('sequence'),client_id=body.get('client_id')))
             if action=='station/target':
@@ -618,4 +638,6 @@ if __name__=='__main__':
     PROBES.start()
     STATION.start()
     print(f'RobotFish UI: http://127.0.0.1:{PORT}',flush=True)
-    ThreadingHTTPServer(('127.0.0.1',PORT),Handler).serve_forever()
+    web=ThreadingHTTPServer(('127.0.0.1',PORT),Handler)
+    try:web.serve_forever()
+    finally:web.server_close()

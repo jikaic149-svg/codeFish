@@ -36,23 +36,21 @@ static Result move(ControlState &state, uint32_t sequence, uint32_t now,
   return state.accept(value, now);
 }
 static void boundaries() {
-  check(appconfig::kLeaseMs == 3000, "lease remains exactly three seconds");
+  check(appconfig::kLeaseMs == 0, "motion commands are held until replaced or stopped");
   for (uint32_t start : {0u, 100u, 0xfffffff0u}) {
     ControlState state;
     acquire(state);
     check(move(state, 1, start).code == Code::Accepted && state.leaseActive &&
         state.target.enabled && !state.expired && state.lastMotionMs == start,
-        "target starts a lease, including time zero and clock wrap");
-    check(!state.expire(start + 2999u) && state.leaseActive, "lease valid at 2999 ms");
-    check(state.expire(start + 3000u) && !state.leaseActive && state.expired &&
-        !state.target.enabled, "lease expires at exactly 3000 ms");
-    check(state.target.surgePercent == 0 && state.target.yawPercent == 0 &&
-        state.target.pitchPercent == 0 && !state.target.allowFlowAssist,
-        "expiry discards every retained motion field");
-    check(!state.expire(start + 3001u), "expiry is a single event");
+        "target starts motion, including time zero and clock wrap");
+    for(uint32_t elapsed : {2999u,3000u,3001u,30000u,86400000u,0x80000000u,0xffffffffu}) {
+      check(!state.expire(start + elapsed) && state.leaseActive && !state.expired &&
+          state.target.enabled && state.target.surgePercent==100,
+          "no-command interval never clears an accepted target, including clock wrap");
+    }
     check(move(state, 2, start + 3002u, {0, 0, -40}).code == Code::Accepted &&
         state.target.surgePercent == 0 && state.target.pitchPercent == -40 &&
-        !state.expired, "fresh absolute target never revives expired surge");
+        !state.expired, "fresh absolute target replaces the held surge demand");
   }
   ControlState queued;
   acquire(queued);
@@ -60,7 +58,8 @@ static void boundaries() {
   value.axes = {20, -30, 40};
   check(queued.accept(value, 249).code == Code::Accepted && queued.lastMotionMs == 100,
       "queue delay cannot move the original receive deadline");
-  check(queued.expire(3100), "delayed target expires at its original three-second deadline");
+  check(!queued.expire(30100) && queued.target.surgePercent==20 && queued.target.yawPercent==-30 &&
+      queued.target.pitchPercent==40, "a timely queued target stays active without refresh");
   value.sequence = 2;
   check(queued.accept(value, 250).code == Code::Expired && queued.wifi.sequence == 1,
       "target at exact HTTP timeout rejects without committing its sequence");
@@ -81,12 +80,13 @@ static void absoluteTargetsAndModes() {
   check(state.accept(mode, 3199).code == Code::Accepted && state.target.mode == DriveMode::Hybrid &&
       state.lastMotionMs == 200 && state.target.surgePercent == -40,
       "mode selection preserves current target but does not renew its lease");
-  check(state.expire(3200), "mode traffic cannot postpone expiry");
+  check(!state.expire(3200) && state.target.surgePercent==-40, "mode traffic preserves held motion");
+  state.stop(); state.stopPending=false;
   mode.sequence = 4; mode.mode = DriveMode::Bionic;
   mode.receivedMs = 3300;
-  check(state.accept(mode, 3300).code == Code::Accepted && state.expired &&
+  check(state.accept(mode, 3300).code == Code::Accepted && !state.expired &&
       !state.leaseActive && !state.target.enabled && state.target.mode == DriveMode::Bionic,
-      "mode selection cannot restart expired motion");
+      "mode selection cannot restart stopped motion");
   check(move(state, 5, 3400, {0, 0, 80}).code == Code::Accepted &&
       state.target.mode == DriveMode::Bionic && state.target.surgePercent == 0 &&
       state.target.pitchPercent == 80, "fresh heave preserves configured mode only");
@@ -101,9 +101,9 @@ static void orderingAndSessions() {
   check(move(state, 1, 100).code == Code::Accepted, "initial target accepted");
   check(move(state, 1, 3099).code == Code::StaleSequence && state.lastMotionMs == 100 &&
       state.wifi.sequence == 1, "duplicate target cannot renew the lease");
-  check(state.expire(3100), "duplicate traffic cannot prevent expiry");
-  check(move(state, 1, 3101).code == Code::StaleSequence && !state.leaseActive,
-      "duplicate target cannot revive expired motion");
+  check(!state.expire(3100) && state.leaseActive, "held target does not need duplicate traffic");
+  check(move(state, 1, 3101).code == Code::StaleSequence && state.target.surgePercent==100,
+      "duplicate target cannot change held motion");
   auto stop = command(Action::Stop, 10, 3200);
   auto result = state.accept(stop, 3200);
   check(result.code == Code::Accepted && result.requestId == stop.requestId &&
@@ -276,5 +276,5 @@ int main() {
   static_assert(std::is_trivially_copyable_v<Command> && std::is_trivially_copyable_v<Result>);
   boundaries(); absoluteTargetsAndModes(); orderingAndSessions(); rejection(); requestDeadlines();
   outputDegradation();
-  std::printf("PASS: %u Wi-Fi control checks (absolute targets, 3s lease/wrap, sessions, sequence/STOP replay barrier, validation, OTA lock, output degradation/recovery/fault)\n", checks);
+  std::printf("PASS: %u Wi-Fi control checks (held absolute targets/clock wrap, sessions, sequence/STOP replay barrier, validation, OTA lock, output degradation/recovery/fault)\n", checks);
 }

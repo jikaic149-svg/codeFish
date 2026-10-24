@@ -86,7 +86,7 @@ struct ControlState {
     stopPending = true;
   }
   bool expire(uint32_t now) {
-    if (!leaseActive || uint32_t(now - lastMotionMs) < appconfig::kLeaseMs) return false;
+    if (!appconfig::kLeaseMs || !leaseActive || uint32_t(now - lastMotionMs) < appconfig::kLeaseMs) return false;
     clearTarget();
     expired = true;
     return true;

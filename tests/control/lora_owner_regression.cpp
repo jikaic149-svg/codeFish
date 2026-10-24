@@ -15,8 +15,9 @@
 extern "C" void app_main();
 static unsigned checks = 0, queueCount = 0;
 static uint32_t now = 0;
+static uint32_t boardClockOffset = 0;
 static std::string scenario = "normal";
-static QueueHandle_t values, otaRequests, otaResults;
+static QueueHandle_t values, commands, otaRequests, otaResults;
 static HostQueue events[3];
 static std::deque<uint8_t> rx[3];
 static bool uartReady[3]{};
@@ -38,6 +39,7 @@ int xQueueSend(QueueHandle_t q, const void *item, unsigned wait) {
 int xQueueReceive(QueueHandle_t q, void *out, unsigned wait) {
   check(wait == 0, "queue consumption is nonblocking");
   if (q->entries.empty()) return 0;
+  if(q==commands && scenario=="clock_race") boardClockOffset=1;
   std::memcpy(out,q->entries.front().data(),q->itemBytes); q->entries.pop_front(); return pdTRUE;
 }
 int xQueueReset(QueueHandle_t q) { q->entries.clear(); return pdTRUE; }
@@ -79,6 +81,13 @@ static void send(unsigned sequence,unsigned code,int knob = 1000) {
   char line[64]; std::snprintf(line,sizeof(line),"100,1,0,%u,%u,%d\n",sequence,code,knob);
   for (const char *p=line;*p;++p) rx[1].push_back(static_cast<uint8_t>(*p));
 }
+static void postWifi(robofish::wifi::Action action,uint32_t sequence) {
+  robofish::wifi::Command command;
+  command.action=action; command.sequence=sequence; command.receivedMs=now+(scenario=="clock_race"?1:0);
+  std::strcpy(command.session,"hold-fixture");
+  command.axes={100,0,100};
+  check(xQueueSend(commands,&command,0)==pdTRUE,"Wi-Fi hold fixture fits command queue");
+}
 static std::vector<uint8_t> packet(uint8_t type,int x,int y,int z) {
   std::vector<uint8_t> p{0x55,type};
   for (int value : {x,y,z,0}) { p.push_back(value & 255); p.push_back((static_cast<unsigned>(value) >> 8) & 255); }
@@ -86,19 +95,24 @@ static std::vector<uint8_t> packet(uint8_t type,int x,int y,int z) {
 }
 namespace board {
 bool begin() { return true; }
-uint32_t nowMs() { return now; }
+uint32_t nowMs() { return now+boardClockOffset; }
 uint8_t applyFrameMask(const robofish::ActuatorFrame &frame) {
   const bool failure = (scenario == "recovery" && now >= 60 && now < 240) ||
       (scenario == "fault" && now >= 60 && now < 400) || (scenario == "normal" && now == 1200);
-  const uint8_t mask = failure ? 31 : scenario == "lease" && now == 3020 ? 62 : 63;
+  const uint8_t mask = failure ? 31 : 63;
   writes.push_back({now,frame,mask}); return mask;
 }
 }
-bool networkBegin(QueueHandle_t snapshots,QueueHandle_t,QueueHandle_t,QueueHandle_t stops,QueueHandle_t stopped) {
-  values=snapshots; otaRequests=stops; otaResults=stopped;
+bool networkBegin(QueueHandle_t snapshots,QueueHandle_t requests,QueueHandle_t,QueueHandle_t stops,QueueHandle_t stopped) {
+  values=snapshots; commands=requests; otaRequests=stops; otaResults=stopped;
   check(queueCount==5 && uartReady[1] && uartReady[2],"both UARTs initialized, bounded fallback, telemetry and OTA queues");
-  if (scenario=="lease") send(1,6);
-  send(scenario=="lease"?2:1,2);
+  if(scenario=="wifi_hold" || scenario=="clock_race") {
+    postWifi(robofish::wifi::Action::Acquire,0);
+    postWifi(robofish::wifi::Action::Target,1);
+  } else {
+    if (scenario=="hold") send(1,6);
+    send(scenario=="hold"?2:1,2);
+  }
   for(auto b:packet(0x53,8192,-8192,16384)) rx[2].push_back(b);
   if(scenario=="attitude")
     for(const char *p="101,1,23120,42,23,3,0,0,0,1000,7010\n";*p;++p) rx[1].push_back(static_cast<uint8_t>(*p));
@@ -121,17 +135,34 @@ void vTaskDelayUntil(TickType_t *wake,TickType_t period) {
     if(now==1200) check(s.control.maintenance && otaResults->entries.empty(),"OTA waits through partial neutral write");
     if(now==1240) { bool ok=false; check(xQueueReceive(otaResults,&ok,0)==pdTRUE && ok &&
         s.control.loraResult.code==robofish::lora::ControlCode::Maintenance,"OTA returns success only after full neutral and rejects LoRa"); throw Finished{}; }
-  } else if (scenario=="lease") {
-    if(now==3000) check(s.control.expired && !s.control.leaseActive &&
-        s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0,"duplicates never extend 3s lease");
-    if(now==3600) check(s.written.tailFrontDegrees==90 && s.written.tailRearDegrees==90 &&
-        s.written.pectoralLeftDegrees==90 && s.written.pectoralRightDegrees==90,"four servos recenter after lease expiry");
-    if(now==3640) { check(s.control.leaseActive && !s.control.expired,"fresh LoRa command resumes"); throw Finished{}; }
+  } else if (scenario=="clock_race") {
+    check(s.nowMs>=s.control.lastMotionMs,"published snapshot is not older than its accepted command");
+    if(now==50) {
+      check(s.wifi.accepted==2 && s.wifi.rejected==0 && s.control.leaseActive && s.wifi.sequence==1,
+            "HTTP published after loop time capture is accepted using current owner time");
+      throw Finished{};
+    }
+  } else if (scenario=="hold" || scenario=="wifi_hold") {
+    if(now>=1000 && now<=30000) check(s.control.leaseActive && !s.control.expired &&
+        s.written.leftPropulsionPercent==100 && s.written.rightPropulsionPercent==100 &&
+        s.written.pectoralLeftDegrees!=90 && s.written.pectoralRightDegrees!=90 &&
+        s.control.lastMotionMs==0,"one accepted target holds thrust and fins for 30 seconds without renewal");
+    if(now==30000 && scenario=="hold") check(s.lora.duplicates==1,"duplicate radio target stays rejected");
+    if(now==30000 && scenario=="wifi_hold") check(s.wifi.rejected==1,"duplicate Wi-Fi target stays rejected");
+    if(now==30040) {
+      check(!s.control.leaseActive && s.control.target.surgePercent==0 && s.control.target.pitchPercent==0 &&
+          s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0 &&
+          s.written.tailFrontDegrees==90 && s.written.tailRearDegrees==90 &&
+          s.written.pectoralLeftDegrees==90 && s.written.pectoralRightDegrees==90,
+          "explicit STOP still clears held motion and immediately submits six-channel neutral");
+      throw Finished{};
+    }
   } else if (scenario=="attitude") {
     check(s.control.attitudeEnabled,"LoRa attitude request reaches the owner");
-    if(now>=20) check(s.attitude.requested && s.attitude.reason==robofish::attitude::Reason::Uncalibrated &&
+    if(now>=20) check(s.attitude.requested && s.attitude.reason==(s.control.attitudeMotionAllowed()?
+        robofish::attitude::Reason::NoImu:robofish::attitude::Reason::WaitingMotion) &&
         !s.attitude.pitchActive && !s.attitude.rollActive && !s.attitude.yawActive && !s.attitude.headingLocked,
-        "unconfirmed mount/actuator directions cannot drive feedback");
+        "angles without measured rates cannot drive feedback even with a mapped mount");
     if(now==500) check(s.written.leftPropulsionPercent==100,"enabling assistance did not alter manual thrust");
     if(now==620) {
       check(!s.control.leaseActive && s.written.leftPropulsionPercent==0 &&
@@ -154,9 +185,12 @@ void vTaskDelayUntil(TickType_t *wake,TickType_t period) {
     if(now==1010) { send(4,17); send(4,17); send(0,2); }
     if(now==1190) { const bool stop=true; check(xQueueSend(otaRequests,&stop,0)==pdTRUE,"OTA stop published"); }
     if(now==1230) send(5,2);
-  } else if(scenario=="lease") {
+  } else if(scenario=="hold") {
     if(now==1000) send(2,2);
-    if(now==3610) send(3,2);
+    if(now==30010) send(3,17);
+  } else if(scenario=="wifi_hold") {
+    if(now==1000) postWifi(robofish::wifi::Action::Target,1);
+    if(now==30010) postWifi(robofish::wifi::Action::Stop,2);
   } else if(scenario=="attitude") {
     if(now==600) send(2,17);
   } else {
