@@ -5,6 +5,7 @@
 #include "config/messages/WifiControl.h"
 #include "config/AppConfig.h"
 #include "config/RadioConfig.h"
+#include "config/AttitudeConfig.h"
 #include "config/messages/LoRaCommand.h"
 
 // One owner: the 10 ms application loop arbitrates LoRa and queued HTTP requests.
@@ -29,20 +30,33 @@ struct ControlState {
   bool stopPending = true;
   bool maintenance = false;
   bool softStopping = false;
-  bool attitudeEnabled = false; // Configuration only; never authorizes or renews motion.
+  bool attitudeEnabled = false; // Explicit yaw-hold authorization, including zero surge.
   uint32_t attitudeGeneration = 0;
+  robofish::wifi::YawPid yawPid{robofish::config::attitude::kYawKp,
+      robofish::config::attitude::kYawKi,robofish::config::attitude::kYawKd};
+  static bool validPid(const robofish::wifi::YawPid &pid) {
+    return std::isfinite(pid.kp) && pid.kp>=0 && pid.kp<=100 &&
+        std::isfinite(pid.ki) && pid.ki>=0 && pid.ki<=100 &&
+        std::isfinite(pid.kd) && pid.kd>=0 && pid.kd<=100;
+  }
   uint8_t outputFailureStreak = 0;
   uint8_t failedMask = 0;
   bool outputRecovery = false;
   bool outputFault = false;
 
   bool attitudeMotionAllowed() const {
-    // Initial fin-feedback profile is for commanded forward swimming only.
-    // Reverse and stationary turns retain their existing manual allocation.
-    return leaseActive && target.enabled && target.surgePercent > 0 && !softStopping &&
+    // Zero targets retain heading hold. Manual yaw yields in holdHeading();
+    // reverse, explicit STOP, OTA and output faults retain their priority.
+    return attitudeEnabled && target.surgePercent >= 0 &&
         !expired && !maintenance && !stopPending && !outputRecovery && !outputFault;
   }
-  void setAttitude(bool enabled) { attitudeEnabled=enabled; ++attitudeGeneration; }
+  void setMode(DriveMode mode) { target.mode=attitudeEnabled?DriveMode::Hybrid:mode; }
+  void setAttitude(bool enabled) {
+    // Reuse the neutral barrier to center a tail previously driven by idle hold.
+    if (attitudeEnabled && !enabled && !leaseActive) stopPending = true;
+    attitudeEnabled=enabled; ++attitudeGeneration;
+    if (enabled) setMode(DriveMode::Hybrid); // Tail and both props share the yaw demand.
+  }
 
   // The owner calls this after each actual BSP submission; API success is not
   // physical position feedback. Recovery cannot resurrect a previous session.
@@ -68,6 +82,7 @@ struct ControlState {
     if (maintenance) return "OTA_LOCKED";
     if (outputFailureStreak) return "OUTPUT_WARNING";
     if (expired) return "LEASE_EXPIRED";
+    if (attitudeMotionAllowed()) return "RUNNING";
     if (softStopping) return "STOPPING";
     return leaseActive ? "RUNNING" : "WAIT_COMMAND";
   }
@@ -82,6 +97,8 @@ struct ControlState {
   }
   void stop() {
     clearTarget();
+    attitudeEnabled = false; // Neutral acknowledgement must not restart idle hold.
+    ++attitudeGeneration;
     expired = false;
     stopPending = true;
   }
@@ -94,8 +111,9 @@ struct ControlState {
   bool accept(const robofish::lora::Command &command, uint32_t now) {
     using robofish::lora::ControlCode;
     using namespace robofish::lora;
-    if (command.code < 1 || command.code > kAttitudeOff ||
+    if (command.code < 1 || command.code > kYawPid ||
         (command.hasKnob && command.knob > 1000)) return false;
+    if (command.code == kYawPid && !validPid(command.yawPid)) return false;
     if (command.code == kTarget && (!validAxis(command.axes.surge) || !validAxis(command.axes.yaw) ||
         !validAxis(command.axes.heave) || !std::isfinite(command.propulsionScalePercent) ||
         command.propulsionScalePercent < 0 || command.propulsionScalePercent > 100)) return false;
@@ -124,14 +142,15 @@ struct ControlState {
       return finish(ControlCode::Accepted);
     }
     expire(now);
+    if (command.code == kYawPid) { yawPid=command.yawPid; return finish(ControlCode::Accepted); }
     if (command.code == kAttitudeOn || command.code == kAttitudeOff) {
       setAttitude(command.code == kAttitudeOn);
       return finish(ControlCode::Accepted);
     }
-    if (command.code == kMode) { target.mode = command.mode; return finish(ControlCode::Accepted); }
+    if (command.code == kMode) { setMode(command.mode); return finish(ControlCode::Accepted); }
     if (command.code == kTarget) {
       target = {};
-      target.mode = command.mode;
+      setMode(command.mode);
       target.surgePercent = command.axes.surge;
       target.yawPercent = command.axes.yaw;
       target.pitchPercent = command.axes.heave;
@@ -149,9 +168,9 @@ struct ControlState {
         knob / 1000.0f) * 0.01f;
     // 模式设置本身不启动运动、不续租。顺序沿用原 ino：螺旋桨 -> 仿生 -> 混合。
     if (command.code == 5 || (command.code >= 14 && command.code <= 16)) {
-      target.mode = command.code == 14 ? DriveMode::Prop : command.code == 15 ? DriveMode::Bionic :
+      setMode(command.code == 14 ? DriveMode::Prop : command.code == 15 ? DriveMode::Bionic :
           command.code == 16 ? DriveMode::Hybrid : target.mode == DriveMode::Prop ? DriveMode::Bionic :
-          target.mode == DriveMode::Bionic ? DriveMode::Hybrid : DriveMode::Prop;
+          target.mode == DriveMode::Bionic ? DriveMode::Hybrid : DriveMode::Prop);
       return finish(ControlCode::Accepted);
     }
     switch (command.code) {
@@ -230,7 +249,8 @@ struct ControlState {
     }
     if (command.action != Action::Target && command.action != Action::Mode &&
         command.action != Action::Stop && command.action != Action::AttitudeOn &&
-        command.action != Action::AttitudeOff) return result(command, Code::Invalid);
+        command.action != Action::AttitudeOff && command.action != Action::YawPid) return result(command, Code::Invalid);
+    if (command.action == Action::YawPid && !validPid(command.yawPid)) return result(command, Code::Invalid);
     if (std::strcmp(command.session, wifi.session) != 0)
       return result(command, Code::SessionConflict);
     if (command.sequence == 0 || command.sequence <= wifi.sequence)
@@ -267,10 +287,12 @@ struct ControlState {
       expired = false;
       softStopping = leaseActive = true;
       lastMotionMs = command.receivedMs;
+    } else if (command.action == Action::YawPid) {
+      yawPid = command.yawPid; // Settings never start/renew motion or change the held target.
     } else if (command.action == Action::AttitudeOn || command.action == Action::AttitudeOff) {
       setAttitude(command.action == Action::AttitudeOn);
     } else if (command.action == Action::Mode) {
-      target.mode = command.mode; // Configuration alone never starts or renews motion.
+      setMode(command.mode); // Configuration alone never starts or renews motion.
     } else {
       const auto mode = target.mode;
       target = {};

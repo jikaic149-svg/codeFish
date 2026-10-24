@@ -89,6 +89,6 @@ int main() {
   assert(!wifiAttitude.attitudeEnabled && wifiAttitude.lastMotionMs==20 && wifiAttitude.leaseActive);
   assert(wifiAttitude.accept(request(wifi::Action::AttitudeOn,3,2001),2001).code==wifi::Code::StaleSequence);
   assert(!wifiAttitude.expire(30020) && wifiAttitude.leaseActive);
-  std::puts("PASS: ordered LoRa/Wi-Fi attitude switches never start or renew motion; replay rejected");
+  std::puts("PASS: ordered LoRa/Wi-Fi attitude switches never create or renew translational targets; replay rejected");
   std::puts("PASS: CRC targets, held commands, 3s LoRa priority/wrap, fallback neutral barrier, STOP, OTA and output-fault ownership");
 }

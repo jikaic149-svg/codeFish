@@ -1,0 +1,25 @@
+{
+  "val": {
+    "metrics/precision(B)": 0.9918172401470747,
+    "metrics/recall(B)": 1.0,
+    "metrics/mAP50(B)": 0.995,
+    "metrics/mAP50-95(B)": 0.55605,
+    "fitness": 0.55605
+  },
+  "test": {
+    "metrics/precision(B)": 0.9947590217353925,
+    "metrics/recall(B)": 1.0,
+    "metrics/mAP50(B)": 0.995,
+    "metrics/mAP50-95(B)": 0.6023299019607843,
+    "fitness": 0.6023299019607843
+  },
+  "checkpoint": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\vision\\fish_body_yolo\\best.pt",
+  "checkpoint_sha256": "ae165099153b8fac0db3d1833800801d111990fa0137e8d8cab6f81963114fb6",
+  "counts": {
+    "train_unique": 60,
+    "train_augmented": 263,
+    "val": 12,
+    "test": 13
+  },
+  "limitation": "Only the specified video. Temporal holdouts and synthetic stress tests; cross-scene performance unverified."
+}

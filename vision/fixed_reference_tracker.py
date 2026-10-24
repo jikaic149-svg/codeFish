@@ -19,6 +19,7 @@ import numpy as np
 
 
 class ReferenceSource:
+    YOLO_BODY = "YOLO_BODY"
     RIGID_BODY = "RIGID_BODY"
     MARKER = "MARKER"
     PREDICTED = "PREDICTED"

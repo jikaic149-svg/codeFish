@@ -10,11 +10,12 @@ from vision_service import VisionService, WORKSPACE
 
 
 class VisionServiceTests(unittest.TestCase):
-    def test_opencv_runtime_does_not_require_a_model(self):
+    def test_runtime_requires_and_selects_the_delivered_yolo_model(self):
         service=VisionService()
-        self.assertFalse(service.configuration()['model_required'])
-        self.assertIsNone(service.model_path(None))
-        self.assertIsNone(service.model_path(''))
+        self.assertTrue(service.configuration()['model_required'])
+        self.assertEqual(service.configuration()['default_model'],'vision/fish_body_yolo/best.pt')
+        self.assertEqual(service.model_path(None),WORKSPACE/'vision/fish_body_yolo/best.pt')
+        self.assertEqual(service.model_path(''),service.model_path(None))
         self.assertTrue((WORKSPACE/'vision/web_runtime.py').is_file())
         with self.assertRaises(ValueError):service.model_path('../outside.pt')
 

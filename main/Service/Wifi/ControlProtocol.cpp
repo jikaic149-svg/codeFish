@@ -36,8 +36,8 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   cJSON *root = cJSON_ParseWithLengthOpts(data, length, &end, false);
   if (!root) return false;
   bool valid = cJSON_IsObject(root);
-  const char *const fields[] = {"action", "session", "sequence", "mode", "axes", "propulsion_scale"};
-  valid = valid && uniqueFields(root, fields, 6);
+  const char *const fields[] = {"action", "session", "sequence", "mode", "axes", "propulsion_scale", "pid"};
+  valid = valid && uniqueFields(root, fields, 7);
   for (const char *p = end; valid && p < data + length; ++p)
     if (*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') valid = false;
   Command parsed{};
@@ -47,6 +47,7 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   const cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "mode");
   const cJSON *axes = cJSON_GetObjectItemCaseSensitive(root, "axes");
   const cJSON *propulsionScale = cJSON_GetObjectItemCaseSensitive(root, "propulsion_scale");
+  const cJSON *pid = cJSON_GetObjectItemCaseSensitive(root, "pid");
   valid = valid && cJSON_IsString(action) && cJSON_IsString(session);
   if (valid) {
     const size_t size = std::strlen(session->valuestring);
@@ -61,6 +62,7 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
     else if (!std::strcmp(action->valuestring, "stop")) parsed.action = Action::Stop;
     else if (!std::strcmp(action->valuestring, "attitude_on")) parsed.action = Action::AttitudeOn;
     else if (!std::strcmp(action->valuestring, "attitude_off")) parsed.action = Action::AttitudeOff;
+    else if (!std::strcmp(action->valuestring, "yaw_pid")) parsed.action = Action::YawPid;
     else valid = false;
   }
   if (valid && parsed.action != Action::Acquire) {
@@ -90,6 +92,17 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   }
   if (valid && (parsed.action == Action::Stop || parsed.action == Action::AttitudeOn ||
                 parsed.action == Action::AttitudeOff)) valid = !axes && !mode;
+  if (valid && parsed.action == Action::YawPid) {
+    const char *const names[] = {"kp", "ki", "kd"};
+    valid = !axes && !mode && cJSON_IsObject(pid) && uniqueFields(pid, names, 3);
+    float *gains[] = {&parsed.yawPid.kp, &parsed.yawPid.ki, &parsed.yawPid.kd};
+    for (unsigned i=0; valid && i<3; ++i) {
+      const cJSON *gain=cJSON_GetObjectItemCaseSensitive(pid,names[i]);
+      valid=cJSON_IsNumber(gain) && std::isfinite(gain->valuedouble) &&
+          gain->valuedouble>=0 && gain->valuedouble<=100;
+      if (valid) *gains[i]=static_cast<float>(gain->valuedouble);
+    }
+  } else if (pid) valid=false;
   cJSON_Delete(root);
   if (valid) command = parsed;
   return valid;

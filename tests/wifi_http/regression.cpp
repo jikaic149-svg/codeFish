@@ -34,6 +34,14 @@ static void reject(const std::string &json) {
 
 int main() {
   Command out;
+  check(parse("{\"action\":\"yaw_pid\",\"session\":\"pid\",\"sequence\":1,\"pid\":{\"kp\":1,\"ki\":0.02,\"kd\":0.1}}",out) &&
+        out.action==Action::YawPid && out.yawPid.kp==1 && out.yawPid.ki==.02f && out.axes.surge==0,
+        "PID settings carry gains with no movement target");
+  for (const char *gains : {"{\"kp\":1}","{\"kp\":1,\"ki\":-1,\"kd\":0}","{\"kp\":101,\"ki\":0,\"kd\":0}",
+                          "{\"kp\":true,\"ki\":0,\"kd\":0}","{\"kp\":1,\"ki\":0,\"kd\":0,\"kd\":1}"})
+    reject(std::string("{\"action\":\"yaw_pid\",\"session\":\"pid\",\"sequence\":1,\"pid\":")+gains+"}");
+  reject("{\"action\":\"attitude_on\",\"session\":\"pid\",\"sequence\":1,\"pid\":{\"kp\":1,\"ki\":0,\"kd\":0}}");
+  reject("{\"action\":\"yaw_pid\",\"session\":\"pid\",\"sequence\":1,\"mode\":3,\"pid\":{\"kp\":1,\"ki\":0,\"kd\":0}}");
   check(parse("{\"action\":\"acquire\",\"session\":\"browser-1\"}", out) &&
       out.action == Action::Acquire && out.sequence == 0 && !std::strcmp(out.session, "browser-1"),
       "acquire accepts without a sequence");

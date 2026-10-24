@@ -8,11 +8,13 @@ import csv
 from datetime import datetime, timezone
 import io
 import json
+import math
 from pathlib import Path
 import threading
 import time
 
 import device_client
+from diagnostics import event
 from simulator import Simulator
 from motion_model import allocate
 
@@ -291,12 +293,16 @@ class Workstation:
                 hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
                 if hardware_radio:hardware_host=self.host
             if hardware_host or hardware_radio:
+                with self.guard:
+                    self.control_generation+=1;self.vision_sessions.clear()
                 if action == 'source':
-                    if value not in ('wifi', 'auto'):
+                    if value not in ('wifi', 'auto','lora'):
                         raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
                     with self.guard:
-                        self.control_source = 'auto'
-                    result = {'message': '已选择 LoRa 主控、Wi-Fi 自动备用', 'simulated': False}
+                        self.control_source = 'lora' if value=='lora' else 'auto'
+                    device_client.CLIENT.set_control_transport(self.control_source)
+                    result = {'message': '仅 LoRa 控制，Wi-Fi 只读遥测' if value=='lora' else '已选择 LoRa 主控、Wi-Fi 自动备用', 'simulated': False,
+                              'control_transport':self.control_source}
                 elif action == 'mode' and type(value) is int and value in (1, 2, 3):
                     result = device_client.CLIENT.motion_control(hardware_host, 'mode', session, sequence, client_id=client_id, mode=value)
                     result['message'] = '运动模式已应用，没有启动或续期运动'
@@ -306,7 +312,14 @@ class Workstation:
                 elif action == 'attitude' and type(value) is bool:
                     result = device_client.CLIENT.motion_control(hardware_host, 'attitude_on' if value else 'attitude_off',
                         session, sequence, client_id=client_id)
-                    result['message'] = '姿态辅助设置已提交，以鱼端状态为准；设置本身不启动运动'
+                    result['message'] = 'yaw 角度闭环设置已提交，以鱼端状态为准；设置本身不启动运动'
+                elif action == 'yaw_pid':
+                    result = device_client.CLIENT.motion_control(hardware_host, 'yaw_pid', session, sequence,
+                        client_id=client_id, pid=value)
+                    result['message'] = 'PID 参数已提交，以鱼端回读值为准；开关状态不变'
+                    if result.get('queued') or result.get('accepted'):
+                        event('yaw_pid_requested',host=hardware_host,pid=value,transport=result.get('transport'),
+                              queued=result.get('queued',False),accepted=result.get('accepted',False))
                 else:
                     raise device_client.DeviceError('无效控制操作或参数')
                 return result
@@ -342,16 +355,67 @@ class Workstation:
         self.sim.power = abs(self.axes['surge'])
         self.sim.action = 1 if self.axes['surge']>0 else 2 if self.axes['surge']<0 else 3 if self.axes['yaw']<0 else 4 if self.axes['yaw']>0 else 0
 
+    def vision_telemetry(self):
+        view=self.read()
+        feedback=view.get('attitude_control',{})
+        yaw,age=feedback.get('body_yaw_deg'),feedback.get('age_ms')
+        valid=(view.get('online') is True and feedback.get('heading_valid') is True
+               and feedback.get('body_valid') is True and all(type(v) in (int,float) and math.isfinite(v) for v in (yaw,age))
+               and 0<=age<=350)
+        source_id=view.get('diagnostics',{}).get('uptime_ms')
+        return {'valid':bool(valid),'yaw_cw_deg':yaw if valid else None,
+                'sample_time':view.get('checked_at',time.time())-age/1000 if valid else None,
+                'source_id':source_id,
+                'source':'MAPPED_BODY_IMU','simulated':view.get('simulated',False)}
+
     def prepare_vision(self,session,sequence):
-        with self.guard:
-            self._ordered(session,sequence)
-            self._advance(time.monotonic());self._control_route('vision')
-            if self.owner=='vision':
-                self._neutral();self.safety='WAIT_COMMAND'
-            self.sim.mode=3
-            self.vision_sessions[session]=self.control_generation
-            self.sequences[session]=sequence
-            return {'ready':True,'simulated':True,'generation':self.control_generation}
+        with self.command_guard:
+            with self.guard:
+                self._ordered(session,sequence)
+                hardware=self.mode!='simulation' and device_client.CLIENT.is_robotfish(self.host)
+                host=self.host
+                generation=self.control_generation
+            if hardware:
+                binding=device_client.CLIENT.control_binding(host,session)
+                # The PC yaw PID owns this path; onboard heading-hold must not fight it.
+                view=device_client.CLIENT.robot(host)
+                if view.get('attitude_control',{}).get('enabled') is not False:
+                    device_client.CLIENT.motion_control(host,'attitude_off',binding,sequence*2,client_id=session)
+                    view=device_client.CLIENT.robot(host)
+                # LoRa settings occupy a single protected queue. Wait for its readback
+                # before submitting mode, instead of overwriting or resending settings.
+                if view.get('attitude_control',{}).get('enabled') is False and view.get('motion',{}).get('mode')!=1:
+                    device_client.CLIENT.motion_control(host,'mode',binding,sequence*2+1,client_id=session,mode=1)
+                    view=device_client.CLIENT.robot(host)
+                ready=(view.get('motion',{}).get('mode')==1 and view.get('attitude_control',{}).get('enabled') is False)
+                with self.guard:
+                    if generation!=self.control_generation:raise device_client.DeviceError('视觉启动期间控制权已变化')
+                    self.sequences[session]=sequence
+                    if ready:self.vision_sessions[session]={'generation':generation,'binding':binding,'host':host}
+                return {'ready':ready,'mode':1 if ready else view.get('motion',{}).get('mode'),
+                        'simulated':False,'message':'视觉串级控制已准备' if ready else '等待鱼端确认仿生模式和 yaw 控制归属，请稍后再次启动'}
+            with self.guard:
+                self._advance(time.monotonic());self._control_route('vision')
+                if self.owner=='vision':self._neutral();self.safety='WAIT_COMMAND'
+                self.sim.mode=1
+                self.vision_sessions[session]=self.control_generation
+                self.sequences[session]=sequence
+                return {'ready':True,'mode':1,'simulated':True,'generation':self.control_generation}
+
+    def vision_target(self,axes,session,sequence):
+        with self.command_guard:
+            with self.guard:
+                self._ordered(session,sequence)
+                authorization=self.vision_sessions.get(session)
+                if not isinstance(authorization,dict) or authorization['generation']!=self.control_generation:
+                    raise device_client.DeviceError('视觉任务已退出或被人工接管，需要重新启动循迹')
+                host,binding=authorization['host'],authorization['binding']
+                if host!=self.host:raise device_client.DeviceError('视觉设备已变化')
+            if device_client.CLIENT.control_binding(host,session)!=binding:
+                raise device_client.DeviceError('控制会话已变化，请重新启动视觉循迹')
+            result=device_client.CLIENT.motion_control(host,'target',binding,sequence*2,client_id=session,axes=axes)
+            with self.guard:self.sequences[session]=sequence
+            return result
 
     def target(self, axes, session, sequence, source=None, *, client_id=None):
         if not isinstance(axes,dict) or set(axes) != {'surge','yaw','heave'} or any(type(value) not in (float,int) or not -100 <= value <= 100 for value in axes.values()):
@@ -362,8 +426,12 @@ class Workstation:
                 hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
                 if hardware_radio:hardware_host=self.host
             if hardware_host or hardware_radio:
+                if source=='vision' and hardware_host:
+                    return self.vision_target(axes,session,sequence)
                 if source not in (None, 'auto', 'wifi', 'lora'):
                     raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
+                with self.guard:
+                    self.control_generation+=1;self.vision_sessions.clear()
                 result = device_client.CLIENT.motion_control(hardware_host, 'target', session, sequence, client_id=client_id, axes=dict(axes))
                 return result
             with self.guard:

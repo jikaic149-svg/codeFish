@@ -15,9 +15,10 @@ struct Command {
   DriveMode mode = DriveMode::Prop;
   wifi::Axes axes{};
   float propulsionScalePercent = 100;
+  wifi::YawPid yawPid{};
 };
 
-inline constexpr uint8_t kTarget = 20, kHeartbeat = 21, kMode = 22, kAttitudeOn = 23, kAttitudeOff = 24;
+inline constexpr uint8_t kTarget = 20, kHeartbeat = 21, kMode = 22, kAttitudeOn = 23, kAttitudeOff = 24, kYawPid = 25;
 
 enum class ControlCode : uint8_t { Accepted, Invalid, Unsupported, Busy, Maintenance,
                                  OutputRecovery, OutputFault };

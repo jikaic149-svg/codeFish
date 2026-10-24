@@ -29,26 +29,31 @@ class Target(TelemetryTarget):
 
     def do_GET(self):
         if self.path == '/get_ip':
-            return self.reply(dict(HEALTH, lora_protocol=2, attitude_control_supported=self.supported,
+            return self.reply(dict(HEALTH, version='2.6.1-yaw-hold', lora_protocol=2, attitude_control_supported=self.supported,
+                                   yaw_pid_supported=self.supported,
                                    attitude_control_calibrated=self.calibrated))
         if self.path == '/motion_status':
             enabled = self.motion.get('attitude_control', {}).get('enabled', False)
-            active = enabled and self.calibrated and self.motion['remote_active'] and self.motion['remote_target']['surge_pct'] > 0 and not self.fault
+            active = enabled and self.calibrated and self.motion['remote_target']['surge_pct'] >= 0 and not self.fault
             manual_yaw = self.motion['remote_target']['yaw_pct'] != 0
             yaw_active = active and not manual_yaw
+            self.motion['remote_active'] = yaw_active or any(self.motion['remote_target'].get(key,0)
+                for key in ('surge_pct','yaw_pct','heave_pct'))
             if not yaw_active:
                 type(self).held_heading = None
             elif self.held_heading is None:
                 type(self).held_heading = self.heading
-            reason = self.fault or ('active' if active else 'waiting_motion' if enabled else 'disabled')
+            reason = self.fault or ('manual_yaw' if active and manual_yaw else 'active' if active else 'waiting_motion' if enabled else 'disabled')
             self.motion['attitude_control_supported'] = self.supported
             self.motion['attitude_control'] = dict(enabled=enabled, reason=reason,
+                yaw_pid_supported=self.supported,pid=self.motion.get('yaw_pid',dict(kp=1,ki=.02,kd=.1)),pid_period_ms=100,
                 pitch_calibrated=self.calibrated, roll_calibrated=self.calibrated, yaw_calibrated=self.calibrated,
-                body_valid=self.calibrated and not self.fault, pitch_active=active, roll_active=active,
+                body_valid=self.calibrated and not self.fault, pitch_active=False, roll_active=False,
                 age_ms=300 if self.fault == 'imu_stale' else 0, maximum_age_ms=200,
                 body_roll_deg=12, body_pitch_deg=-8,
                 body_yaw_deg=self.heading, heading_valid=self.calibrated and not self.fault,
                 heading_locked=yaw_active, heading_target_deg=self.held_heading, manual_yaw=manual_yaw,
+                yaw_error_deg=self.held_heading-self.heading if yaw_active else 0,
                 yaw_active=yaw_active, yaw_correction_pct=max(-20, min(20, self.held_heading-self.heading)) if yaw_active else 0,
                 pitch_correction_pct=8.2 if active else 0, roll_correction_pct=-12.4 if active else 0)
         return super().do_GET()
@@ -56,6 +61,7 @@ class Target(TelemetryTarget):
 
 def main():
     Target.reset()
+    Target.motion['remote_target']=dict(surge_pct=0,yaw_pct=0,heave_pct=0)
     target = ThreadingHTTPServer(('127.0.0.1', 0), Target)
     web = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
     server.PORT = web.server_port
@@ -85,17 +91,27 @@ def main():
                 Target.calibrated = True  # Synthetic confirmed profile, never applied to real hardware.
                 page.evaluate('pollIdentity()')
                 page.wait_for_function('!document.getElementById("robot-attitude-enabled").disabled')
+                for key,value in [('kp','1.2'),('ki','0.025'),('kd','0.12')]:page.locator('#robot-yaw-'+key).fill(value)
+                page.locator('#robot-yaw-apply').click()
+                page.wait_for_function('robotState?.attitude_control?.pid?.kp === 1.2 && !controlConfigPending && yawPidSubmitted === null')
+                assert not toggle.is_checked() and not Target.motion['remote_active']
+                with page.expect_download() as download:page.locator('#robot-yaw-history').click()
+                assert 'confirmed' in Path(download.value.path()).read_text(encoding='utf-8-sig')
                 toggle.check()
                 page.wait_for_function('robotState?.attitude_control?.enabled && !controlConfigPending')
-                assert not Target.motion['remote_active'], 'Configuration started motion'
+                page.wait_for_function('robotState?.attitude_control?.yaw_active && robotState?.control?.axes?.surge === 0')
+                assert 'yaw PID 生效' in page.locator('#robot-attitude-state').inner_text()
+                Target.heading = 35
+                page.wait_for_function('robotState?.attitude_control?.yaw_correction_pct === -5')
                 page.evaluate('document.activeElement.blur()')
                 page.keyboard.down('w')
-                page.wait_for_function('robotState?.attitude_control?.pitch_active && robotState?.attitude_control?.roll_active && robotState?.attitude_control?.yaw_active')
+                page.wait_for_function('robotState?.attitude_control?.yaw_active && robotState?.control?.mode === 3')
+                assert not page.evaluate('robotState.attitude_control.pitch_active || robotState.attitude_control.roll_active')
                 Target.heading = 35
                 page.wait_for_function('robotState?.attitude_control?.yaw_correction_pct === -5')
                 page.keyboard.down('d')
                 page.wait_for_function('robotState?.control?.axes?.yaw === 40 && !robotState?.attitude_control?.yaw_active')
-                assert page.evaluate('robotState.attitude_control.pitch_active')
+                assert not page.evaluate('robotState.attitude_control.pitch_active')
                 Target.heading = 80
                 page.keyboard.up('d')
                 page.wait_for_function('robotState?.attitude_control?.heading_target_deg === 80')
@@ -108,10 +124,12 @@ def main():
                 assert not page.evaluate('robotState.attitude_control.roll_active')
                 Target.fault = ''
                 Target.heading = 100
-                page.wait_for_function('robotState?.attitude_control?.roll_active')
+                page.wait_for_function('robotState?.attitude_control?.yaw_active')
                 page.wait_for_function('robotState?.attitude_control?.heading_target_deg === 100')
                 page.keyboard.up('w')
-                page.wait_for_function('robotState?.attitude_control?.reason === "waiting_motion"')
+                page.wait_for_function('robotState?.attitude_control?.yaw_active && robotState?.control?.axes?.surge === 0 && robotState?.attitude_control?.heading_target_deg === 100')
+                Target.heading = 105
+                page.wait_for_function('robotState?.attitude_control?.yaw_correction_pct === -5')
                 page.keyboard.down('s')
                 page.wait_for_function('robotState?.control?.axes?.surge === -35')
                 assert not page.evaluate('robotState.attitude_control.pitch_active || robotState.attitude_control.roll_active')
@@ -124,6 +142,11 @@ def main():
                 page.wait_for_function('robotState?.control?.axes?.yaw === 0')
                 toggle.uncheck()
                 page.wait_for_function('!robotState?.attitude_control?.enabled && !controlConfigPending')
+                output=ROOT.parent/'build/analysis/yaw-pid-20261024';output.mkdir(parents=True,exist_ok=True)
+                page.locator('#robot-attitude-settings').screenshot(path=str(output/'pid-ui.png'))
+                page.set_viewport_size({'width':390,'height':844})
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),'PID form overflows mobile viewport'
+                page.set_viewport_size({'width':1280,'height':900})
                 assert [entry['action'] for entry in Target.controls if entry['action'].startswith('attitude_')] == ['attitude_on', 'attitude_off']
                 assert sum(entry['action'] == 'acquire' for entry in Target.controls) == 1
                 Target.supported = False
@@ -148,7 +171,7 @@ def main():
             diagnostics.stop()
             log = (Path(directory) / 'workstation.jsonl').read_text(encoding='utf-8')
             assert robotfish.DEFAULT_CONTROL_PASSWORD not in log
-            print(json.dumps({'checks': 'uncalibrated/legacy gates, ordered on/off, no motion from settings, three-axis forward feedback, manual yaw and heading reanchor, manual reverse/turns, missing/stale IMU preserves manual control, recovery, quiet logs passed'}))
+            print(json.dumps({'checks': 'PID editing/readback/history export, default off, legacy gates, hybrid yaw only, manual reanchor, missing/stale IMU, mobile layout and quiet logs passed'}))
         finally:
             diagnostics.stop()
             for connection in server.device_client.CLIENT._telemetry_connections.values():

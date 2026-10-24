@@ -27,9 +27,10 @@ def frame(sequence, action, payload):
     if action == 'heartbeat':
         text = f'102,1,{SOURCE},{sequence}'
     else:
-        code = {'target': 20, 'mode': 22, 'stop': 17, 'attitude_on': 23, 'attitude_off': 24}[action]
+        code = {'target': 20, 'mode': 22, 'stop': 17, 'attitude_on': 23, 'attitude_off': 24, 'yaw_pid': 25}[action]
         axes = payload.get('axes', {})
         values = [round(axes.get(axis, 0) * 10) for axis in ('surge', 'yaw', 'heave')]
+        if action == 'yaw_pid':values=[round(payload['pid'][key]*1000) for key in ('kp','ki','kd')]
         text = ','.join(map(str, (101, 1, SOURCE, sequence, code, payload['mode'],
                                   *values, round(payload.get('propulsion_scale', 100) * 10))))
     return f'{text},{binascii.crc_hqx(text.encode("ascii"), 0xffff)}\n'.encode('ascii')
@@ -142,6 +143,8 @@ class LoRaLink:
             # STOP cannot be overwritten before its one bounded UART submission.
             if self.pending and self.pending[0] == 'stop' and action != 'stop':
                 return {'accepted': False, 'waiting': True, 'transport': 'lora', 'simulated': False}
+            if self.pending and self.pending[0] in ('yaw_pid','attitude_on','attitude_off') and action not in ('stop',self.pending[0]):
+                return {'accepted': False, 'waiting': True, 'transport': 'lora', 'simulated': False}
             now=self.clock()
             first=self.pending[3] if self.pending and self.pending[:2]==(action,payload) else now
             self.pending = (action, dict(payload), now, first)
@@ -198,6 +201,7 @@ class LoRaLink:
                         host_ms=round(max(0,completed-submitted)*1000,3),completed_at=time.time())
                 if action!='heartbeat':
                     event('lora_uart_tx',action=action,sequence=sequence,bytes=len(data),renewal=renewal,
+                          mode=payload.get('mode'),axes=payload.get('axes'),pid=payload.get('pid'),propulsion_scale=payload.get('propulsion_scale',100),
                           queue_ms=round(max(0,write_started-submitted)*1000,3),
                           write_ms=round(max(0,completed-write_started)*1000,3))
             except (OSError, ValueError) as exc:

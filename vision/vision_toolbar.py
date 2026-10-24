@@ -448,7 +448,7 @@ class VisionHud:
         if speed is None or direction_deg is None:
             motion_text = "速度：无效　运动方向：无效"
         else:
-            motion_text = f"速度：{speed:.2f} m/s　运动方向：{direction_deg:.1f}°"
+            motion_text = f"速度：{speed:.2f} m/s　IMU yaw：{direction_deg:+.1f}°"
         draw_unicode_text(image, motion_text, (16, 52), 11, UiPalette.TEXT)
 
         quality_text = f"跟踪质量：{quality * 100:.0f}%　精标定：{'可用' if pwm_ready else '不可用'}"

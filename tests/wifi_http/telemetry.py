@@ -68,6 +68,8 @@ int main() {
   fixture.imu.hasAngles=fixture.imu.hasAngularVelocity=fixture.imu.hasAcceleration=true;
   fixture.imu.baud=9600;
   fixture.imu.angles=fixture.imu.angularVelocity=fixture.imu.acceleration={13.123456f,-17.123456f,19.123456f};
+  fixture.filteredAngles=fixture.imu.angles; fixture.filteredAnglesValid=true;
+  fixture.control.yawPid={13.123456f,13.123456f,13.123456f};
   fixture.attempted.tailFrontDegrees=fixture.attempted.tailRearDegrees=13.123456f;
   fixture.attempted.pectoralLeftDegrees=fixture.attempted.pectoralRightDegrees=13.123456f;
   fixture.written=fixture.attempted;
@@ -77,7 +79,10 @@ int main() {
   fixture.attitude.rollDegrees=fixture.attitude.pitchDegrees=fixture.attitude.yawDegrees=13.123456f;
   fixture.attitude.pitchCorrectionPercent=fixture.attitude.rollCorrectionPercent=fixture.attitude.yawCorrectionPercent=13.123456f;
   fixture.attitude.headingTargetDegrees=13.123456f;
+  fixture.attitude.yawErrorDegrees=fixture.attitude.yawP=fixture.attitude.yawI=fixture.attitude.yawD=13.123456f;
   if(telemetry(nullptr)!=0 || !captured) return 2;
+  if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"attitude_control"),"yaw_max_correction_pct")->valuedouble!=100) return 8;
+  if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"attitude_control"),"yaw_command_sign")->valuedouble!=1) return 9;
   if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"imu"),"baud")->valuedouble!=9600) return 4;
   if(cJSON_GetObjectItemCaseSensitive(captured,"motion_timeout_ms")->valuedouble!=0 ||
       std::strcmp(cJSON_GetObjectItemCaseSensitive(captured,"lease_servo_action")->valuestring,"hold")) return 5;
@@ -89,7 +94,18 @@ int main() {
   const bool fits=cJSON_PrintPreallocated(captured,output.data(),output.size(),false);
   std::printf("%s: telemetry worst-case bound %zu bytes / %zu-byte buffer; snapshot=%zu bytes\n",fits?"PASS":"FAIL",length,output.size(),sizeof(MotionSnapshot));
   cJSON_free(encoded); cJSON_Delete(captured);
-  return fits?0:1;
+  if(!fits) return 1;
+  fixture={}; fixture.control.stopPending=false; fixture.control.loRaSeen=true;
+  fixture.control.setAttitude(true); fixture.attitude.yawActive=true;
+  if(telemetry(nullptr)!=0 || !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(captured,"remote_active")) ||
+      std::strcmp(cJSON_GetObjectItemCaseSensitive(captured,"source")->valuestring,"lora") ||
+      std::strcmp(cJSON_GetObjectItemCaseSensitive(captured,"safety_state")->valuestring,"RUNNING")) return 6;
+  cJSON_Delete(captured); fixture.control.stop();
+  if(telemetry(nullptr)!=0 || !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(captured,"remote_active")) ||
+      std::strcmp(cJSON_GetObjectItemCaseSensitive(captured,"source")->valuestring,"none")) return 7;
+  cJSON_Delete(captured);
+  std::puts("PASS: idle yaw is reported active; STOP masks the previous active snapshot");
+  return 0;
 }
 '''
     cache = ROOT / 'build/host-telemetry'

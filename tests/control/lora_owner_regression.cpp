@@ -93,6 +93,44 @@ static std::vector<uint8_t> packet(uint8_t type,int x,int y,int z) {
   for (int value : {x,y,z,0}) { p.push_back(value & 255); p.push_back((static_cast<unsigned>(value) >> 8) & 255); }
   uint8_t sum=0; for(auto b:p) sum+=b; p.push_back(sum); return p;
 }
+static bool fullRangeScenario() { return scenario=="yaw_full" || scenario=="wifi_yaw_full"; }
+static bool idleScenario() { return scenario=="yaw_idle" || scenario=="wifi_yaw_idle" || fullRangeScenario(); }
+static bool wifiIdleScenario() { return scenario=="wifi_yaw_idle" || scenario=="wifi_yaw_full"; }
+static void idleCommand(unsigned sequence,unsigned code,float surge=0,float yaw=0) {
+  if(wifiIdleScenario()) {
+    robofish::wifi::Command c;
+    using robofish::wifi::Action;
+    c.action=code==robofish::lora::kTarget?Action::Target:code==17?Action::Stop:
+        code==robofish::lora::kAttitudeOn?Action::AttitudeOn:Action::AttitudeOff;
+    c.sequence=sequence; c.receivedMs=now; c.axes={surge,yaw,0};
+    std::strcpy(c.session,"hold-fixture");
+    check(xQueueSend(commands,&c,0)==pdTRUE,"idle command fits bounded Wi-Fi FIFO");
+  } else {
+    char body[80],line[96];
+    std::snprintf(body,sizeof(body),"101,1,0,%u,%u,3,%d,%d,0,1000",sequence,code,
+        static_cast<int>(surge*10),static_cast<int>(yaw*10));
+    uint16_t crc=0xffff;
+    for(const char *p=body;*p;++p) {
+      crc^=static_cast<uint16_t>(static_cast<uint8_t>(*p))<<8;
+      for(unsigned bit=0;bit<8;++bit) crc=static_cast<uint16_t>((crc<<1)^((crc&0x8000)?0x1021:0));
+    }
+    std::snprintf(line,sizeof(line),"%s,%u\n",body,crc);
+    for(const char *p=line;*p;++p) rx[1].push_back(static_cast<uint8_t>(*p));
+  }
+}
+static void idleImu() {
+  if(fullRangeScenario()) {
+    const float yaw=now<200?0:now<400?10:now<1100?21:-21;
+    for(auto b:packet(0x53,-32768,0,static_cast<int>(std::lround(yaw*32768/180)))) rx[2].push_back(b);
+    for(auto b:packet(0x52,0,0,0)) rx[2].push_back(b);
+    return;
+  }
+  if(now>=4240 && now<4500) return; // Exercise the real sensor freshness gate.
+  const float yaw=now<200?0:now<600?10:now<1600?-10:now<2200?-15:
+      now<3100?-5:now<3900?5:now<4500?15:-20;
+  for(auto b:packet(0x53,-32768,0,static_cast<int>(std::lround(yaw*32768/180)))) rx[2].push_back(b);
+  for(auto b:packet(0x52,0,0,0)) rx[2].push_back(b);
+}
 namespace board {
 bool begin() { return true; }
 uint32_t nowMs() { return now+boardClockOffset; }
@@ -106,6 +144,11 @@ uint8_t applyFrameMask(const robofish::ActuatorFrame &frame) {
 bool networkBegin(QueueHandle_t snapshots,QueueHandle_t requests,QueueHandle_t,QueueHandle_t stops,QueueHandle_t stopped) {
   values=snapshots; commands=requests; otaRequests=stops; otaResults=stopped;
   check(queueCount==5 && uartReady[1] && uartReady[2],"both UARTs initialized, bounded fallback, telemetry and OTA queues");
+  if(idleScenario()) {
+    if(wifiIdleScenario()) postWifi(robofish::wifi::Action::Acquire,0);
+    else idleCommand(1,robofish::lora::kAttitudeOn);
+    idleImu(); return true;
+  }
   if(scenario=="wifi_hold" || scenario=="clock_race") {
     postWifi(robofish::wifi::Action::Acquire,0);
     postWifi(robofish::wifi::Action::Target,1);
@@ -121,9 +164,110 @@ bool networkBegin(QueueHandle_t snapshots,QueueHandle_t requests,QueueHandle_t,Q
 void networkConfirmStartup(bool ready) { check(ready,"startup confirms LoRa and successful neutral output"); }
 TickType_t xTaskGetTickCount() { return now; }
 struct Finished {};
+static void fullRangeStep(const MotionSnapshot &s) {
+  check(s.control.target.surgePercent==0 && !s.control.leaseActive,"full-authority yaw uses no translational target");
+  if(now==1000 || now==2400) {
+    const int expected=(now==1000?100:-100)*robofish::config::attitude::kYawCommandSign;
+    check(s.attitude.yawActive && s.attitude.yawCorrectionPercent==expected &&
+        s.written.leftPropulsionPercent==expected && s.written.rightPropulsionPercent==-expected,
+        "local IMU yaw reaches full +/-100% opposed propellers through the actual owner");
+    check(std::abs(s.attitude.yawErrorDegrees)>20 && std::abs(s.attitude.yawErrorDegrees)<22,
+        "twenty-degree-scale local heading errors reach full authority");
+  }
+  const auto geometry=robofish::config::motion::makeGeometry();
+  check(s.written.tailFrontDegrees>=geometry.tailFront.minimumDegrees &&
+      s.written.tailFrontDegrees<=geometry.tailFront.maximumDegrees &&
+      s.written.tailRearDegrees>=geometry.tailRear.minimumDegrees &&
+      s.written.tailRearDegrees<=geometry.tailRear.maximumDegrees,
+      "full-authority yaw preserves both tail mechanical limits");
+  if(now%20==0 && now>0 && now<2500) {
+    const auto &a=writes[writes.size()-2].frame;
+    const auto &b=writes.back().frame;
+    check(std::abs(a.leftPropulsionPercent-b.leftPropulsionPercent)<=4 &&
+        std::abs(a.rightPropulsionPercent-b.rightPropulsionPercent)<=4,
+        "full-authority yaw preserves per-tick output slew");
+    check(a.leftPropulsionPercent*b.leftPropulsionPercent>=0 && a.rightPropulsionPercent*b.rightPropulsionPercent>=0,
+        "full-authority yaw submits neutral before propeller reversal");
+  }
+  if(now>=2520) check(!s.control.attitudeEnabled && !s.attitude.yawActive &&
+      s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0 &&
+      s.written.tailFrontDegrees==90 && s.written.tailRearDegrees==90,
+      "STOP immediately neutralizes full-authority yaw and remains disarmed");
+  if(now==2580) throw Finished{};
+}
+static void idleStep(const MotionSnapshot &s) {
+  using namespace robofish::lora;
+  if(now==100) check(s.attitude.yawActive && s.attitude.headingLocked && !s.control.leaseActive &&
+      s.control.target.surgePercent==0 && s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0,
+      "enable at rest locks heading with zero initial thrust and no forward target");
+  if(now==500 || now==980) {
+    const bool right=(now==500?1:-1)*robofish::config::attitude::kYawCommandSign>0;
+    check(s.attitude.yawActive && (right?s.attitude.yawCorrectionPercent>0:s.attitude.yawCorrectionPercent<0) &&
+        (right?s.written.leftPropulsionPercent>0:s.written.leftPropulsionPercent<0) &&
+        s.written.leftPropulsionPercent==-s.written.rightPropulsionPercent,
+        "both idle yaw error signs reach opposed propellers with zero common surge");
+    check(s.written.tailFrontDegrees!=90 || s.written.tailRearDegrees!=90,"idle yaw also reaches tail allocation");
+    check(!s.attitude.pitchActive && !s.attitude.rollActive &&
+        s.written.pectoralLeftDegrees==90 && s.written.pectoralRightDegrees==90,"idle yaw never connects tilt preview outputs");
+  }
+  if(now==1400) check(s.attitude.yawActive && std::abs(s.attitude.headingTargetDegrees)<.01f &&
+      s.control.target.surgePercent==0,"forward then ordinary zero target retains the original heading and active PID");
+  if(now==1800) check(!s.attitude.yawActive && !s.attitude.headingLocked && s.attitude.yawCorrectionPercent==0,
+      "manual stationary steering has priority over PID");
+  if(now==1800) check(s.control.target.yawPercent==40 &&
+      s.allocation.targetFrame.leftPropulsionPercent>s.allocation.targetFrame.rightPropulsionPercent,
+      "manual right steering preserves its existing target mixer direction");
+  // The preceding PID can still be turning left; allow the existing ESC ramp
+  // to submit neutral before checking the delivered manual right-turn output.
+  if(now==1960) check(s.written.leftPropulsionPercent>s.written.rightPropulsionPercent,
+      "manual right steering reaches the original output direction after neutral-crossing slew");
+  if(now==2100) check(s.attitude.yawActive && std::abs(s.attitude.headingTargetDegrees-15)<.5f,
+      "manual steering release captures the new heading at zero surge");
+  const bool neutral=s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0 &&
+      s.written.tailFrontDegrees==90 && s.written.tailRearDegrees==90 &&
+      s.written.pectoralLeftDegrees==90 && s.written.pectoralRightDegrees==90;
+  if(now==2800) check(!s.control.attitudeEnabled && !s.attitude.yawActive && neutral,"switching hold OFF centers idle actuators");
+  if(now>=3320 && now<=3700) check(!s.control.attitudeEnabled && !s.attitude.yawActive &&
+      !s.attitude.headingLocked && neutral,"explicit STOP remains disarmed despite subsequent fresh IMU samples");
+  if(now==4140) check(s.attitude.yawActive && s.attitude.yawCorrectionPercent*robofish::config::attitude::kYawCommandSign>0 &&
+      s.written.leftPropulsionPercent*robofish::config::attitude::kYawCommandSign>0,"a fresh explicit enable can resume calibrated idle hold");
+  if(now==4480) check(!s.attitude.yawActive && !s.attitude.headingLocked &&
+      s.attitude.reason==robofish::attitude::Reason::Stale &&
+      s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0,
+      "stale local IMU stops idle correction and drops the old reference");
+  if(now==4560) check(s.attitude.yawActive && std::abs(s.attitude.headingTargetDegrees-20)<.02f,
+      "fresh IMU after a gap reanchors locally without a PC control update");
+  if(now==4760) {
+    bool stopped=false;
+    check(s.control.maintenance && !s.control.attitudeEnabled && !s.attitude.yawActive && neutral &&
+        xQueueReceive(otaResults,&stopped,0)==pdTRUE && stopped,"OTA still requires successful six-channel neutral output");
+    throw Finished{};
+  }
+}
 void vTaskDelayUntil(TickType_t *wake,TickType_t period) {
   MotionSnapshot s; check(xQueuePeek(values,&s,0)==pdTRUE,"HTTP receives copied snapshots");
   check(s.loraReady && s.imu.uartReady && !s.lora.txEnabled,"LoRa receive-only, IMU UART ready");
+  if(idleScenario()) {
+    check(period==10 && writes.back().at==now/20*20,"idle hold preserves the original 10/20 ms owner cadence");
+    if(fullRangeScenario()) fullRangeStep(s); else idleStep(s);
+    *wake+=period; now=*wake;
+    if(now%20==0) idleImu();
+    if(now==30 && wifiIdleScenario()) idleCommand(1,robofish::lora::kAttitudeOn);
+    if(fullRangeScenario()) {
+      if(now==2500) idleCommand(2,17);
+      return;
+    }
+    if(now==1000) idleCommand(2,robofish::lora::kTarget,35);
+    if(now==1200) idleCommand(3,robofish::lora::kTarget);
+    if(now==1600) idleCommand(4,robofish::lora::kTarget,0,40);
+    if(now==2000) idleCommand(5,robofish::lora::kTarget);
+    if(now==2400) idleCommand(6,robofish::lora::kAttitudeOff);
+    if(now==2860) idleCommand(7,robofish::lora::kAttitudeOn);
+    if(now==3300) idleCommand(8,17);
+    if(now==3760) idleCommand(9,robofish::lora::kAttitudeOn);
+    if(now==4700) { const bool stop=true; check(xQueueSend(otaRequests,&stop,0)==pdTRUE,"idle OTA stop fits existing queue"); }
+    return;
+  }
   check(s.imu.hasAngles && s.imu.angles.x==45 && s.imu.angles.y==-45 &&
       s.imu.angles.z==90,"actual UART2 bytes decode into native-axis angles");
   check(period==10 && writes.back().at==now/20*20,"original 10/20 ms cadence");
@@ -158,14 +302,14 @@ void vTaskDelayUntil(TickType_t *wake,TickType_t period) {
       throw Finished{};
     }
   } else if (scenario=="attitude") {
-    check(s.control.attitudeEnabled,"LoRa attitude request reaches the owner");
-    if(now>=20) check(s.attitude.requested && s.attitude.reason==(s.control.attitudeMotionAllowed()?
+    if(now<600) check(s.control.attitudeEnabled,"LoRa attitude request reaches the owner");
+    if(now>=20 && now<600) check(s.attitude.requested && s.attitude.reason==(s.control.attitudeMotionAllowed()?
         robofish::attitude::Reason::NoImu:robofish::attitude::Reason::WaitingMotion) &&
         !s.attitude.pitchActive && !s.attitude.rollActive && !s.attitude.yawActive && !s.attitude.headingLocked,
         "angles without measured rates cannot drive feedback even with a mapped mount");
     if(now==500) check(s.written.leftPropulsionPercent==100,"enabling assistance did not alter manual thrust");
     if(now==620) {
-      check(!s.control.leaseActive && s.written.leftPropulsionPercent==0 &&
+      check(!s.control.leaseActive && !s.control.attitudeEnabled && s.written.leftPropulsionPercent==0 &&
         s.written.rightPropulsionPercent==0 && s.written.pectoralLeftDegrees==90 &&
         s.written.pectoralRightDegrees==90,"STOP retains full neutral authority with attitude requested");
       throw Finished{};

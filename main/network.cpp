@@ -30,7 +30,7 @@ std::atomic_bool runtimeReady{false};
 httpd_handle_t server = nullptr;
 esp_netif_t *apNetif = nullptr;
 // One HTTP server task owns both buffers. The control loop never uses them.
-std::array<char, 4096> responseBuffer;
+std::array<char, 4608> responseBuffer;
 std::array<uint8_t, 4096> imageBuffer;
 
 esp_err_t json(httpd_req_t *req, cJSON *body) {
@@ -80,6 +80,7 @@ esp_err_t identity(httpd_req_t *req) {
   cJSON_AddBoolToObject(body, "propulsion_scale_control", true);
   const auto attitudeSettings = robofish::config::attitude::makeSettings();
   cJSON_AddBoolToObject(body, "attitude_control_supported", true);
+  cJSON_AddBoolToObject(body, "yaw_pid_supported", true);
   const auto calibration = robofish::attitude::evaluate(attitudeSettings, {}, 0, false, false, false);
   cJSON_AddBoolToObject(body, "attitude_control_calibrated", calibration.pitchCalibrated || calibration.rollCalibrated || calibration.yawCalibrated);
   return json(req, body);
@@ -104,10 +105,12 @@ esp_err_t telemetry(httpd_req_t *req) {
     return httpd_resp_send(req, "No control snapshot", HTTPD_RESP_USE_STRLEN);
   }
   const auto &target = s.control.target;
+  const bool controlActive = s.control.leaseActive ||
+      (s.control.attitudeMotionAllowed() && s.attitude.yawActive);
   const bool failsafe = s.control.expired || s.control.outputRecovery || s.control.outputFault;
   cJSON *body = cJSON_CreateObject();
   cJSON_AddNumberToObject(body, "version", 1);
-  cJSON_AddStringToObject(body, "source", failsafe ? "failsafe" : s.control.leaseActive ? s.control.controlSource() : "none");
+  cJSON_AddStringToObject(body, "source", failsafe ? "failsafe" : controlActive ? s.control.controlSource() : "none");
   cJSON_AddStringToObject(body, "last_source", s.control.controlSource());
   cJSON_AddStringToObject(body, "control_transport", "lora_wifi_fallback");
   cJSON_AddStringToObject(body, "telemetry_transport", "wifi");
@@ -122,7 +125,7 @@ esp_err_t telemetry(httpd_req_t *req) {
       target.yawPercent < 0 ? MotionAction::Left : target.yawPercent > 0 ? MotionAction::Right :
       target.surgePercent > 0 ? MotionAction::Forward : MotionAction::Stopped;
   cJSON_AddNumberToObject(body, "action", static_cast<int>(action));
-  cJSON_AddBoolToObject(body, "remote_active", s.control.leaseActive);
+  cJSON_AddBoolToObject(body, "remote_active", controlActive);
   cJSON_AddBoolToObject(body, "failsafe_active", failsafe);
   cJSON_AddNumberToObject(body, "motion_timeout_ms", appconfig::kLeaseMs);
   cJSON_AddStringToObject(body, "lease_servo_action", appconfig::kLeaseMs ? "center" : "hold");
@@ -219,11 +222,21 @@ esp_err_t telemetry(httpd_req_t *req) {
   sample("acceleration_g", imu.acceleration, imu.hasAcceleration, imu.accelerationMs);
   sample("angular_velocity_dps", imu.angularVelocity, imu.hasAngularVelocity, imu.angularVelocityMs);
   sample("angles_deg", imu.angles, imu.hasAngles, imu.anglesMs);
+  sample("filtered_angles_deg",s.filteredAngles,s.filteredAnglesValid,s.filteredAnglesMs);
+  cJSON_AddNumberToObject(sensor,"filter_stage_hz",robofish::config::attitude::kAngleFilterStageHz);
   cJSON_AddBoolToObject(body, "attitude_available", imu.hasAngles && uint32_t(s.nowMs - imu.anglesMs) <= 500);
   cJSON_AddBoolToObject(body, "attitude_control_supported", true);
   cJSON *attitude = cJSON_AddObjectToObject(body, "attitude_control");
   const auto &feedback = s.attitude;
   cJSON_AddBoolToObject(attitude, "enabled", s.control.attitudeEnabled);
+  cJSON_AddBoolToObject(attitude, "yaw_pid_supported", true);
+  cJSON_AddNumberToObject(attitude,"pid_period_ms",robofish::config::attitude::kYawPidPeriodMs);
+  cJSON_AddNumberToObject(attitude,"yaw_max_correction_pct",robofish::config::attitude::kMaximumYawCorrectionPercent);
+  cJSON_AddNumberToObject(attitude,"yaw_command_sign",robofish::config::attitude::kYawCommandSign);
+  cJSON *pid=cJSON_AddObjectToObject(attitude,"pid");
+  cJSON_AddNumberToObject(pid,"kp",s.control.yawPid.kp);
+  cJSON_AddNumberToObject(pid,"ki",s.control.yawPid.ki);
+  cJSON_AddNumberToObject(pid,"kd",s.control.yawPid.kd);
   cJSON_AddStringToObject(attitude, "reason", robofish::attitude::reasonName(feedback.reason));
   cJSON_AddBoolToObject(attitude, "pitch_calibrated", feedback.pitchCalibrated);
   cJSON_AddBoolToObject(attitude, "roll_calibrated", feedback.rollCalibrated);
@@ -239,6 +252,15 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(attitude, "pitch_correction_pct", feedback.pitchCorrectionPercent);
   cJSON_AddNumberToObject(attitude, "roll_correction_pct", feedback.rollCorrectionPercent);
   cJSON_AddNumberToObject(attitude, "yaw_correction_pct", feedback.yawCorrectionPercent);
+  cJSON_AddNumberToObject(attitude,"yaw_error_deg",feedback.yawErrorDegrees);
+  cJSON_AddNumberToObject(attitude,"yaw_p",feedback.yawP);
+  cJSON_AddNumberToObject(attitude,"yaw_i",feedback.yawI);
+  cJSON_AddNumberToObject(attitude,"yaw_d",feedback.yawD);
+  cJSON *preview=cJSON_AddObjectToObject(attitude,"tilt_preview");
+  cJSON_AddBoolToObject(preview,"valid",feedback.tiltPreviewValid);
+  cJSON_AddBoolToObject(preview,"outputs_connected",robofish::config::attitude::kPitchOutputEnabled || robofish::config::attitude::kRollOutputEnabled);
+  cJSON_AddNumberToObject(preview,"pitch_body_pct",feedback.pitchPreviewPercent);
+  cJSON_AddNumberToObject(preview,"roll_body_pct",feedback.rollPreviewPercent);
   if (feedback.hasSample)
     cJSON_AddNumberToObject(attitude, "age_ms", uint32_t(s.nowMs - feedback.sampleMs));
   if (feedback.bodyValid) {

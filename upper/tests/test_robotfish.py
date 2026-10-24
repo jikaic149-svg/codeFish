@@ -133,6 +133,9 @@ class Target(BaseHTTPRequestHandler):
                     owner.motion['mode'] = command['mode']
                 elif action in ('attitude_on', 'attitude_off'):
                     owner.motion.setdefault('attitude_control', {})['enabled'] = action == 'attitude_on'
+                    if action=='attitude_on':owner.motion['mode']=3
+                elif action == 'yaw_pid':
+                    owner.motion['yaw_pid']=command['pid']
                 elif action == 'stop':
                     owner.motion.update(remote_active=False, failsafe_active=False, lease_remaining_ms=0)
                     owner.motion['remote_target'] = dict(surge_pct=0, yaw_pct=0, heave_pct=0)

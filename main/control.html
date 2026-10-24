@@ -16,7 +16,7 @@ button,input{font:inherit;max-width:100%}button{padding:12px;border:0;border-rad
 <section><h2>命令回传</h2><pre id="command-result">等待数据…</pre><small><a href="/lora_status" target="_blank">查看详细状态</a></small></section>
 <section><h2>实时输出</h2><pre id="outputs">等待数据…</pre><small>数值表示驱动成功提交的目标，不代表实际位置或推力。</small></section>
 <section><h2>JY61P 陀螺仪</h2><pre id="imu">等待数据…</pre></section>
-<section><h2>陀螺仪姿态辅助</h2><pre id="attitude">等待数据…</pre><small>仅在有效前进指令期间纠偏；全停不自动摆鳍，手动浮沉与转向优先，松开转向后保持相对航向。</small></section>
+<section><h2>陀螺仪姿态辅助</h2><pre id="attitude">等待数据…</pre><small>开启后在静止和前进时保持航向；普通松键归零保留闭环，全停关闭闭环。手动浮沉与转向优先，松开转向后保持新航向。</small></section>
 <details><summary>固件升级</summary><p>选择本工程的 RobotFish 应用 BIN。写入前自动全停，完成后重启。</p>
 <input id="firmware" type="file" accept=".bin"><button id="upload">上传固件</button><pre id="ota-result"></pre></details>
 </main>
@@ -34,8 +34,8 @@ async function poll(){
   $('command-result').textContent=(r.available?`来源 ${r.source} · 序号 ${r.sequence} · 命令 ${r.code}\n结果：${r.result}\n`:'尚未收到命令\n')+`LoRa 接收：${l.accepted||0} · 拒绝：${l.rejected||0} · 重复：${l.duplicates||0}\n最近成功回执：${l.last_ack||'—'}`;
   $('outputs').textContent=`前尾 ${number(f.tail_front_deg)}° · 后尾 ${number(f.tail_rear_deg)}°\n左鳍 ${number(f.pectoral_left_deg)}° · 右鳍 ${number(f.pectoral_right_deg)}°\n左桨 ${number(f.left_motor_pct)}% · 右桨 ${number(f.right_motor_pct)}%\n输出故障：${s.output_fault?'锁定':s.output_recovery?'恢复中':s.output_warning?'告警':'无'}`;
   $('imu').textContent=`串口：${i.uart_ready?'已初始化':'未就绪'} · ${i.baud||'—'} bps\n加速度：${vector(i.acceleration_g,'g')}\n角速度：${vector(i.angular_velocity_dps,'°/s')}\n姿态角：${vector(i.angles_deg,'°')}\n有效帧 ${i.frames||0} · 校验错误 ${i.checksum_errors||0} · 接收错误 ${i.receive_errors||0}`;
-  const a=s.attitude_control||{},states={disabled:'已关闭',uncalibrated:'轴向或执行器方向未标定',waiting_motion:'等待有效前进命令',imu_unavailable:'没有有效 IMU 数据',imu_stale:'IMU 数据过期',invalid_sample:'IMU 数据无效',manual_pitch:'手动浮沉优先',manual_yaw:'手动转向优先',heading_unavailable:'航向暂不可用',active:'辅助生效'};
-  $('attitude').textContent=s.attitude_control_supported?`请求：${a.enabled?'开启':'关闭'} · 快照状态：${states[a.reason]||'未知'}\n标定：俯仰 ${a.pitch_calibrated?'已确认':'未确认'} · 横滚 ${a.roll_calibrated?'已确认':'未确认'} · 航向 ${a.yaw_calibrated?'已确认':'未确认'}\n修正：俯仰 ${number(a.pitch_correction_pct)}% · 横滚 ${number(a.roll_correction_pct)}% · 偏航 ${number(a.yaw_correction_pct)}%\n相对航向目标：${a.heading_locked?number(a.heading_target_deg)+'°':'未锁定'}`:'此固件尚未提供姿态辅助';
+  const a=s.attitude_control||{},states={disabled:'已关闭',uncalibrated:'轴向或执行器方向未标定',waiting_motion:'当前未允许闭环（倒退或停机期间）',imu_unavailable:'没有有效 IMU 数据',imu_stale:'IMU 数据过期',invalid_sample:'IMU 数据无效',manual_pitch:'手动浮沉优先',manual_yaw:'手动转向优先',heading_unavailable:'航向暂不可用',active:'辅助生效'};
+  $('attitude').textContent=s.attitude_control_supported?`请求：${a.enabled?'开启':'关闭'} · 快照状态：${states[a.reason]||'未知'}\nyaw 纠偏范围：±${number(a.yaw_max_correction_pct)}%\n标定：俯仰 ${a.pitch_calibrated?'已确认':'未确认'} · 横滚 ${a.roll_calibrated?'已确认':'未确认'} · 航向 ${a.yaw_calibrated?'已确认':'未确认'}\n修正：俯仰 ${number(a.pitch_correction_pct)}% · 横滚 ${number(a.roll_correction_pct)}% · 偏航 ${number(a.yaw_correction_pct)}%\n相对航向目标：${a.heading_locked?number(a.heading_target_deg)+'°':'未锁定'}`:'此固件尚未提供姿态辅助';
  }catch(error){$('connection').textContent=`状态读取失败：${error.message}。下方保留上次读取结果。`;}
  setTimeout(poll,500);
 }

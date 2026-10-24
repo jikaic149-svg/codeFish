@@ -6,3 +6,16 @@
 /upper/server.log
 /upper/logs/
 /upper/data/
+/archive/
+/artifacts/
+/materials/
+/validation/
+/vision/Ultralytics/
+/vision/fish_body_yolo/runs/
+/vision/fish_body_yolo/*.log
+/vision/fish_body_yolo/*.jpg
+/vision/fish_body_yolo/*.mp4
+/vision/fish_body_yolo/comparison.json
+/vision/fish_body_yolo/video_metrics.json
+/vision/fish_body_yolo/run.json
+/vision/configs/*.local.json

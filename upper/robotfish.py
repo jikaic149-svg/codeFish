@@ -34,13 +34,20 @@ def normalize(raw, host, elapsed_ms=0):
     dual = raw.get('lora_protocol') == 2
     radio = raw.get('lora', {}) if dual else raw.get('wifi', raw.get('lora', {}))
     sensor = raw.get('imu', {})
-    angles = sensor.get('angles_deg', {})
+    original = sensor.get('angles_deg', {})
+    filtered = sensor.get('filtered_angles_deg')
+    angles = filtered if isinstance(filtered,dict) else original
     age = number(angles.get('age_ms'))
+    device_age=number(original.get('age_ms'))
     if age is not None and age >= 0:
         age += max(0, elapsed_ms)
     attitude = angles.get('valid') is True and age is not None and 0 <= age <= 500
     attitude = attitude and all(number(angles.get(axis)) is not None for axis in ('x', 'y', 'z'))
     imu = {'model': sensor.get('model', ''), 'valid': attitude, 'age_ms': age,
+           'device_age_ms':device_age,'sensor_valid':original.get('valid') is True,
+           'sensor_roll':number(original.get('x')),'sensor_pitch':number(original.get('y')),'sensor_yaw':number(original.get('z')),
+           'filter_active':isinstance(filtered,dict),'filter_stage_hz':number(sensor.get('filter_stage_hz')),
+           'filter_device_age_ms':number(filtered.get('age_ms')) if isinstance(filtered,dict) else None,
            'roll': number(angles.get('x')) if attitude else None,
            'pitch': number(angles.get('y')) if attitude else None,
            'yaw': number(angles.get('z')) if attitude else None,
@@ -50,12 +57,20 @@ def normalize(raw, host, elapsed_ms=0):
            'checksum_errors': number(sensor.get('checksum_errors')),
            'receive_errors': number(sensor.get('receive_errors'))}
     feedback = raw.get('attitude_control', {})
+    preview=feedback.get('tilt_preview') or {}
     feedback_age = number(feedback.get('age_ms'))
     if feedback_age is not None:
         feedback_age += max(0, elapsed_ms)
     maximum_age = number(feedback.get('maximum_age_ms'))
     feedback_valid = feedback.get('body_valid') is True and feedback_age is not None and maximum_age is not None and 0 <= feedback_age <= maximum_age
     stabilizer = dict(supported=raw.get('attitude_control_supported') is True,
+        yaw_pid_supported=feedback.get('yaw_pid_supported') is True,
+        tilt_preview_valid=preview.get('valid') is True and feedback.get('body_valid') is True,
+        tilt_outputs_connected=preview.get('outputs_connected') is True,
+        pitch_preview_pct=number(preview.get('pitch_body_pct')),
+        roll_preview_pct=number(preview.get('roll_body_pct')),
+        pid_period_ms=number(feedback.get('pid_period_ms')),
+        pid={key:number(feedback.get('pid',{}).get(key)) for key in ('kp','ki','kd')},
         enabled=feedback.get('enabled') is True, reason=feedback.get('reason', 'unavailable'),
         pitch_calibrated=feedback.get('pitch_calibrated') is True, roll_calibrated=feedback.get('roll_calibrated') is True,
         yaw_calibrated=feedback.get('yaw_calibrated') is True,
@@ -72,8 +87,14 @@ def normalize(raw, host, elapsed_ms=0):
         heading_target_deg=number(feedback.get('heading_target_deg')) if feedback_valid and feedback.get('heading_locked') is True else None,
         pitch_correction_pct=number(feedback.get('pitch_correction_pct')) if feedback_valid else None,
         roll_correction_pct=number(feedback.get('roll_correction_pct')) if feedback_valid else None,
-        yaw_correction_pct=number(feedback.get('yaw_correction_pct')) if feedback_valid else None)
+        yaw_correction_pct=number(feedback.get('yaw_correction_pct')) if feedback_valid else None,
+        yaw_error_deg=number(feedback.get('yaw_error_deg')) if feedback_valid else None,
+        yaw_p=number(feedback.get('yaw_p')) if feedback_valid else None,
+        yaw_i=number(feedback.get('yaw_i')) if feedback_valid else None,
+        yaw_d=number(feedback.get('yaw_d')) if feedback_valid else None)
     source = raw.get('source', 'unknown')
+    stabilizer['tilt_preview_valid'] = stabilizer['tilt_preview_valid'] and feedback_valid
+    if not stabilizer['tilt_preview_valid']:stabilizer['pitch_preview_pct']=stabilizer['roll_preview_pct']=None
     failsafe = raw.get('failsafe_active')
     mode, action = raw.get('mode'), raw.get('action')
     wifi = raw.get('wifi_control_allowed') is True and raw.get('control_protocol') == 1

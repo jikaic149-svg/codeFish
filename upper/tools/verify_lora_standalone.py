@@ -115,6 +115,10 @@ def main():
                     assert uart.args==('COM119',115200)
                     assert not client._sessions and not Target.controls
                     page.locator('[data-page=overview]').click()
+                    assert page.evaluate('localRadio.control_transport === "auto"')
+                    # This legacy branch explicitly exercises strict radio-only mode.
+                    page.locator('#control-source').select_option('lora')
+                    page.wait_for_function('!controlConfigPending && localRadio.control_transport === "lora"')
                     assert page.locator('#lora-control-state').inner_text()=='LoRa 已连接 · COM119'
                     assert page.locator('#wifi-telemetry-state').inner_text()=='Wi-Fi 遥测未连接'
                     assert page.locator('#control-stop').is_enabled()
@@ -158,14 +162,15 @@ def main():
                     page.wait_for_function('robotIdentity?.firmware === "robotfish" && !modePending')
                     assert page.locator('#lora-config').is_visible(), 'S3 profile hid the radio panel'
                     page.locator('#robot-refresh').click()
-                    page.wait_for_function('wifiControlReady()')
+                    page.wait_for_function('robotState?.online && !autoConnectPending && localRadio.control_transport === "lora"')
+                    assert not page.evaluate('wifiArmed') and not Target.controls
                     page.locator('[data-page=overview]').click()
                     page.evaluate('document.activeElement.blur()')
                     start=len(uart.writes)
                     page.keyboard.down('w')
                     wait_frame(page,uart,lambda f:f[0]==101 and f[4]==20 and f[6]==350,start)
                     Target.available=False
-                    page.wait_for_function('robotState === null && controlSuspended')
+                    page.wait_for_function('robotState === null && loraControlReady()')
                     assert page.evaluate('heldKeys.has("forward") && loraControlReady()')
                     start=len(uart.writes)
                     page.keyboard.down('a')
