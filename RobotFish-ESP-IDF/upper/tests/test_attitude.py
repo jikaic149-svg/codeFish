@@ -17,6 +17,25 @@ HOST, SESSION = '192.168.4.1', 'attitude-fixture'
 
 
 class AttitudeTests(unittest.TestCase):
+    def test_pid_gains_use_wifi_fallback_and_reject_invalid_payloads_without_losing_session(self):
+        client=self.client();client._capabilities[HOST]['yaw_pid_supported']=True
+        pid=dict(kp=1.25,ki=.02,kd=.1)
+        with patch.object(client,'_request',return_value=(200,dict(accepted=True,session=SESSION,sequence=1),None)) as http:
+            result=client.motion_control(HOST,'yaw_pid',SESSION,1,pid=pid)
+            self.assertEqual(result['transport'],'wifi')
+            self.assertEqual(http.call_args.args[3]['pid'],pid)
+            for bad in ({'kp':1},dict(pid,ki=-1),dict(pid,kd=float('nan')),dict(pid,kp=True),dict(pid,kp=101)):
+                with self.assertRaises(device_client.DeviceError):client.motion_control(HOST,'yaw_pid',SESSION,2,pid=bad)
+            self.assertEqual(http.call_count,1)
+        self.assertIn(HOST,client._sessions)
+        client._capabilities[HOST].pop('yaw_pid_supported')
+        with self.assertRaises(device_client.DeviceError) as exc:client.motion_control(HOST,'yaw_pid',SESSION,2,pid=pid)
+        self.assertEqual(exc.exception.code,'unsupported_control')
+
+    def test_pid_lora_packet_encodes_gains_without_motion(self):
+        wire=frame(42,'yaw_pid',dict(mode=3,pid=dict(kp=1,ki=.02,kd=.1)))
+        self.assertEqual(wire,b'101,1,23120,42,25,3,1000,20,100,1000,37623\n')
+
     def client(self, dual=True):
         client = device_client.DeviceClient()
         client._profiles[HOST] = 'robotfish'
@@ -53,7 +72,7 @@ class AttitudeTests(unittest.TestCase):
             submit=lambda host, action, payload: queued.append((action, payload)) or dict(queued=True))
         with patch.object(client, '_request') as request:
             self.assertTrue(client.motion_control(HOST, 'attitude_on', SESSION, 1)['queued'])
-            self.assertEqual(queued, [('attitude_on', {'mode': 2})])
+            self.assertEqual(queued, [('attitude_on', {'mode': 3})])
             request.assert_not_called()
 
     def test_old_firmware_does_not_receive_unsupported_configuration(self):

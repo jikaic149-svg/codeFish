@@ -24,6 +24,7 @@ function renderVisionControls(){
   for(const id of ['vision-camera-index','vision-source','vision-model'])$(id).disabled=visionState.running||visionStarting;
   if(visionConfiguration?.model_required===false)$('vision-model').disabled=true;
   document.querySelectorAll('[data-vision-task]').forEach(button=>button.disabled=!visionState.running||!visionState.ready);
+  for(const id of ['vision-speed-apply','vision-pool-apply'])$(id).disabled=!visionState.running||!visionState.ready;
   const recorder=visionState.recording||{},record=document.querySelector('[data-vision-task="RECORD"]');
   record.textContent=recorder.active?'停止录制':'录制视频';record.setAttribute('aria-pressed',String(recorder.active===true));
   if(recordingRequest||recorder.saving)record.disabled=true;
@@ -43,7 +44,7 @@ async function loadVisionConfiguration(){
     visionConfiguration=await service('vision/config');
     document.querySelector('label[for="vision-model"]').textContent=visionConfiguration.model_required===false?'视觉算法':'视觉控制模型（.pt）';
     document.querySelector('#vision-settings>summary').textContent=visionConfiguration.model_required===false?'相机与标定配置':'相机、模型与标定配置';
-    const select=$('vision-model'),previous=select.value||visionSaved('model',visionConfiguration.default_model);
+    const select=$('vision-model'),previous=select.value||visionConfiguration.default_model||visionSaved('model','');
     select.replaceChildren();
     if(visionConfiguration.model_required===false)select.add(new Option(visionConfiguration.algorithm||'OpenCV（无需模型）',''));
     for(const model of visionConfiguration.models){const option=new Option(`${model.name} · ${(model.bytes/1024/1024).toFixed(1)} MiB`,model.path);select.add(option);}
@@ -51,13 +52,15 @@ async function loadVisionConfiguration(){
     for(const profile of visionConfiguration.calibration){
       const value=profile.values||{};
       let text=profile.error?'文件无效：'+profile.error:profile.saved?'已保存标定':'尚未标定';
+      if(profile.key==='head')text='连接 IMU 后点击鱼头，将当前方向标为 0 yaw；每次会话重新标定。';
+      if(profile.key==='tail')text='使用 YOLO 自动识别鱼体；需要时框选完整机器鱼。';
       if(profile.saved&&!profile.error){
         if(profile.key==='pool')text+=` · ${value.physical_width_m??'—'} × ${value.physical_height_m??'—'} m · ${value.frame_width??'—'}×${value.frame_height??'—'}`;
         else if(Number.isFinite(value.hue_center))text+=` · 色相 ${value.hue_center.toFixed(1)} ± ${Number(value.hue_tolerance||0).toFixed(1)}`;
       }
       robotText('vision-calibration-'+profile.key,text);
     }
-    robotText('vision-model-state',visionState.running?'正在使用：'+(visionState.model||visionConfiguration.algorithm):visionConfiguration.model_required===false?'OpenCV 颜色跟踪无需加载模型。选择摄像头或录像回放后启动。':'选择工程中的.pt模型；停止视觉控制后可修改相机和模型，再启动应用。');
+    robotText('vision-model-state',visionState.running?'正在使用：'+(visionState.model||visionConfiguration.algorithm):'默认使用优化后的鱼体模型；鱼头标定建立 IMU yaw 零位，循迹使用速度与角度双内环。');
     syncVisionParameters();renderVisionControls();
   }catch(error){robotText('vision-model-state',error.message);}
 }
@@ -122,6 +125,9 @@ async function pollVision(){
     }
     if(!visionState.running&&visionState.logs?.length)robotText('vision-task-state',visionState.logs.slice(-3).join(' '));
     if(state.page==='vision')robotText('vision-result-data',JSON.stringify(visionState.result||{},null,2));
+    const yaw=visionState.result?.body_yaw||{},speedLoop=visionState.result?.speed_loop||{},yawLoop=visionState.result?.yaw_loop||{};
+    robotText('vision-yaw-state',yaw.usable?`IMU yaw ${Number(yaw.yaw_deg).toFixed(1)}° · ${yawLoop.feedback_valid?'角度误差 '+Number(yawLoop.error_deg).toFixed(1)+'°':'已建立零位'}`:'等待机器鱼 IMU 与鱼头 0 yaw 标定');
+    robotText('vision-speed-state',speedLoop.feedback_valid?`目标 ${Number(speedLoop.target_mps).toFixed(2)} / 实测 ${Number(speedLoop.measured_mps).toFixed(2)} m/s · 推进 ${Number(speedLoop.power_percent).toFixed(0)}%`:'速度反馈等待中');
     if($('control-video-source').value==='vision')robotText('control-video-state',!visionState.running?'外部视觉未启动':visionState.ready?(visionState.source.endsWith('.mp4')?'录像回放；画面不代表控制效果。':'实时外部视觉画面'):'等待摄像头画面…');
     syncVisionParameters();renderVisionControls();updateVisionImages();
   }catch(error){robotText('vision-service-state',error.message);}
@@ -142,6 +148,14 @@ $('vision-result').onpointermove=event=>{if(pointerDown&&Date.now()-lastPointerA
 $('vision-result').onpointerup=event=>{sendVisionPointer(event,'up');pointerDown=false;};
 $('vision-result').onpointercancel=()=>{pointerDown=false;};$('vision-result').oncontextmenu=event=>event.preventDefault();
 $('vision-start').onclick=startVision;$('vision-stop').onclick=async()=>{try{visionState=await service('vision/stop',{});await pollVision();}catch(error){toast(error.message);}};
+$('vision-speed-apply').onclick=async()=>{
+  const input=$('vision-speed-target');if(!input.reportValidity())return;
+  try{await service('vision/action',{event:{task:'SPEED',value:Number(input.value)}});visionNotice('巡航目标已更新；转弯和接近终点时自动减速。');}catch(error){toast(error.message);}
+};
+$('vision-pool-apply').onclick=async()=>{
+  const width=$('vision-pool-width'),height=$('vision-pool-height');if(!width.reportValidity()||!height.reportValidity())return;
+  try{await service('vision/action',{event:{task:'POOL_SIZE',width_m:Number(width.value),height_m:Number(height.value)}});visionNotice('实测尺寸已应用，请在画面中依次点击四角。');}catch(error){toast(error.message);}
+};
 document.querySelectorAll('[data-vision-task]').forEach(button=>button.onclick=()=>visionTask(button.dataset.visionTask));
 document.querySelectorAll('[data-vision-layout]').forEach(button=>button.onclick=()=>applyVisionLayout(button.dataset.visionLayout));
 $('vision-config-link').onclick=event=>{event.preventDefault();$('vision-settings').open=true;$('vision-settings').scrollIntoView({block:'start',behavior:'smooth'});loadVisionConfiguration();};

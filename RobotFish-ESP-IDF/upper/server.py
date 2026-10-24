@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
-REVISION = 'workstation-17-lora-sender-latency'
+REVISION = 'workstation-20-yolo-imu-cascade'
 FEATURES = {'attitude_control': True, 'shutdown': True}
 # Simulator controls proxy only when explicitly requested, so a normal run
 # exposes no extra surface at all.
@@ -381,7 +381,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():return self.reply(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True})
+        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True,'vision_control_mode':1,'vision_client_revision':'yolo-imu-cascade-1'})
         if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':REVISION,'features':FEATURES})
         if path=='/api/tooling':return self.reply(200,tooling.info())
         if path=='/api/station/lora':return self.reply(200,device_client.CLIENT.lora_status())
@@ -393,6 +393,19 @@ class Handler(BaseHTTPRequestHandler):
             except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/data':return self.reply(200,STATION.data())
         if path=='/api/telemetry':return self.reply(200,STATION.telemetry())
+        if path=='/api/data/pid/export':
+            try:data,kind=diagnostics.export_pid_history()
+            except ValueError as exc:return self.reply(400,{'error':str(exc)})
+            self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
+            self.send_header('Content-Disposition','attachment; filename="robofish-yaw-pid-history.csv"')
+            self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data);return
+        if path=='/api/data/synchronous/export':
+            format=parse_qs(urlsplit(self.path).query).get('format',['csv'])[0]
+            try:data,kind=diagnostics.export_synchronous(format)
+            except ValueError as exc:return self.reply(400,{'error':str(exc)})
+            self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)))
+            self.send_header('Content-Disposition',f'attachment; filename="robofish-servo-imu.{format}"')
+            self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data);return
         if path in ('/api/data/export','/api/data/raw/export'):
             format=parse_qs(urlsplit(self.path).query).get('format',['csv'])[0]
             try:data,content_type=(STATION.export_raw(format) if path=='/api/data/raw/export' else STATION.export(format))
@@ -438,6 +451,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:pass
             finally:connection.close()
             return
+        if path=='/api/vision/telemetry':
+            try:return self.reply(200,STATION.vision_telemetry())
+            except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/vision/state':return self.reply(200,VISION.state())
         if path=='/api/vision/config':return self.reply(200,VISION.configuration())
         if path=='/api/vision/stream':
@@ -544,6 +560,7 @@ class Handler(BaseHTTPRequestHandler):
             if action=='vision/action':return self.reply(200,VISION.action(body.get('event')))
             if action=='vision/control':
                 if body.get('task')=='prepare':
+                    if body.get('client_revision')!='yolo-imu-cascade-1':raise ValueError('请更新并重启视觉客户端')
                     return self.reply(200,STATION.prepare_vision(body.get('session'),body.get('sequence')))
                 if body.get('task')!='target':raise ValueError('无效视觉控制任务')
                 return self.reply(200,STATION.target(body.get('axes'),body.get('session'),body.get('sequence'),'vision'))

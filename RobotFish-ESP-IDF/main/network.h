@@ -15,6 +15,9 @@ struct MotionSnapshot {
   robofish::lora::LinkStatus lora;
   robofish::imu::Status imu;
   robofish::attitude::Result attitude;
+  robofish::imu::Vector3 filteredAngles;
+  uint32_t filteredAnglesMs = 0;
+  bool filteredAnglesValid = false;
   bool loraReady = false;
   uint32_t nowMs = 0;
   uint32_t attempts = 0;

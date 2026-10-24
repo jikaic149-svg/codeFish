@@ -77,3 +77,6 @@ body[data-workspace="data"] .capture-overview { display:none; }
 #lora-refresh-ports { flex-shrink:0;white-space:nowrap; }
 body[data-device="robotfish"] .vision-layout-bar,
 body[data-device="robotfish"] .vision-board-setting { display:none; }
+#robot-yaw-pid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:end}
+#robot-yaw-pid label{margin:8px 0 0}
+#robot-yaw-pid .button{margin-top:4px;grid-column:span 1;padding:9px 6px;white-space:normal}

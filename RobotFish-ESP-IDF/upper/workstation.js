@@ -184,6 +184,12 @@ $('data-chart').onpointerleave=()=>{chartHover=-1;requestChart();};
 $('chart-export').onclick=()=>{drawChart();$('data-chart').toBlob(blob=>{if(blob)downloadBlob(blob,'robofish-'+$('chart-group').value+'.png');});};
 for(const format of ['csv','json'])$('data-export-'+format).onclick=()=>{const link=document.createElement('a');link.href='/api/data/export?format='+format;link.download='robofish-data.'+format;link.click();log('导出数据 '+format.toUpperCase()+'，'+recorded.count+'条样本');};
 for(const format of ['csv','json'])$('raw-export-'+format).onclick=()=>{const link=document.createElement('a');link.href='/api/data/raw/export?format='+format;link.download='robofish-raw.'+format;link.click();};
+for(const format of ['csv','json'])$('data-synchronous-'+format).onclick=async()=>{
+  try{const response=await fetch('/api/data/synchronous/export?format='+format);
+    if(!response.ok){const data=await response.json();throw Error(data.error||'同步导出失败');}
+    downloadBlob(await response.blob(),'robofish-servo-imu.'+format);
+  }catch(error){toast(error.message);}
+};
 new ResizeObserver(requestChart).observe($('data-chart').parentElement);
 window.addEventListener('stationtheme',requestChart);
 window.addEventListener('stationpage',event=>{if(event.detail==='data'){renderCapture();renderRawTelemetry();pollData();requestChart();}if(event.detail==='journal')renderJournal();});

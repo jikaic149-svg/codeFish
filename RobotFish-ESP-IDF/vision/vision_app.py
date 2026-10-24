@@ -14,7 +14,9 @@ import numpy as np
 from flask import Flask, Response
 
 from collections import deque
-from white_black_tracker import WhiteBlackTracker
+from yolo_tracker import YoloBodyTracker
+from yaw_heading import CalibratedYaw
+from control_config import CONTROL
 from fixed_reference_tracker import ReferenceSource
 from path_guidance import (
     PathGuidance,
@@ -50,7 +52,6 @@ def draw_unicode_text(*args, **kwargs):
 RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runtime")
 if RUNTIME_DIR not in sys.path:
     sys.path.insert(0, RUNTIME_DIR)
-from position_yaw import PositionYaw
 from vision_protocol import pack_vision_udp_frame
 
 # ============= 设置工作目录（带路径安全回退） =============
@@ -122,6 +123,7 @@ MARKER_BL = 3
 # [配置区] OpenCV 仿生鱼检测
 # ==============================================================================
 MARKER_PROFILE_PATH = os.path.join(WORK_DIR, "marker_profile.local.json")
+MODEL_PATH = os.path.join(PREFERRED_DIR, 'fish_body_yolo', 'best.pt')
 TURN_CALIBRATION_PATH = os.path.join(
     WORK_DIR, "turn_calibration.local.json"
 )
@@ -142,24 +144,6 @@ ROBOFISH_UDP_PORT = 9000
 VISION_UDP_PERIOD_S = 0.05       # 20 Hz fixed-period latest-value frame
 VISION_UDP_STALE_S = 0.25
 UDP_SPEED_REFERENCE_MPS = 0.36   # 100% command corresponds to this target
-BODY_YAW_RESULT_TIMEOUT_S = 0.60  # 5 Hz OpenCV cadence + one missed result
-YAW_FILTER_PERIOD_S = 0.05       # do not collapse KF covariance at camera rate
-MIN_YAW_BASELINE_M = 0.04        # shorter head-tail baselines are too noisy
-# The path controller may use a filtered body yaw only while the filter is
-# still fresh.  Once the visual endpoint disappears, hold the last heading for
-# a short grace period before falling back to the marker-derived course.
-# This prevents a single white-head miss from changing the control law on the
-# very next camera frame, while avoiding a stale yaw lock during an occlusion.
-BODY_YAW_CONTROL_MAX_AGE_S = 0.35
-BODY_YAW_CONTROL_HOLD_S = 0.25
-# Motion/command prior used as a soft constraint on the visual yaw.  It is
-# intentionally weaker than a valid white-head measurement so control cannot
-# blindly follow a stale command.
-MOTION_PRIOR_TIMEOUT_S = 0.35
-MOTION_PRIOR_MAX_BLEND = 0.35
-MOTION_PRIOR_MAX_INNOVATION_DEG = 95.0
-MOTION_PRIOR_CLAMP_DEG = 45.0
-
 # --- 坐标与速度计算平滑系数 ---
 # Keep only light smoothing on the marker-derived position.  A low alpha
 # makes the control point visibly lag behind quick fish motion.
@@ -186,20 +170,6 @@ def draw_outlined_text(img, text, pos, font, scale, color, thickness=2):
     x, y = pos
     cv2.putText(img, text, (x, y), font, scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
     cv2.putText(img, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
-
-
-def _wrap_angle_rad(angle):
-    return (float(angle) + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def _blend_angles_rad(measured, prior, prior_weight):
-    """Circularly blend a visual angle with a short-horizon motion prior."""
-    weight = float(np.clip(prior_weight, 0.0, 1.0))
-    x = (1.0 - weight) * math.cos(float(measured)) + weight * math.cos(float(prior))
-    y = (1.0 - weight) * math.sin(float(measured)) + weight * math.sin(float(prior))
-    if abs(x) + abs(y) <= 1e-9:
-        return _wrap_angle_rad(measured)
-    return _wrap_angle_rad(math.atan2(y, x))
 
 
 def draw_calibration_overlay(img, points):
@@ -1086,7 +1056,7 @@ from video_recorder import AsyncVideoRecorder
 # ==============================================================================
 def main():
     print("\n" + "=" * 60)
-    print("OpenCV 白头黑体 + 位置差分 yaw + 路径控制正在启动...")
+    print("YOLO 鱼体检测 + IMU yaw + 串级路径控制正在启动...")
     print(f"工作目录: {os.path.abspath(WORK_DIR)}")
     print(f"目标捕获: {TARGET_WIDTH}x{TARGET_HEIGHT} @ {TARGET_FPS}FPS")
     print(
@@ -1097,7 +1067,7 @@ def main():
         "场地尺寸须经实测确认；等待已确认的标定或网页输入。"
     )
     print("画面与操作通过本机工作站转接；控制目标交给工作站统一仲裁。")
-    print("检测算法：OpenCV 白头黑体颜色分割；yaw 来自位置差分")
+    print(f"检测模型：{MODEL_PATH}；鱼头标定建立 IMU yaw 零位")
     print("=" * 60 + "\n")
 
     cam = CameraStream(src=CAMERA_INDEX).start()
@@ -1123,11 +1093,11 @@ def main():
     # 3. 启动 RoboFish ESP32 HTTP 通信与 PID 控制服务
     fish_comm = RoboFishComm(ip=ROBOFISH_IP, port=ROBOFISH_PORT)
 
-    # Camera-rate colour observations require no model or worker.
-    reference_tracker = WhiteBlackTracker()
+    # Detection owns fish identity; optical flow measures brief detection gaps.
+    reference_tracker = YoloBodyTracker(MODEL_PATH)
     detector_meter = {'time':None,'count':0,'hz':0.}
     white_head_tracker = reference_tracker  # Existing white-threshold/preview controls.
-    print("[VISION MODE] OPENCV_COLOR | position=body centre | yaw=position difference")
+    print("[VISION MODE] YOLO_PT | position=fish centre | yaw=calibrated body IMU")
 
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     aruco_params = cv2.aruco.DetectorParameters()
@@ -1166,8 +1136,11 @@ def main():
     right_turn_fit = turn_calibration_results.get("RIGHT")
     path_guidance = PathGuidance(
         spacing_m=0.03,
-        lookahead_m=0.24,
-        min_lookahead_m=0.10,
+        lookahead_m=CONTROL['guidance']['lookahead_m'],
+        min_lookahead_m=CONTROL['guidance']['min_lookahead_m'],
+        k_f=CONTROL['guidance']['cross_track_gain'],
+        cruise_speed_mps=CONTROL['guidance']['cruise_speed_mps'],
+        min_speed_target_mps=CONTROL['guidance']['min_speed_mps'],
         full_attraction_error_m=0.18,
         curve_preview_m=0.32,
         estimated_min_turn_radius_m=0.20,
@@ -1295,7 +1268,7 @@ def main():
         blend=0.45,
         max_speed_mps=0.80,
     )
-    position_yaw = PositionYaw()
+    imu_yaw = CalibratedYaw()
     body_yaw_state = {
         'yaw_deg': None,
         'visual_yaw_deg': None,
@@ -1340,13 +1313,11 @@ def main():
         'last_fused_yaw_deg': None,
         'gate_count': 0,
     }
-    # Heading used by the main path controller.  A fresh filtered body yaw
-    # takes priority; after a short miss we hold that yaw briefly, then let
-    # PathGuidance fall back to its marker-course estimator.
+    # Rendering and control consume the same calibrated, fresh IMU heading.
     yaw_control_state = {
         'heading': None,
         'last_valid_t': None,
-        'source': 'COURSE',
+        'source': 'IMU_WAIT',
         'reported_source': None,
     }
 
@@ -1354,15 +1325,15 @@ def main():
         yaw_control_state.update({
             'heading': None,
             'last_valid_t': None,
-            'source': 'COURSE',
+            'source': 'IMU_WAIT',
             'reported_source': None,
         })
 
     def select_yaw_for_control(now):
-        # Stationary: hold the last course, while measurement_valid stays false.
+        # Position never supplies an alternative heading when IMU is unavailable.
         if body_yaw_state['usable'] and body_yaw_state['unit_vector'] is not None:
             return body_yaw_state['unit_vector'], body_yaw_state['yaw_rate_rps'], body_yaw_state['source']
-        return None, 0.0, 'COURSE'
+        return None, 0.0, 'IMU_WAIT'
 
     velocity_state = {'vx_smooth': 0.0, 'vy_smooth': 0.0}
     fps_state = {'last_loop_t': time.time(), 'loop_fps': 0.0}
@@ -1672,7 +1643,7 @@ def main():
                         if marker_id in [MARKER_TL, MARKER_TR, MARKER_BL, MARKER_BR]:
                             corner_pixels[marker_id] = [cx, cy]
 
-            # Colour detection owns position at camera timestamps; no model fallback.
+            # YOLO confirms identity; measured flow bridges brief detection gaps.
             reference_observation = reference_tracker.update(frame, frame_time)
             detection_bbox = reference_observation.metrics.get('fish_bbox')
             detection_confidence = reference_observation.confidence
@@ -1685,7 +1656,7 @@ def main():
                 detector_meter['hz']=(detector_count-detector_meter['count'])/(frame_time-detector_meter['time'])
                 detector_meter.update(time=frame_time,count=detector_count)
             detection_fps = detector_meter['hz']
-            detection_status = {'algorithm':'OPENCV_COLOR','ready':True,'loading':False,'error':None,'load_seconds':0}
+            detection_status = {'algorithm':'YOLO_PT','ready':True,'loading':False,'error':None,'load_seconds':reference_tracker.load_seconds}
             detection_result = {'frame_time':frame_time,'pose_valid':False,'bbox':detection_bbox}
             detection_pose_valid = False
             pose_tail = pose_head = None
@@ -1716,10 +1687,7 @@ def main():
                 'tail_marker_quality'
             ]
 
-            # The fish OpenCV bbox and black body define the white search
-            # domain.  A geometrically/temporally gated white component becomes
-            # the effective head bbox/centroid; the tail endpoint remains
-            # independently constrained to the black body.
+            # Keep the optional binary preview separate from detection and yaw.
             head_color_result = reference_tracker.head_result
             binary_mask_preview = (
                 white_head_tracker.binary_preview(frame)
@@ -1744,44 +1712,35 @@ def main():
             yaw_tail_pixel, yaw_head_pixel = tail_color_pixel, color_head_pixel
             selected_measurement_ready = reference_observation.valid
             color_raw_yaw_deg = raw_yaw_deg = None
-            yaw_measurement_source = 'POSITION_DIFF'
+            yaw_measurement_source = 'IMU_YAW'
             if reference_observation.valid:
-                previous_id = body_yaw_state.get('track_id')
-                if previous_id is not None and previous_id != track_id:
-                    position_yaw.clear_samples()
-                    body_yaw_state.update(usable=False,measurement_valid=False,last_frame_time=None)
+                previous_id=body_yaw_state.get('track_id')
+                if previous_id is not None and previous_id!=track_id:
+                    imu_yaw.reset()
+                    heading_state['world_unit_vector']=None
                     if drawn_path_state['active']:
-                        drawn_path_state['active'] = False
-                        is_tracing_active = False
-                        fish_comm.stop_now()
-                        current_status_text = 'TARGET LOST'
-                body_yaw_state['track_id'] = track_id
-            if frame_time != body_yaw_state['last_frame_time']:
-                space = 'world' if calib_state['H'] is not None else 'pixel'
-                position = reference_observation.position if reference_observation.valid else None
-                if position is not None and space == 'world':
-                    position = cv2.perspectiveTransform(np.float32([[position]]), calib_state['H'])[0,0]
-                course = position_yaw.update(position, frame_time, space)
-                body_yaw_state.update({
-                    'yaw_deg':course['yaw_deg'], 'visual_yaw_deg':course['yaw_deg'],
-                    'fused_yaw_deg':course['yaw_deg'], 'raw_yaw_deg':course['yaw_deg'],
-                    'yaw_rate_rps':course['yaw_rate_rps'], 'source':course['source'],
-                    'prediction_age_s':course['age_s'], 'measurement_valid':course['measurement_valid'],
-                    'coordinate_space':space, 'unit_vector':course['unit_vector'],
-                    'usable':bool(position is not None and space=='world' and course['yaw_deg'] is not None),
-                    'yaw_measurement_source':'SEEDED_POSITION_FIT', 'tail_pixel':tail_color_pixel,
-                    'initialized':course['initialized'],'raw_course_deg':course['raw_course_deg'],
-                    'fit_quality':course['fit_quality'],'fit_span_s':course['fit_span_s'],
-                    'fit_displacement':course['displacement'],'turn_limited':course['turn_limited'],
-                    'head_pixel':color_head_pixel, 'color_tail_pixel':tail_color_pixel,
-                    'color_head_pixel':color_head_pixel, 'head_color_confidence':color_head_confidence,
-                    'last_frame_time':frame_time, 'last_update_wall_t':time.monotonic(),
-                })
-                if course['initialized'] and space=='world':
-                    heading_state['control_heading'] = course['unit_vector']
-                    heading_state['control_heading_source'] = course['source']
-            # OpenCV 框只表示身份与色标搜索区域；保留初版界面中的鱼框，
-            # 详细的头/尾门控来源仍由“调试层”控制。
+                        drawn_path_state['active']=False;is_tracing_active=False
+                        fish_comm.stop_now();current_status_text='TARGET LOST'
+                body_yaw_state['track_id']=track_id
+            bridge=globals().get('web_bridge')
+            yaw_sample=bridge.get_yaw_sample() if bridge is not None else {'valid':False}
+            yaw_result=imu_yaw.update(yaw_sample,time.time())
+            body_yaw_state.update({
+                'yaw_deg':yaw_result['yaw_deg'],'visual_yaw_deg':None,
+                'fused_yaw_deg':yaw_result['yaw_deg'],'raw_yaw_deg':yaw_result['raw_yaw_deg'],
+                'yaw_rate_rps':yaw_result['yaw_rate_rps'],'source':yaw_result['source'],
+                'prediction_age_s':yaw_result['age_s'],'measurement_valid':yaw_result['measurement_valid'],
+                'coordinate_space':'world','unit_vector':yaw_result['unit_vector'],
+                'usable':bool(yaw_result['usable'] and calib_state['H'] is not None),
+                'yaw_measurement_source':'IMU_YAW','tail_pixel':tail_color_pixel,
+                'initialized':yaw_result['initialized'],'head_pixel':color_head_pixel,
+                'world_yaw_rad':yaw_result['world_yaw_rad'],'sample_time':yaw_result['sample_time'],
+                'last_frame_time':frame_time,'last_update_wall_t':time.monotonic(),
+            })
+            if yaw_result['usable']:
+                heading_state['control_heading']=yaw_result['unit_vector']
+                heading_state['control_heading_source']='IMU_YAW'
+            # Draw the actual detector/flow box without background expansion.
             if show_detection_bbox_overlay and detection_bbox is not None:
                 box_x1, box_y1, box_x2, box_y2 = [int(value) for value in detection_bbox]
                 cv2.rectangle(
@@ -1802,8 +1761,7 @@ def main():
                         cv2.circle(img_show,pixel,5,color,2,cv2.LINE_AA)
                         draw_unicode_text(img_show,label,(pixel[0]+8,pixel[1]),11,color)
 
-            # Draw one fitted heading from the tracked body centre. White-panel
-            # movement cannot change the origin, and there is no pre-calibration arrow.
+            # The green arrow is the calibrated IMU yaw, even when the fish is stationary.
             if (show_filtered_yaw_overlay and reference_observation.valid
                     and body_yaw_state['usable'] and body_yaw_state['unit_vector'] is not None
                     and calib_state['H'] is not None and calib_state['inv_H'] is not None):
@@ -1813,7 +1771,7 @@ def main():
                 arrow=cv2.perspectiveTransform(np.float32([[centre_world,tip_world]]),calib_state['inv_H'])[0]
                 origin=tuple(int(round(v)) for v in arrow[0]);tip=tuple(int(round(v)) for v in arrow[1])
                 cv2.arrowedLine(img_show,origin,tip,UiPalette.SUCCESS,2,cv2.LINE_AA,tipLength=.24)
-                draw_unicode_text(img_show,f"拟合朝向 {body_yaw_state['yaw_deg']:+.1f}°",
+                draw_unicode_text(img_show,f"IMU yaw {body_yaw_state['yaw_deg']:+.1f}°",
                                   (tip[0]+8,max(3,tip[1]-8)),12,UiPalette.SUCCESS)
 
             # ------------------------------------------------------------------
@@ -1834,6 +1792,7 @@ def main():
 
                 source_colours = {
                     ReferenceSource.RIGID_BODY: UiPalette.SUCCESS,
+                    ReferenceSource.YOLO_BODY: UiPalette.SUCCESS,
                     ReferenceSource.MARKER: UiPalette.SUCCESS,
                     ReferenceSource.PREDICTED: UiPalette.WARNING,
                     ReferenceSource.ESTIMATED_FALLBACK: UiPalette.WARNING,
@@ -2042,7 +2001,7 @@ def main():
             current_x, current_y = None, None
             direct_marker_world_position = None
             control_reference_available = (
-                reference_observation.source == ReferenceSource.RIGID_BODY
+                reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY)
                 or reference_observation.source == ReferenceSource.PREDICTED
             )
             if (
@@ -2054,7 +2013,7 @@ def main():
                     np.float32([[[auv_pixel[0], auv_pixel[1]]]]), calib_state['H']
                 )
                 raw_x, raw_y = float(pt_real[0][0][0]), float(pt_real[0][0][1])
-                if reference_observation.source == ReferenceSource.RIGID_BODY:
+                if reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY):
                     direct_marker_world_position = (raw_x, raw_y)
 
                 if pos_state['smooth_x'] is None or pos_state['smooth_y'] is None:
@@ -2089,7 +2048,7 @@ def main():
             velocity = None
             if (current_x is not None and current_y is not None and
                     reference_observation.usable_for_pwm_speed and
-                    reference_observation.source == ReferenceSource.RIGID_BODY):
+                    reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY)):
                 velocity = velocity_estimator.update(
                     (current_x, current_y), frame_time
                 )
@@ -2097,10 +2056,7 @@ def main():
                     velocity_state['vx_smooth'] = float(velocity[0])
                     velocity_state['vy_smooth'] = float(velocity[1])
                     speed = float(np.linalg.norm(velocity))
-                    if speed >= 0.04:
-                        direction_deg = float(
-                            np.degrees(np.arctan2(velocity[1], velocity[0])) % 360
-                        )
+                    direction_deg=body_yaw_state.get('yaw_deg')
             else:
                 velocity_estimator.reset()
                 velocity_state['vx_smooth'] = 0.0
@@ -2182,6 +2138,10 @@ def main():
                     is_tracing_active = False
                     current_status_text = "PATH INVALID"
                     print("轨迹引导器尚未准备，请重新点击【启动】。")
+                elif not body_yaw_state['usable']:
+                    fish_comm.process_tracking_error(0.,0.,0.,brake_request=True,
+                        speed_target_mps=0.,observed_at=float(frame_time),feedback_valid=False)
+                    current_status_text='IMU YAW WAIT'
                 else:
                     drawn_path_state['lost_since'] = None
                     body_heading, body_yaw_rate, body_heading_source = (
@@ -2189,7 +2149,7 @@ def main():
                     )
                     if globals().get('web_bridge') is not None:
                         path_guidance.cruise_speed_mps = web_bridge.cruise_speed_mps
-                        path_guidance.min_speed_target_mps = min(0.12, web_bridge.cruise_speed_mps)
+                        path_guidance.min_speed_target_mps = min(CONTROL['guidance']['min_speed_mps'], web_bridge.cruise_speed_mps)
                     local_path_error = path_guidance.update(
                         (control_x, control_y),
                         frame_time,
@@ -2197,9 +2157,6 @@ def main():
                         # 稳定移动后由短窗位移 course 平滑跟随真实转弯。
                         # 白色区域/OpenCV 仍负责端点验证和显示，不会因一帧
                         # yaw 丢失而把已经启动的路径追踪强制停掉。
-                        allow_course_update=(
-                            reference_observation.source == ReferenceSource.RIGID_BODY
-                        ),
                         speed_mps=(speed if speed is not None else 0.0),
                         velocity=velocity,
                         body_heading=body_heading,
@@ -2224,11 +2181,6 @@ def main():
                         yaw_control_state['reported_source'] = (
                             body_heading_source
                         )
-                    if local_path_error['heading_source'] == 'COURSE':
-                        heading_state['control_heading'] = tuple(
-                            float(value) for value in local_path_error['heading']
-                        )
-                        heading_state['control_heading_source'] = 'COURSE'
                     drawn_path_state['segment'] = local_path_error['seg_index']
                     motion_prior_state.update({
                         'last_t': float(frame_time),
@@ -2286,7 +2238,7 @@ def main():
                         )
                         draw_unicode_text(
                             img_show,
-                            f"TARGET yaw={math.degrees(psi_ref_rad):+.1f}deg",
+                            f"TARGET yaw={imu_yaw.relative_target_deg(psi_ref_rad):+.1f}deg",
                             (target_heading_pixel[0] + 8,
                              max(3, target_heading_pixel[1] - 8)),
                             11, UiPalette.PRIMARY, bold=True, stroke_width=1,
@@ -2318,11 +2270,15 @@ def main():
                                 local_path_error['path_curvature_per_m']
                             ),
                             steering_demand=local_path_error['steering_demand'],
+                            target_yaw_rad=local_path_error['psi_ref_rad'],
+                            body_yaw_rad=local_path_error['psi_body_rad'],
+                            yaw_observed_at=body_yaw_state.get('sample_time'),
+                            curve_feedforward=local_path_error['curve_feedforward'],
                             speed_target_mps=local_path_error['speed_target_mps'],
                             observed_at=float(frame_time),
                             feedback_valid=(calib_state['H'] is not None and speed is not None and
                                 reference_observation.usable_for_pwm_speed and
-                                reference_observation.source == ReferenceSource.RIGID_BODY),
+                                reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY)),
                         )
                         drawn_path_state['last_control_t'] = now
                         is_tracing_active = True
@@ -2367,7 +2323,7 @@ def main():
                 calib_state['H'] is not None
                 and heading_state['world_unit_vector'] is None
             ):
-                hud_prompt = "请先点击【鱼头方向】标定一次，之后自动平滑拟合朝向"
+                hud_prompt = "请连接机器鱼 IMU，再点击【鱼头方向】建立 0 yaw 基准"
             elif detection_status['loading']:
                 hud_prompt = "OpenCV / CUDA 正在后台加载，窗口与标定功能可先使用"
             elif detection_status['error']:
@@ -2417,6 +2373,9 @@ def main():
             guidance_json = None
             if local_path_error is not None:
                 guidance_json = {
+                    "body_yaw_deg": body_yaw_state.get('yaw_deg'),
+                    "target_yaw_deg": imu_yaw.relative_target_deg(float(local_path_error['psi_ref_rad'])),
+                    "actual_steering_percent": getattr(fish_comm,'yaw_status',{}).get('steering_percent'),
                     "x_error_m": round(float(local_path_error['x_error_m']), 4),
                     "body_left_m": round(float(local_path_error['body_left_m']), 4),
                     "heading_error_deg": round(
@@ -2522,6 +2481,7 @@ def main():
                     "control_error": getattr(fish_comm, 'last_error', ''),
                 },
                 "speed_loop": dict(getattr(fish_comm, 'speed_status', {})),
+                "yaw_loop": dict(getattr(fish_comm, 'yaw_status', {})),
                 "track_id": track_id,
                 "auv_detected": auv_id_detected,
                 "pixel": {
@@ -2538,6 +2498,7 @@ def main():
                 },
                 "body_yaw": {
                     "yaw_deg": body_yaw_state['yaw_deg'],
+                    "world_yaw_rad": body_yaw_state.get('world_yaw_rad'),
                     "visual_yaw_deg": body_yaw_state['visual_yaw_deg'],
                     "fused_yaw_deg": body_yaw_state['fused_yaw_deg'],
                     "motion_prior_deg": body_yaw_state['motion_prior_deg'],
@@ -2552,10 +2513,6 @@ def main():
                     "usable": bool(body_yaw_state['usable']),
                     "measurement_valid": bool(body_yaw_state.get('measurement_valid',False)),
                     "initialized": bool(body_yaw_state.get('initialized',False)),
-                    "raw_course_deg": body_yaw_state.get('raw_course_deg'),
-                    "fit_quality": body_yaw_state.get('fit_quality'),
-                    "fit_span_s": body_yaw_state.get('fit_span_s'),
-                    "fit_displacement": body_yaw_state.get('fit_displacement'),
                     "turn_limited": body_yaw_state.get('turn_limited',False),
                     "coordinate_space": body_yaw_state.get('coordinate_space'),
                     "measurement_rejected": bool(
@@ -2787,6 +2744,7 @@ def main():
                     fish_comm.stop_now()
 
                 elif action == 'CLEAR_PATH':
+                    if drawn_path_state['active']:fish_comm.stop_now()
                     drawn_path_state['pixels'].clear()
                     drawn_path_state['drawing'] = False
                     drawn_path_state['active'] = False
@@ -2797,7 +2755,10 @@ def main():
                     reset_yaw_control_state()
 
                 elif action == 'START':
-                    if turn_calibration_session.active:
+                    if globals().get('REPLAY_ONLY',False):
+                        current_status_text='REPLAY PREVIEW ONLY'
+                        print('录像位置不是真实反馈；循迹请切换实时摄像头。')
+                    elif turn_calibration_session.active:
                         current_status_text = "TURN CALIBRATING"
                         print("无法启动循迹：请先再次点击【转圈测量】完成本次测量。")
                     elif not POOL_SIZE_CONFIRMED:
@@ -2817,11 +2778,11 @@ def main():
                             f"来源={reference_observation.source}，门控={reasons}。"
                             "请先重新框选【框选机器鱼】。"
                         )
-                    elif heading_state['world_unit_vector'] is None:
+                    elif heading_state['world_unit_vector'] is None or not body_yaw_state['usable']:
                         current_status_text = "NO HEADING"
-                        print("无法启动：请保持白头黑体可见，等待方向识别或手动校正鱼头。")
+                        print("无法启动：请确认 IMU 遥测有效，并完成鱼头 0 yaw 标定。")
                     else:
-                        if reference_observation.source == ReferenceSource.RIGID_BODY:
+                        if reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY):
                             print("当前使用黑色鱼体中心追踪。")
                         if reference_observation.source == ReferenceSource.ESTIMATED_FALLBACK:
                             print("当前是无色标降级位置，只允许测试，数据不能用于 PWM—速度精标定。")
@@ -2833,27 +2794,13 @@ def main():
                             path_input,
                             calib_state['H']
                         )[0]
-                        # A new run must not inherit a held yaw from the
-                        # previous path.  Prefer a fresh calibrated/filtered
-                        # body yaw when available, then fall back to the
-                        # restored course seed and finally the manual seed.
+                        # Start from the current IMU heading in the marked world frame.
                         reset_yaw_control_state()
                         startup_visual_heading, _, startup_visual_source = (
                             select_yaw_for_control(now)
                         )
-                        startup_heading = (
-                            startup_visual_heading
-                            or heading_state['control_heading']
-                            or heading_state['world_unit_vector']
-                        )
-                        startup_heading_source = (
-                            startup_visual_source
-                            if startup_visual_heading is not None
-                            else (
-                                heading_state['control_heading_source']
-                                or 'CALIBRATED'
-                            )
-                        )
+                        startup_heading=startup_visual_heading
+                        startup_heading_source='IMU_YAW'
                         try:
                             initial_guidance = path_guidance.start(
                                 path_world,
@@ -2888,7 +2835,7 @@ def main():
                                 print(
                                     "纯仿生前视轨迹引导已启动，双桨关闭："
                                     f"{len(path_guidance.path)} 个等距点，"
-                                    "真实曲率前馈 + 航向/离轨反馈，"
+                                    "LOS 视觉外环 + 速度/yaw 并联 PID 内环，"
                                     "前视 0.10~0.24 m，"
                                     "UDP 固定 20 Hz。"
                                 )
@@ -2902,11 +2849,7 @@ def main():
                                     if first_error < -3.0
                                     else '直行'
                                 )
-                                source_text = (
-                                    '上次运动航向'
-                                    if startup_heading_source == 'COURSE'
-                                    else '人工鱼头方向'
-                                )
+                                source_text = '已标定的 IMU yaw'
                                 print(
                                     f"起步使用{source_text}，"
                                     f"首个引导={first_turn} {abs(first_error):.1f}°。"
@@ -2993,6 +2936,7 @@ def main():
                         )
 
                 elif action == 'MARKER_ROI':
+                    if drawn_path_state['active']:fish_comm.stop_now()
                     if turn_calibration_session.active:
                         turn_calibration_session.cancel()
                         print("已取消未完成的转圈测量。")
@@ -3015,7 +2959,7 @@ def main():
                     latest_frame = frame_state['latest']
                     try:
                         selected = reference_tracker.select(latest_frame, action_payload, frame_time)
-                        position_yaw.reset()
+                        imu_yaw.reset()
                         body_yaw_state.update(yaw_deg=None,unit_vector=None,usable=False,
                                               measurement_valid=False,last_frame_time=None)
                         heading_state['world_unit_vector'] = None
@@ -3038,6 +2982,7 @@ def main():
                         print(f"整鱼框选失败：{error}。请调整范围后重新框选。")
 
                 elif action == 'HEAD_DIRECTION':
+                    if drawn_path_state['active']:fish_comm.stop_now()
                     if turn_calibration_session.active:
                         turn_calibration_session.cancel()
                         print("已取消未完成的转圈测量。")
@@ -3058,6 +3003,9 @@ def main():
                     if calib_state['H'] is None:
                         current_status_text = "SELECT HEAD DIRECTION"
                         print("请先完成场地标定，再标定鱼头方向。")
+                    elif not imu_yaw.valid_sample(yaw_sample,time.time()):
+                        current_status_text='IMU YAW REQUIRED'
+                        print('鱼头标定需要新鲜 IMU yaw，请先连接机器鱼并确认遥测有效。')
                     elif (
                         tail_point is None
                     ):
@@ -3101,32 +3049,13 @@ def main():
                                         + 360.0
                                     ) % 360.0
                                 )
-                                # Manual click is only an initialization
-                                # seed; all subsequent yaw updates use position differences.
-                                position_yaw.reset(
-                                    math.radians(heading_state['angle_deg']),
-                                    frame_time, space='world',
-                                )
-                                body_yaw_state.update({
-                                    'yaw_deg': heading_state['angle_deg'],
-                                    'yaw_rate_rps': 0.0,
-                                    'unit_vector': (
-                                        float(world_unit[0]),
-                                        float(world_unit[1]),
-                                    ),
-                                    'source': 'CALIBRATED_SEED',
-                                    'prediction_age_s': 0.0,
-                                    'usable': True,
-                                    'measurement_rejected': False,
-                                    'polarity_corrected': False,
-                                    'reacquire_pending': False,
-                                    'reacquire_samples': 0,
-                                    'pose_rejection_reason': None,
-                                    'polarity_calibrated': True,
-                                    'last_frame_time': float(frame_time),
-                                    'last_update_wall_t': time.monotonic(),
-                                    'raw_yaw_deg': heading_state['angle_deg'],
-                                })
+                                zero=imu_yaw.calibrate(math.radians(heading_state['angle_deg']),yaw_sample,time.time())
+                                body_yaw_state.update(yaw_deg=0.,yaw_rate_rps=0.,
+                                    unit_vector=zero['unit_vector'],world_yaw_rad=zero['world_yaw_rad'],
+                                    sample_time=zero['sample_time'],source='IMU_YAW',prediction_age_s=zero['age_s'],
+                                    usable=True,measurement_valid=True,initialized=True,polarity_calibrated=True,
+                                    last_frame_time=float(frame_time),last_update_wall_t=time.monotonic(),
+                                    raw_yaw_deg=zero['raw_yaw_deg'])
                                 heading_state['confirmed_until'] = time.time() + 5.0
                                 heading_state['selecting'] = False
                                 current_status_text = "HEAD DIRECTION READY"
@@ -3134,7 +3063,7 @@ def main():
                                     "初始鱼头方向标定完成："
                                     f"尾点=({tail_point[0]:.1f},{tail_point[1]:.1f})，"
                                     f"头点=({head_point[0]:.1f},{head_point[1]:.1f})，"
-                                    f"方向={heading_state['angle_deg']:.1f}°（右为 0°，上为 90°）。"
+                                    f"世界方向={heading_state['angle_deg']:.1f}°，当前 IMU 相对 yaw=0°；左转为正。"
                                 )
 
                 elif action == 'POOL_SIZE':
@@ -3166,7 +3095,7 @@ def main():
                         heading_state['unit_vector'] = None
                         heading_state['world_unit_vector'] = None
                         heading_state['angle_deg'] = None
-                        position_yaw.reset()
+                        imu_yaw.reset()
                         motion_prior_state.update({
                             'last_t': None,
                             'last_r_cmd_rps': 0.0,

@@ -70,6 +70,13 @@ def main():
                 assert page.locator('#raw-telemetry-panel').is_hidden(), 'F405 panel shown for single-S3 fish'
                 assert page.locator('#chart-group option[value=battery]').is_disabled()
                 assert page.locator('#data-live-roll').inner_text() == '179.00°'
+                for format in ('csv','json'):
+                    with page.expect_download() as download:
+                        page.locator('#data-synchronous-'+format).click()
+                    payload=Path(download.value.path()).read_bytes()
+                    paired=list(csv.DictReader(io.StringIO(payload.decode('utf-8-sig')))) if format=='csv' else json.loads(payload)['samples']
+                    assert paired and paired[0]['tail1_command_deg'] not in (None,'')
+                    assert paired[0]['roll_deg'] not in (None,'')
                 assert not page.locator('.capture-overview').is_visible()
                 roll=page.locator('#chart-legend [data-series=roll_deg]')
                 roll.click()

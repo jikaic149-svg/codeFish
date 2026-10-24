@@ -249,6 +249,12 @@ int main() {
   ackService.stop(); ackService.poll(112);
 
   Command command{42,8,true,100};
+  Command pid;
+  assert(parseLine("101,1,23120,42,25,3,1000,20,100,1000,37623",pid));
+  assert(pid.code==kYawPid && std::abs(pid.yawPid.kp-1)<.0001f && std::abs(pid.yawPid.ki-.02f)<.0001f &&
+         std::abs(pid.yawPid.kd-.1f)<.0001f && pid.axes.surge==0 && pid.axes.yaw==0 && pid.axes.heave==0);
+  assert(parseLine("101,1,23120,42,25,3,100000,100000,100000,1000,37121",pid));
+  assert(pid.yawPid.kp==100 && pid.yawPid.ki==100 && pid.yawPid.kd==100 && ControlState::validPid(pid.yawPid));
   assert(command.source == 0); // 既有四字段聚合初始化保持兼容。
   assert(!parseLine("100,1,65536,1,2", command) && command.sequence == 42);
   assert(!parseLine("100,1,-1,1,2", command));

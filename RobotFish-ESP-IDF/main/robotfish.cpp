@@ -33,6 +33,8 @@ robofish::lora::LoRaService radio(submitLoRa, &control);
 robofish::bsp::ImuUart imuUart;
 robofish::imu::Jy61p imuDecoder;
 robofish::attitude::HeadingState heading;
+robofish::attitude::AngleFilter angleFilter;
+robofish::attitude::TiltState tiltPid;
 
 void pollImu(uint32_t now) {
   uint8_t bytes[board::config::kImuReadBudgetBytes];
@@ -55,15 +57,25 @@ void merge(robofish::ActuatorFrame &old, const robofish::ActuatorFrame &next, ui
 void tick(uint32_t now, uint32_t elapsed) {
   control.expire(now);
   const auto &imu = snapshot.imu;
-  const robofish::attitude::Sample sample{
+  robofish::attitude::Sample sample{
       {imu.angles.x, imu.angles.y, imu.angles.z},
       {imu.angularVelocity.x, imu.angularVelocity.y, imu.angularVelocity.z},
       imu.anglesMs, imu.angularVelocityMs, imu.uartReady, imu.hasAngles, imu.hasAngularVelocity};
-  const auto attitudeSettings = robofish::config::attitude::makeSettings();
+  sample=robofish::attitude::filterAngles(sample,angleFilter,
+      robofish::config::attitude::kAngleFilterStageHz,robofish::config::attitude::kMaximumSampleAgeMs);
+  snapshot.filteredAngles={sample.anglesDegrees.x,sample.anglesDegrees.y,sample.anglesDegrees.z};
+  snapshot.filteredAnglesMs=angleFilter.sampleMs;
+  snapshot.filteredAnglesValid=angleFilter.initialized;
+  auto attitudeSettings = robofish::config::attitude::makeSettings();
+  attitudeSettings.yawKp=control.yawPid.kp;
+  attitudeSettings.yawKi=control.yawPid.ki;
+  attitudeSettings.yawKd=control.yawPid.kd;
   snapshot.attitude = robofish::attitude::evaluate(attitudeSettings,
       sample, now, control.attitudeEnabled, control.attitudeMotionAllowed(), control.target.pitchPercent != 0);
+  robofish::attitude::updateTiltPid(attitudeSettings,snapshot.attitude,tiltPid,
+      control.target.pitchPercent!=0,control.attitudeGeneration,now);
   robofish::attitude::holdHeading(attitudeSettings, snapshot.attitude,
-      heading, control.target.yawPercent != 0, control.attitudeGeneration);
+      heading, control.target.yawPercent != 0, control.attitudeGeneration, now);
   auto frame = snapshot.written;
   // Lease expiry stops thrust immediately; the existing disabled-target
   // allocator still slews all four servos from their last successful angles.
@@ -72,7 +84,7 @@ void tick(uint32_t now, uint32_t elapsed) {
     frame = {};
     gait = {};
     snapshot.allocation = {};
-  } else if (!control.leaseActive && !control.expired) {
+  } else if (!control.leaseActive && !control.expired && !snapshot.attitude.yawActive) {
     frame.leftPropulsionPercent = frame.rightPropulsionPercent = 0;
     frame.flowAssisted = false;
     gait = {};
@@ -83,8 +95,11 @@ void tick(uint32_t now, uint32_t elapsed) {
         request.pitchPercent + snapshot.attitude.pitchCorrectionPercent, -100.0f, 100.0f);
     if (snapshot.attitude.rollActive) request.rollPercent = std::clamp(
         request.rollPercent + snapshot.attitude.rollCorrectionPercent, -100.0f, 100.0f);
-    if (snapshot.attitude.yawActive) request.yawPercent = std::clamp(
-        request.yawPercent + snapshot.attitude.yawCorrectionPercent, -100.0f, 100.0f);
+    if (snapshot.attitude.yawActive) {
+      request.enabled = true; // Local hold can act with no translational target.
+      request.yawPercent = std::clamp(
+          request.yawPercent + snapshot.attitude.yawCorrectionPercent, -100.0f, 100.0f);
+    }
     snapshot.allocation = robofish::motion::allocate(request,
         robofish::config::motion::makeRecipe(control.target.mode),
         robofish::config::motion::makeGeometry(), frame,

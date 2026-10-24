@@ -47,14 +47,20 @@ bool parseLine(const char *line, Command &command) {
     if (fields[0] == 102) parsed.code = kHeartbeat;
     else {
       if (fields[4] != kTarget && fields[4] != kMode && fields[4] != 17 &&
-          fields[4] != kAttitudeOn && fields[4] != kAttitudeOff) return false;
+          fields[4] != kAttitudeOn && fields[4] != kAttitudeOff && fields[4] != kYawPid) return false;
       if (fields[5] < 1 || fields[5] > 3 || fields[9] < 0 || fields[9] > 1000) return false;
-      for (unsigned i = 6; i < 9; ++i) if (fields[i] < -1000 || fields[i] > 1000) return false;
+      for (unsigned i = 6; i < 9; ++i) {
+        if (fields[4] == kYawPid) { if (fields[i] < 0 || fields[i] > 100000) return false; }
+        else if (fields[i] < -1000 || fields[i] > 1000) return false;
+      }
+      if (fields[4] == kYawPid && fields[9] != 1000) return false;
       if ((fields[4] == kAttitudeOn || fields[4] == kAttitudeOff) &&
           (fields[6] || fields[7] || fields[8])) return false;
       parsed.code = static_cast<uint8_t>(fields[4]);
       parsed.mode = static_cast<DriveMode>(fields[5]);
-      parsed.axes = {fields[6] * 0.1f, fields[7] * 0.1f, fields[8] * 0.1f};
+      if (parsed.code == kYawPid)
+        parsed.yawPid = {fields[6] / 1000.0f, fields[7] / 1000.0f, fields[8] / 1000.0f};
+      else parsed.axes = {fields[6] * 0.1f, fields[7] * 0.1f, fields[8] * 0.1f};
       parsed.propulsionScalePercent = fields[9] * 0.1f;
     }
     command = parsed;

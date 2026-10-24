@@ -1,0 +1,8 @@
+{
+  "units": "World x right/y down; heading CCW positive; raw body IMU yaw CW positive. Speed m/s; PID outputs percent.",
+  "model": {"imgsz": 960, "confidence": 0.25},
+  "feedback_max_age_s": 0.35,
+  "speed": {"reference_mps": 0.36, "kp": 60.0, "ki": 30.0, "kd": 4.0, "integral_limit": 20.0, "max_speed_mps": 0.8},
+  "yaw": {"kp": 50.0, "ki": 4.0, "kd": 8.0, "integral_limit": 15.0},
+  "guidance": {"lookahead_m": 0.24, "min_lookahead_m": 0.10, "cross_track_gain": 1.2, "cruise_speed_mps": 0.30, "min_speed_mps": 0.05}
+}

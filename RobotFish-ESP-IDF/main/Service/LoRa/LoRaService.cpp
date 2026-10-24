@@ -7,7 +7,8 @@ bool same(const Command &a, const Command &b) {
   return a.source == b.source && a.sequence == b.sequence && a.code == b.code && a.hasKnob == b.hasKnob &&
       (!a.hasKnob || a.knob == b.knob) && a.mode == b.mode &&
       a.axes.surge == b.axes.surge && a.axes.yaw == b.axes.yaw && a.axes.heave == b.axes.heave &&
-      a.propulsionScalePercent == b.propulsionScalePercent;
+      a.propulsionScalePercent == b.propulsionScalePercent &&
+      a.yawPid.kp==b.yawPid.kp && a.yawPid.ki==b.yawPid.ki && a.yawPid.kd==b.yawPid.kd;
 }
 }
 

@@ -20,7 +20,7 @@ $ownerExecutable = Join-Path $output 'owner-regression.exe'
   "$project/main/Device/Actuator/PropulsionMotion.cpp" "$project/main/Device/Actuator/PectoralMotion.cpp" `
   -o $ownerExecutable
 if ($LASTEXITCODE -ne 0) { throw 'Control owner compile failed' }
-foreach ($scenario in @('normal','clock_race','hold','wifi_hold','recovery','fault','attitude')) {
+foreach ($scenario in @('normal','clock_race','hold','wifi_hold','recovery','fault','attitude','yaw_idle','wifi_yaw_idle','yaw_full','wifi_yaw_full')) {
   & $ownerExecutable $scenario
   if ($LASTEXITCODE -ne 0) { throw "LoRa/IMU owner checks failed ($scenario)" }
 }

@@ -138,10 +138,13 @@ class DeviceClient:
         self._telemetry_connections = {}
         self._telemetry_latency = {}
         self._telemetry_logged = {}
+        self._sample_logged = {}
+        self._pid_logged = {}
         self._telemetry_sessions = {}
         self._telemetry_failures = {}
         self._manual_orders = {}
         self._radio_mode = 3
+        self.control_transport = 'auto'
         self.lora = LoRaLink()
 
     def _robotfish_identity(self, host, *, timeout=REQUEST_TIMEOUT_SECONDS, quiet=False):
@@ -190,6 +193,8 @@ class DeviceClient:
             raise DeviceError('自动连接只适用于 RobotFish', code='wrong_device')
         view = self.robot(host)
         raw = view.get('diagnostics', {})
+        if self.control_transport=='lora':
+            return dict(accepted=False,telemetry_only=True,session=session,sequence=0,identity=identity)
         if raw.get('output_fault') or raw.get('output_recovery') or raw.get('ota_locked'):
             raise DeviceError('设备处于故障或维护状态，请先处理设备状态', code='device_not_ready')
         with self._guard:
@@ -270,7 +275,7 @@ class DeviceClient:
                 event('device_http', host=host, method=method, path=path.split('?')[0],
                       status=status, elapsed_ms=elapsed, error_type=failure,
                       action=body.get('action') if isinstance(body, dict) and
-                      body.get('action') in ('acquire', 'target', 'mode', 'stop', 'attitude_on', 'attitude_off') else None)
+                      body.get('action') in ('acquire', 'target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid') else None)
             if not persistent:
                 connection.close()
 
@@ -280,6 +285,8 @@ class DeviceClient:
         host = display_host(host)
         if self.is_robotfish(host) or self._robotfish_identity(host):
             health = self._robotfish_identity(host)
+            if self.control_transport=='lora':
+                return dict(accepted=False,telemetry_only=True,session=session,sequence=0,online=True,host=host)
             if not health or health.get('wifi_control_allowed') is not True or health.get('control_protocol') != 1:
                 raise DeviceError('此固件尚未提供 Wi-Fi 控制，请先升级固件；遥测仍可查看')
             if not isinstance(password, str) or not 1 <= len(password) < 128 or any(not 32 <= ord(c) <= 126 for c in password):
@@ -378,7 +385,7 @@ class DeviceClient:
             raise DeviceError('控制会话未连接或已被接管，请重新连接控制', code='control_session_changed')
         if saved.get('recovery_required') and action != 'stop':
             raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
-        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         body = dict(payload, action=action, session=session, sequence=sequence)
         status, result = None, {}
@@ -414,8 +421,12 @@ class DeviceClient:
 
     def lora_status(self):
         status=self.lora.status()
-        with self._guard:status['mode']=self._radio_mode
+        with self._guard:status.update(mode=self._radio_mode,control_transport=self.control_transport)
         return status
+
+    def set_control_transport(self,transport):
+        if transport not in ('lora','auto'):raise DeviceError('无效控制通道')
+        with self._guard:self.control_transport=transport
 
     def lora_ports(self):
         try:return {'ports':available_ports()}
@@ -432,6 +443,7 @@ class DeviceClient:
                     self.lora.step()
                 self.lora.configure(host, **options)
             with self._guard:
+                if options.get('connected',True):self.control_transport='auto'
                 raw = self._motion_latest.get(host, ({}, 0))[0]
                 if raw.get('mode') in (1,2,3):self._radio_mode=raw['mode']
             self.lora.synchronize(raw.get('lora', {}).get('last_source'), raw.get('lora', {}).get('last_sequence'))
@@ -455,9 +467,20 @@ class DeviceClient:
         if saved:self._order_motion(saved,sequence,client_id)
         self._order_motion(self._manual_orders.setdefault(session,{}),sequence,client_id)
 
+    def control_binding(self,host,radio_session=None):
+        """Use the already authenticated session for the workstation-owned vision client."""
+        with self._guard:
+            saved=self._sessions.get(host) or {}
+            if saved.get('password') and saved.get('control_session'):
+                return saved['control_session']
+        radio=self.lora.status()
+        if radio_session and radio.get('connected') and radio.get('host') in ('',host):
+            return radio_session
+        raise DeviceError('请先连接 LoRa 控制或授权 Wi-Fi 控制，再启动视觉循迹',code='control_session_changed')
+
     def motion_control(self, host, action, session, sequence, *, client_id=None, **payload):
         host = display_host(host) if host else ''
-        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         if not isinstance(session,str) or not 1<=len(session)<=64 or any(not 32<=ord(c)<=126 for c in session):
             raise DeviceError('无效控制会话')
@@ -474,8 +497,16 @@ class DeviceClient:
                 raise DeviceError('推进比例超出范围')
         if action == 'mode' and (type(payload.get('mode')) is not int or payload['mode'] not in (1, 2, 3)):
             raise DeviceError('无效运动模式')
+        if action == 'yaw_pid':
+            pid=payload.get('pid')
+            if set(payload)!={'pid'} or not isinstance(pid,dict) or set(pid)!={'kp','ki','kd'} or any(
+                    type(x) not in (int,float) or not math.isfinite(x) or not 0<=x<=100 for x in pid.values()):
+                raise DeviceError('PID 的 Kp、Ki、Kd 必须是 0～100 的有限数值',code='invalid_pid')
+            payload={'pid':{key:round(value,3) for key,value in pid.items()}}
         with self._guard:
             dual = self._capabilities.get(host, {}).get('lora_protocol') == 2
+            if action == 'yaw_pid' and self._capabilities.get(host, {}).get('yaw_pid_supported') is not True:
+                raise DeviceError('当前固件未提供 yaw PID 调参，请先烧录新固件',code='unsupported_control')
             if action in ('attitude_on', 'attitude_off') and self._capabilities.get(host, {}).get('attitude_control_supported') is not True:
                 raise DeviceError('当前固件未提供陀螺仪控制，请先更新固件', code='unsupported_control')
             if action == 'attitude_on' and self._capabilities.get(host, {}).get('attitude_control_calibrated') is not True:
@@ -485,17 +516,20 @@ class DeviceClient:
         with self._motion_guard:
             link=self.lora.status()
             with self._guard:
+                forced=self.control_transport=='lora'
+                if forced and not (link['connected'] and (not host or link['host'] in ('',host))):
+                    raise DeviceError('LoRa 串口未连接，指令未发送；Wi-Fi 仅用于遥测',code='lora_unavailable')
                 saved=self._sessions.get(host) or {}
                 authorized=saved.get('control_session')==session and bool(saved.get('password'))
                 raw,received=self._motion_latest.get(host,({},float('-inf')))
                 fresh=time.monotonic()-received<2 and host not in self._telemetry_failures
                 radio_only=link['connected'] and (not host or link['host'] in ('',host)) and (
-                    not authorized or not fresh or saved.get('recovery_required'))
+                    forced or not authorized or not fresh or saved.get('recovery_required'))
                 if radio_only:
                     self._order_request(saved if authorized else None,session,sequence,client_id)
-                    if action=='mode':
-                        self._radio_mode=payload['mode']
-                        if authorized:saved['desired_mode']=payload['mode']
+                    if action in ('mode','attitude_on'):
+                        self._radio_mode=3 if action=='attitude_on' else payload['mode']
+                        if authorized:saved['desired_mode']=self._radio_mode
                     mode=self._radio_mode
             if radio_only:
                 return dict(self.lora.submit(link['host'],action,dict(payload,mode=mode)),
@@ -521,9 +555,9 @@ class DeviceClient:
                     raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
                 self._order_request(saved, session, sequence, client_id)
                 raw, received = self._motion_latest.get(host, ({}, 0))
-                if action == 'mode':
-                    saved['desired_mode'] = payload['mode']
-                    self._radio_mode=payload['mode']
+                if action in ('mode','attitude_on'):
+                    saved['desired_mode'] = 3 if action=='attitude_on' else payload['mode']
+                    self._radio_mode=saved['desired_mode']
                 mode = saved.get('desired_mode', raw.get('mode', 2))
                 wire = max(saved.get('sequence', 0), raw.get('wifi', {}).get('sequence', 0))
             link = self.lora.status()
@@ -730,6 +764,26 @@ class DeviceClient:
                 # Include Wi-Fi transit and cache residence; old samples never gain freshness.
                 view = robotfish.normalize(raw, host, latency + max(0, time.monotonic() - received) * 1000)
                 view['telemetry_rtt_ms'] = round(latency, 2)
+                with self._guard:
+                    publish_sample=received>self._sample_logged.get(host,float('-inf'))
+                    if publish_sample:self._sample_logged[host]=received
+                if publish_sample:
+                    event('telemetry_sample',host=host,rtt_ms=round(latency,2),device_uptime_ms=raw.get('uptime_ms'),
+                          imu=view['imu'],actuators=view['actuators'],motion=view['motion'],
+                          body_imu={axis:view.get('attitude_control',{}).get('body_'+axis+'_deg') for axis in ('roll','pitch','yaw')},
+                          attitude=view.get('attitude_control'),
+                          axes=view['control']['axes'],route=view['control']['route'],owner=view['owner'],
+                          lora={key:raw.get('lora',{}).get(key) for key in ('healthy','accepted','rejected','last_source','last_sequence','last_code','age_ms')},
+                          command_result=raw.get('command_result'),safety=view['safety_mode'])
+                    feedback=view.get('attitude_control',{})
+                    if feedback.get('yaw_pid_supported'):
+                        state=(feedback.get('enabled'),feedback.get('pid_period_ms'),tuple(feedback['pid'].get(key) for key in ('kp','ki','kd')),view['imu'].get('filter_stage_hz'))
+                        uptime=raw.get('uptime_ms',0)
+                        previous=self._pid_logged.get(host)
+                        if previous is None or previous[0]!=state or uptime<previous[1]:
+                            event('yaw_pid_confirmed',host=host,device_uptime_ms=uptime,enabled=state[0],period_ms=state[1],
+                                  pid=feedback['pid'],mode=raw.get('mode'),filter_stage_hz=state[3])
+                        self._pid_logged[host]=(state,uptime)
                 logged, frames, rx_bytes = self._telemetry_logged.get(host, (0, 0, 0))
                 if received - logged >= 1:
                     imu = view['imu']

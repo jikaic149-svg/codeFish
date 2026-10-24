@@ -24,6 +24,60 @@ RAW = dict(version=1, imu=dict(model='JY61P', baud=115200, uart_ready=True,
 
 
 class RealtimeTests(unittest.TestCase):
+    def test_filtered_display_keeps_raw_values_and_does_not_revive_stale_data(self):
+        raw=copy.deepcopy(RAW)
+        raw['imu'].update(filtered_angles_deg=dict(valid=True,age_ms=20,x=-44,y=19,z=119),filter_stage_hz=3)
+        imu=robotfish.normalize(raw,'192.168.4.1')['imu']
+        self.assertEqual(imu['roll'],-44);self.assertEqual(imu['sensor_roll'],-45)
+        self.assertTrue(imu['filter_active']);self.assertEqual(imu['filter_stage_hz'],3)
+        old=robotfish.normalize(raw,'192.168.4.1',500)['imu']
+        self.assertFalse(old['valid']);self.assertIsNone(old['roll']);self.assertEqual(old['sensor_roll'],-45)
+        raw['imu']['filtered_angles_deg']['valid']=False
+        self.assertFalse(robotfish.normalize(raw,'192.168.4.1')['imu']['valid'])
+
+    def test_pid_history_survives_telemetry_rotation_and_exports_confirmed_values(self):
+        import csv
+        with tempfile.TemporaryDirectory() as directory:
+            diagnostics.start(directory)
+            try:
+                diagnostics.event('yaw_pid_requested',host='192.168.4.1',pid=dict(kp=1,ki=.02,kd=.1),queued=True)
+                diagnostics.event('telemetry_sample',imu={})
+                diagnostics.event('yaw_pid_confirmed',host='192.168.4.1',pid=dict(kp=1,ki=.02,kd=.1),enabled=False,period_ms=100)
+                diagnostics._listener.queue.join()
+                data,_=diagnostics.export_pid_history(directory)
+                rows=list(csv.DictReader(io.StringIO(data.decode('utf-8-sig'))))
+                self.assertEqual([row['event'] for row in rows],['yaw_pid_requested','yaw_pid_confirmed'])
+                self.assertEqual(rows[1]['period_ms'],'100');self.assertEqual(rows[1]['enabled'],'False')
+                self.assertEqual(rows[1]['ki'],'0.02')
+            finally:diagnostics.stop()
+
+    def test_paired_diagnostics_capture_one_snapshot_without_duplicate_cached_samples(self):
+        client=device_client.DeviceClient();host='192.168.4.1';client._profiles[host]='robotfish'
+        raw=copy.deepcopy(RAW)
+        raw.update(uptime_ms=12345,attempts=1,last_written=dict(tail_front_deg=91,tail_rear_deg=92,pectoral_left_deg=89,pectoral_right_deg=88,left_motor_pct=35,right_motor_pct=35))
+        with patch.object(client,'_request',return_value=(200,raw,None)),patch('device_client.event') as event,patch('device_client.time.monotonic',return_value=100):
+            client.robot(host);client.robot(host)
+        samples=[call.kwargs for call in event.call_args_list if call.args[0]=='telemetry_sample']
+        self.assertEqual(len(samples),1)
+        self.assertEqual(samples[0]['actuators']['tail1'],91)
+        self.assertEqual(samples[0]['imu']['roll'],-45)
+        self.assertEqual(samples[0]['device_uptime_ms'],12345)
+
+    def test_synchronous_export_keeps_missing_values_and_never_uses_old_imu_only_events(self):
+        import csv
+        with tempfile.TemporaryDirectory() as directory:
+            sample=dict(event='telemetry_sample',time='2026-10-24T08:00:00Z',device_uptime_ms=10,
+                        imu=dict(valid=True,roll=2,pitch=3,yaw=4),actuators=dict(tail1=91),axes={},lora={},
+                        attitude=dict(enabled=True,pid_period_ms=100,pid=dict(kp=1,ki=.02,kd=.1),
+                                      heading_target_deg=-179,yaw_error_deg=2,yaw_correction_pct=4))
+            path=Path(directory)/'workstation.jsonl'
+            path.write_text(json.dumps(dict(event='telemetry',imu={'roll':99}))+'\n'+json.dumps(sample)+'\n{partial',encoding='utf-8')
+            data,_=diagnostics.export_synchronous('csv',directory)
+            rows=list(csv.DictReader(io.StringIO(data.decode('utf-8-sig'))))
+            self.assertEqual(len(rows),1);self.assertEqual(rows[0]['tail1_command_deg'],'91')
+            self.assertEqual(rows[0]['pitch_deg'],'3');self.assertEqual(rows[0]['left_fin_command_deg'],'')
+            self.assertEqual(rows[0]['yaw_pid_ki'],'0.02');self.assertEqual(rows[0]['yaw_pid_period_ms'],'100')
+            self.assertEqual(rows[0]['yaw_target_left_deg'],'179');self.assertEqual(rows[0]['yaw_error_left_deg'],'-2')
     def test_capture_records_wifi_rtt_and_leaves_missing_battery_empty(self):
         from station import Workstation
         station = Workstation()

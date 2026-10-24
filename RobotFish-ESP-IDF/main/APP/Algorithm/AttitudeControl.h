@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include "APP/Algorithm/AnglePid.h"
 
 namespace robofish::attitude {
 
@@ -16,10 +17,14 @@ struct Settings {
   // Body FRD: X forward, Y right, Z down. Signed sensor axes, +/-1..3.
   int sensorToBody[3]{};
   int pitchCommandSign = 0, rollCommandSign = 0, yawCommandSign = 0; // 0 = response not calibrated.
-  float pitchKp = 0, pitchKd = 0, rollKp = 0, rollKd = 0, yawKp = 0, yawKd = 0;
+  float pitchKp = 0, pitchKd = 0, rollKp = 0, rollKd = 0, yawKp = 0, yawKi = 0, yawKd = 0;
+  float pitchKi = 0, rollKi = 0;
+  bool pitchEnabled = false, rollEnabled = false;
   float pitchTrimDegrees = 0, rollTrimDegrees = 0;
   float maximumCorrectionPercent = 0;
+  float maximumYawCorrectionPercent = 0;
   uint32_t maximumAgeMs = 0;
+  uint32_t yawPeriodMs = 0;
 };
 enum class Reason : uint8_t { Disabled, Uncalibrated, WaitingMotion, NoImu, Stale,
                               Invalid, ManualPitch, ManualYaw, HeadingUnavailable, Active };
@@ -49,13 +54,19 @@ struct Result {
   float rollCorrectionPercent = 0, pitchCorrectionPercent = 0;
   float yawDegrees = 0, yawRateDps = 0, yawProjection = 0;
   float headingTargetDegrees = 0, yawCorrectionPercent = 0;
+  float yawErrorDegrees = 0, yawP = 0, yawI = 0, yawD = 0;
+  float pitchPreviewPercent = 0, rollPreviewPercent = 0;
+  bool tiltPreviewValid = false;
   uint32_t sampleMs = 0; // Oldest measurement actually used by this control tick.
 };
 struct HeadingState {
   float targetDegrees = 0;
   uint32_t generation = 0;
   bool locked = false;
+  PidState pid{};
+  float correctionPercent = 0;
 };
+struct TiltState { PidState pitch, roll; uint32_t generation = 0; };
 
 inline bool validFrame(const Settings &settings) {
   int matrix[3][3]{};
@@ -76,12 +87,17 @@ inline bool validFrame(const Settings &settings) {
 inline bool calibratedSign(int sign) { return sign == 1 || sign == -1; }
 inline bool validSettings(const Settings &s) {
   return validFrame(s) && s.maximumAgeMs > 0 && s.maximumAgeMs < 0x80000000u &&
+      s.yawPeriodMs > 0 && s.yawPeriodMs < 0x80000000u &&
       std::isfinite(s.maximumCorrectionPercent) && s.maximumCorrectionPercent > 0 && s.maximumCorrectionPercent <= 100 &&
+      std::isfinite(s.maximumYawCorrectionPercent) && s.maximumYawCorrectionPercent > 0 && s.maximumYawCorrectionPercent <= 100 &&
       std::isfinite(s.pitchKp) && s.pitchKp >= 0 && s.pitchKp <= 100 &&
       std::isfinite(s.pitchKd) && s.pitchKd >= 0 && s.pitchKd <= 100 &&
+      std::isfinite(s.pitchKi) && s.pitchKi >= 0 && s.pitchKi <= 100 &&
       std::isfinite(s.rollKp) && s.rollKp >= 0 && s.rollKp <= 100 &&
       std::isfinite(s.rollKd) && s.rollKd >= 0 && s.rollKd <= 100 &&
+      std::isfinite(s.rollKi) && s.rollKi >= 0 && s.rollKi <= 100 &&
       std::isfinite(s.yawKp) && s.yawKp >= 0 && s.yawKp <= 100 &&
+      std::isfinite(s.yawKi) && s.yawKi >= 0 && s.yawKi <= 100 &&
       std::isfinite(s.yawKd) && s.yawKd >= 0 && s.yawKd <= 100 &&
       std::isfinite(s.pitchTrimDegrees) && std::abs(s.pitchTrimDegrees) <= 30 &&
       std::isfinite(s.rollTrimDegrees) && std::abs(s.rollTrimDegrees) <= 30;
@@ -105,6 +121,44 @@ inline float wrapDegrees(float degrees) {
   return wrapped >= 180.0f ? wrapped - 360.0f : wrapped;
 }
 
+struct AngleFilter {
+  Vector first, second;
+  uint32_t sampleMs = 0;
+  bool initialized = false;
+};
+// Two cascaded low-pass stages, after the sensor's own processing. Roll/yaw
+// interpolate along the shortest arc; averaging +179 and -179 must stay near 180.
+// Repeated samples do not advance time, and a measurement gap starts fresh.
+inline Sample filterAngles(Sample sample, AngleFilter &state, float stageHz, uint32_t gapMs) {
+  const auto angles=sample.anglesDegrees;
+  if (!sample.ready || !sample.hasAngles || !finite(angles) ||
+      std::abs(angles.x)>180 || std::abs(angles.y)>90 || std::abs(angles.z)>180 ||
+      !std::isfinite(stageHz) || stageHz<=0) {
+    state.initialized=false; return sample;
+  }
+  const uint32_t elapsed=sample.anglesMs-state.sampleMs;
+  if (!state.initialized || elapsed>gapMs) {
+    state.first=state.second=angles; state.initialized=true;
+  } else if (elapsed) {
+    const float step=6.28318530718f*stageHz*elapsed*.001f;
+    const float decay=std::exp(-step),alpha=-std::expm1(-step);
+    const auto update=[&](float &first,float &second,float input,bool circular) {
+      const float e1=circular?wrapDegrees(input-first):input-first;
+      const float e2=circular?wrapDegrees(input-second):input-second;
+      // Exact constant-input update of the two cascaded states, using real dt.
+      second+=alpha*e2-step*decay*e1;
+      first+=alpha*e1;
+      if (circular) { first=wrapDegrees(first); second=wrapDegrees(second); }
+    };
+    update(state.first.x,state.second.x,angles.x,true);
+    update(state.first.y,state.second.y,angles.y,false);
+    update(state.first.z,state.second.z,angles.z,true);
+  }
+  state.sampleMs=sample.anglesMs;
+  sample.anglesDegrees=state.second;
+  return sample;
+}
+
 // Stateless PD: angle error supplies restoring demand, measured body rate damps it.
 // The caller owns the motion lease and must pass motionAllowed=false on any STOP.
 inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
@@ -116,7 +170,7 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
   const bool settingsValid = validSettings(s);
   result.pitchCalibrated = settingsValid && calibratedSign(s.pitchCommandSign) && s.pitchKp > 0;
   result.rollCalibrated = settingsValid && calibratedSign(s.rollCommandSign) && s.rollKp > 0;
-  result.yawCalibrated = settingsValid && calibratedSign(s.yawCommandSign) && s.yawKp > 0;
+  result.yawCalibrated = settingsValid && calibratedSign(s.yawCommandSign);
   result.reason = !requested ? Reason::Disabled : !result.pitchCalibrated && !result.rollCalibrated && !result.yawCalibrated ?
       Reason::Uncalibrated : !motionAllowed ? Reason::WaitingMotion : Reason::Active;
   if (!settingsValid) return result;
@@ -164,8 +218,8 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
   }
   // Mapped pose remains visible for bench calibration even with assistance off.
   if (result.reason != Reason::Active) return result;
-  result.pitchActive = result.pitchCalibrated && !manualPitch;
-  result.rollActive = result.rollCalibrated;
+  result.pitchActive = s.pitchEnabled && result.pitchCalibrated && !manualPitch;
+  result.rollActive = s.rollEnabled && result.rollCalibrated;
   const auto correction = [&](float angle, float trim, float rate, float kp, float kd, int sign) {
     const float error = wrapDegrees(trim - angle);
     return std::clamp(sign * (kp * error - kd * rate), -s.maximumCorrectionPercent, s.maximumCorrectionPercent);
@@ -178,28 +232,60 @@ inline Result evaluate(const Settings &s, const Sample &sample, uint32_t nowMs,
   return result;
 }
 
-// Keep a relative heading only within one continuous, authorized forward segment.
+// Same PID for pitch/roll, with independent integrals and manual-pitch priority.
+// Production keeps both output gates OFF. Preview values are BODY demands,
+// not calibrated fin angles/torques. Unknown roll geometry remains unactuated.
+inline void updateTiltPid(const Settings &s, Result &result, TiltState &state,
+                          bool manualPitch, uint32_t generation, uint32_t nowMs) {
+  const bool eligible=result.bodyValid && result.requested &&
+      (result.reason==Reason::Active || result.reason==Reason::ManualPitch);
+  if (!eligible || generation!=state.generation) state={{},{},generation};
+  result.tiltPreviewValid=eligible;
+  result.pitchPreviewPercent=result.rollPreviewPercent=0;
+  if (!eligible) return;
+  if (manualPitch) state.pitch={};
+  else {
+    updateAnglePid(state.pitch,wrapDegrees(s.pitchTrimDegrees-result.pitchDegrees),nowMs,
+        s.yawPeriodMs,s.pitchKp,s.pitchKi,s.pitchKd,s.maximumCorrectionPercent);
+    result.pitchPreviewPercent=state.pitch.outputPercent;
+  }
+  updateAnglePid(state.roll,wrapDegrees(s.rollTrimDegrees-result.rollDegrees),nowMs,
+      s.yawPeriodMs,s.rollKp,s.rollKi,s.rollKd,s.maximumCorrectionPercent);
+  result.rollPreviewPercent=state.roll.outputPercent;
+  if (result.pitchActive) result.pitchCorrectionPercent=s.pitchCommandSign*result.pitchPreviewPercent;
+  if (result.rollActive) result.rollCorrectionPercent=s.rollCommandSign*result.rollPreviewPercent;
+}
+
+// Keep a relative heading while authorized, including ordinary zero-surge holds.
 // Manual steering, stale/invalid data and STOP drop the old reference. Re-enabling
 // assistance also relatches, even if OFF/ON were consumed within one control tick.
 inline void holdHeading(const Settings &s, Result &result, HeadingState &state,
-                        bool manualYaw, uint32_t generation) {
+                        bool manualYaw, uint32_t generation, uint32_t nowMs) {
   if (state.generation != generation) state={0,generation,false};
   result.yawActive=result.headingLocked=false;
   result.yawCorrectionPercent=result.headingTargetDegrees=0;
+  result.yawErrorDegrees=result.yawP=result.yawI=result.yawD=0;
   result.manualYaw=manualYaw;
   const bool eligible=result.reason==Reason::Active || result.reason==Reason::ManualPitch;
   if (!eligible || !result.yawCalibrated || !result.headingValid || manualYaw) {
-    state.locked=false;
+    state={0,generation,false};
     if (eligible && !result.pitchActive && !result.rollActive && result.yawCalibrated)
       result.reason=manualYaw?Reason::ManualYaw:Reason::HeadingUnavailable;
     return;
   }
-  if (!state.locked) { state.targetDegrees=result.yawDegrees; state.locked=true; }
+  const bool first=!state.locked;
+  if (first) { state.targetDegrees=result.yawDegrees; state.locked=true; }
   result.headingLocked=result.yawActive=true;
   result.headingTargetDegrees=state.targetDegrees;
   const float error=wrapDegrees(state.targetDegrees-result.yawDegrees);
-  const float correction=s.yawCommandSign*(s.yawKp*error-s.yawKd*result.yawRateDps)*result.yawProjection;
-  result.yawCorrectionPercent=std::clamp(correction,-s.maximumCorrectionPercent,s.maximumCorrectionPercent);
+  result.yawErrorDegrees=error;
+  const bool updated=updateAnglePid(state.pid,error,nowMs,s.yawPeriodMs,s.yawKp,s.yawKi,s.yawKd,s.maximumYawCorrectionPercent);
+  result.yawP=state.pid.pPercent; result.yawI=state.pid.integralPercent; result.yawD=state.pid.dPercent;
+  if (updated) {
+    const float correction=s.yawCommandSign*(result.yawP+result.yawI+result.yawD)*result.yawProjection;
+    state.correctionPercent=std::clamp(correction,-s.maximumYawCorrectionPercent,s.maximumYawCorrectionPercent);
+  }
+  result.yawCorrectionPercent=state.correctionPercent;
   result.reason=Reason::Active;
 }
 }  // namespace robofish::attitude

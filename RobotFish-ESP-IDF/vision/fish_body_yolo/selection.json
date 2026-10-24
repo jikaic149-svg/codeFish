@@ -1,0 +1,7 @@
+{
+  "selected_experiment": "yolov8n-960-robust-v3",
+  "rejected_experiment": "yolov8n-960-robust-v4",
+  "reason": "The additional grayscale/hue/negative-heavy fine-tune reduces clean validation and appearance-stress recall. Retain the stronger validated robust checkpoint.",
+  "baseline_experiment": "yolov8n-960-tight-v2",
+  "source_video_sha256": "b47664d4d0621adf8bee890f2f2c314cf3337d166360612fb579a0e4e9a778d1"
+}

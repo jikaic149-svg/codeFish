@@ -12,7 +12,7 @@ import time
 from tooling import WORKSPACE
 
 TASKS={'START','STOP','CLEAR_PATH','MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB',
-       'RECORD','SNAPSHOT','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','EXIT'}
+       'RECORD','SNAPSHOT','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','EXIT','SPEED','POOL_SIZE'}
 
 
 class VisionService:
@@ -26,10 +26,10 @@ class VisionService:
 
     def configuration(self):
         models=[]
-        folder=(WORKSPACE/'vision/models').resolve()
-        for path in sorted(folder.rglob('*.pt')):
-            if path.is_file() and path.resolve().is_relative_to(folder):
-                models.append({'path':path.relative_to(WORKSPACE).as_posix(),'name':path.name,'bytes':path.stat().st_size})
+        for folder in ((WORKSPACE/'vision/fish_body_yolo').resolve(),(WORKSPACE/'vision/models').resolve()):
+            for path in sorted(folder.glob('*.pt')):
+                if path.is_file() and path.resolve().is_relative_to(folder) and path.name!='last.pt':
+                    models.append({'path':path.relative_to(WORKSPACE).as_posix(),'name':path.name,'bytes':path.stat().st_size})
         profiles=[]
         for key,label,name in [('head','鱼头颜色','head_color_profile.local.json'),('tail','鱼尾颜色','marker_profile.local.json'),('pool','场地','pool_calibration.local.json'),('turn','转弯','turn_calibration.local.json')]:
             path=WORKSPACE/'vision/configs'/name
@@ -40,15 +40,20 @@ class VisionService:
                     item['values']=json.loads(path.read_text(encoding='utf8'))
                 except (OSError,ValueError) as error:item['error']=str(error)
             profiles.append(item)
-        return {'models':models,'default_model':'','model_required':False,'algorithm':'OpenCV 颜色跟踪',
+        for profile in profiles:
+            if profile['key']=='head':profile.update(label='鱼头与 yaw 零位',saved=False,values={},runtime_only=True)
+            if profile['key']=='tail':profile.update(label='YOLO 目标选择',saved=False,values={},runtime_only=True)
+        default='vision/fish_body_yolo/best.pt' if (WORKSPACE/'vision/fish_body_yolo/best.pt').is_file() else ''
+        return {'models':models,'default_model':default,'model_required':True,'algorithm':'YOLO 鱼体识别 + IMU yaw 串级控制',
                 'calibration':profiles,'output':str(self.output)}
 
     def model_path(self,value=None):
-        if value in (None,''):return None
+        if value in (None,''):value=self.configuration()['default_model']
         if not isinstance(value,str):raise ValueError('请选择工程内的PT模型')
         path=(WORKSPACE/value).resolve()
-        if not path.is_relative_to((WORKSPACE/'vision/models').resolve()) or path.suffix.lower()!='.pt' or not path.is_file():
-            raise ValueError('模型须为vision/models目录内已有的.pt文件')
+        allowed=(WORKSPACE/'vision/models').resolve(),(WORKSPACE/'vision/fish_body_yolo').resolve()
+        if not any(path.parent==folder for folder in allowed) or path.suffix.lower()!='.pt' or not path.is_file():
+            raise ValueError('请选择 vision 内已交付的 .pt 模型')
         return path
 
     def open_output(self):
@@ -62,9 +67,10 @@ class VisionService:
         with self.guard:
             if type(source) is int and 0<=source<=9:argument=str(source)
             elif source=='sample':
-                samples=Path(os.environ.get('ROBOFISH_VISION_SAMPLES',str(WORKSPACE.parent/'codefish/VISION')))
-                sample=next(iter(sorted(samples.glob('auv_record_*.mp4'))),None)
-                if not sample:raise RuntimeError('原项目录像不存在')
+                configured=os.environ.get('ROBOFISH_VISION_SAMPLES')
+                if configured:sample=next(iter(sorted(Path(configured).glob('*.mp4'))),None)
+                else:sample=WORKSPACE.parent/'屏幕录制 2026-10-18 115851.mp4'
+                if not sample or not sample.is_file():raise RuntimeError('指定的鱼体训练录像不存在')
                 argument=str(sample)
             else:raise ValueError('无效视觉源')
             if self.process and self.process.poll() is None:

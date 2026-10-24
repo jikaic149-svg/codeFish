@@ -17,6 +17,57 @@ from test_robotfish import MOTION
 
 
 class StandaloneRadioTests(unittest.TestCase):
+    def test_selected_radio_never_sends_wifi_control_even_when_receiver_unhealthy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client,now=self.client(directory)
+            host='192.168.4.1'
+            client._profiles[host]='robotfish';client._capabilities[host]={'lora_protocol':2}
+            client._sessions[host]={'control_session':'page','password':'fixture'}
+            client._motion_latest[host]=({'mode':2,'wifi':{'sequence':0},'lora':{'healthy':False}},time.monotonic())
+            client.configure_lora('',port='COM28')
+            client.set_control_transport('lora')  # Explicit opt-in; normal connection preserves Wi-Fi fallback.
+            with patch.object(client,'_request') as http:
+                self.assertTrue(client.motion_control(host,'target','page',1,axes={'surge':35,'yaw':0,'heave':0})['queued'])
+                client.lora.close()
+                with self.assertRaisesRegex(device_client.DeviceError,'Wi-Fi 仅用于遥测'):
+                    client.motion_control(host,'target','page',2,axes={'surge':35,'yaw':0,'heave':0})
+                http.assert_not_called()
+
+    def test_default_connection_falls_back_to_wifi_when_receiver_lora_is_lost(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client,now=self.client(directory);host='192.168.4.1'
+            client._profiles[host]='robotfish';client._capabilities[host]={'lora_protocol':2}
+            client._sessions[host]={'control_session':'page','password':'fixture'}
+            client._motion_latest[host]=({'mode':2,'wifi':{'sequence':0},'lora':{'healthy':False}},time.monotonic())
+            self.assertEqual(client.configure_lora('',port='COM28')['control_transport'],'auto')
+            with patch.object(client,'_request',return_value=(200,dict(accepted=True,session='page',sequence=1),None)) as http:
+                result=client.motion_control(host,'target','page',1,axes={'surge':35,'yaw':0,'heave':0})
+                self.assertEqual(result['transport'],'wifi');self.assertTrue(result['accepted'])
+                self.assertEqual(http.call_args.args[3]['action'],'target')
+            client.lora.close()
+
+    def test_pending_pid_settings_survive_held_targets_but_stop_preempts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client,now=self.client(directory);client.configure_lora('',port='COM28');link=client.lora
+            link.submit('','target',dict(mode=3,axes={'surge':35,'yaw':0,'heave':0}));link.step()
+            now[0]=.1;pid=dict(mode=3,pid=dict(kp=1,ki=.02,kd=.1));link.submit('','yaw_pid',pid)
+            self.assertTrue(link.submit('','target',dict(mode=3,axes={'surge':35,'yaw':1,'heave':0}))['waiting'])
+            now[0]=.5;link.step();self.assertEqual(wire(link.serial.writes[-1])[4],25)
+            now[0]=.6;link.submit('','yaw_pid',pid);link.submit('','stop',{'mode':3});link.step()
+            self.assertEqual(wire(link.serial.writes[-1])[4],17);link.close()
+
+    def test_radio_autoconnect_and_login_are_telemetry_only(self):
+        client=device_client.DeviceClient();client.set_control_transport('lora')
+        host='192.168.4.1';client._profiles[host]='robotfish'
+        with patch.object(client,'identity',return_value={'firmware':'robotfish','host':host}), \
+                patch.object(client,'robot',return_value={'diagnostics':{}}), \
+                patch.object(client,'_request') as http:
+            result=client.auto_connect(host,'page')
+            self.assertTrue(result['telemetry_only']);self.assertFalse(result['accepted'])
+            with patch.object(client,'_robotfish_identity',return_value={'firmware':'robotfish'}):
+                self.assertTrue(client.login(host,'',session='page')['telemetry_only'])
+            self.assertFalse(client._sessions);http.assert_not_called()
+
     def test_unchanged_input_renews_without_occupying_each_control_slot(self):
         with tempfile.TemporaryDirectory() as directory:
             client,now=self.client(directory)
@@ -174,6 +225,7 @@ class StandaloneRadioTests(unittest.TestCase):
                 self.assertEqual(wire(client.lora.serial.writes[-1])[6:9],[350,400,1000])
                 http.assert_not_called()
             client.configure_lora('',connected=False)
+            client.set_control_transport('auto')  # Explicitly select Wi-Fi fallback.
             client._sessions[host].pop('recovery_required')
             client._telemetry_failures.clear()
             raw['lora']['healthy']=False
