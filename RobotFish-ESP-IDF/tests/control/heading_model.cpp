@@ -39,7 +39,9 @@ EXPORT const double *rf_tick(unsigned now,double bodyCw,double rateCw,int valid)
   } else if (control.leaseActive || result.yawActive) {
     auto request=control.target;
     if (result.yawActive) { request.enabled=true;request.yawPercent+=result.yawCorrectionPercent; }
-    written=robofish::motion::allocate(request,robofish::config::motion::makeRecipe(request.mode),
+    auto recipe=robofish::config::motion::makeRecipe(request.mode);
+    control.applyHeadingAllocation(request,recipe);
+    written=robofish::motion::allocate(request,recipe,
         robofish::config::motion::makeGeometry(),written,gait,now,20).candidateFrame;
   } else { written.leftPropulsionPercent=written.rightPropulsionPercent=0; }
   control.observeOutput(63);

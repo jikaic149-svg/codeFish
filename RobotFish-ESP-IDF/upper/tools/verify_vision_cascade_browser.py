@@ -41,6 +41,7 @@ def main():
     def forbidden(*args,**kwargs):raise AssertionError('Unexpected physical/automatic control')
     try:
         with patch.object(server,'VISION',service),patch.object(server.STATION,'read',side_effect=lambda:copy.deepcopy(view)), \
+             patch.object(service,'cameras',return_value={'cameras':[]}), \
              patch.object(server.STATION,'configure_control',side_effect=configure), \
              patch.object(server.STATION,'target',side_effect=forbidden), \
              patch.object(server.STATION,'prepare_vision',side_effect=forbidden), \
@@ -56,28 +57,66 @@ def main():
             page=browser.new_page(viewport={'width':1440,'height':1000})
             page.on('pageerror',lambda error:errors.append(str(error)))
             page.on('request',lambda request:requests.append(request.url) if request.method=='POST' else None)
-            page.goto(url+'/#vision');page.wait_for_function('visionConfiguration?.observation_only===true')
+            page.goto(url+'/#vision');page.wait_for_function('visionConfiguration?.automatic_tracking===true')
             page.locator('[data-page=vision]').click();page.locator('#vision-source').select_option('sample')
             page.locator('#vision-start').click()
             page.wait_for_function('visionState.ready && visionState.result_ready',timeout=35000)
-            assert page.locator('[data-vision-task=START]').is_hidden()
-            assert page.locator('[data-vision-task=RECORD]').is_hidden()
+            for task in ('AUTO_START','AUTO_STOP','RECORD','BINARY','TURN_CALIB','CLEAR_PATH'):
+                assert page.locator('[data-vision-task='+task+']').first.is_visible()
+            for task in ('START','STOP'):
+                assert page.locator('[data-vision-task='+task+']').count()==0
+                assert task not in service.configuration()['supported_tasks']
+            assert page.locator('[data-vision-task=AUTO_START]').is_disabled()
             page.locator('[data-vision-task=POOL_CALIB]').first.click()
             page.wait_for_function("visionState.result.interaction==='POOL_CALIB'")
             for index,(x,y) in enumerate([(271,150),(1200,121),(1205,632),(259,606)],1):
                 service.action({'kind':'down','x':x/1383,'y':y/775})
                 if index<4:page.wait_for_function(f'visionState.result.pool.selected_points==={index}')
             page.wait_for_function('visionState.result.pool.perspective && visionState.result.optical.direction_world')
+            page.wait_for_function("visionState.display_space==='field' && document.getElementById('vision-result').naturalWidth===1000 && document.getElementById('vision-result').naturalHeight===500")
+            for width,height in ((1440,1000),(2280,994),(2191,1159),(390,844)):
+                page.set_viewport_size({'width':width,'height':height})
+                geometry=page.locator('#vision-result').evaluate("image=>{const a=image.getBoundingClientRect(),b=image.parentElement.getBoundingClientRect();return {top:a.top-b.top,bottom:a.bottom-b.bottom,left:a.left-b.left,right:a.right-b.right,fit:getComputedStyle(image).objectFit};}")
+                assert geometry['top']>=-1 and geometry['left']>=-1 and geometry['bottom']<=1 and geometry['right']<=1,geometry
+                assert geometry['fit']=='contain'
+            page.set_viewport_size({'width':1440,'height':1000})
+            page.locator('#vision-view').select_option('raw')
+            page.wait_for_function("visionState.display_space==='image' && document.getElementById('vision-result').naturalWidth===1384 && document.getElementById('vision-result').naturalHeight===776")
+            page.locator('#vision-view').select_option('perspective')
+            page.wait_for_function("visionState.display_space==='field'")
             # The click selects a visual axis sign, without pretending to label the real head automatically.
             service.action({'task':'HEAD_DIRECTION'})
             page.wait_for_function("visionState.result.interaction==='HEAD_DIRECTION'")
             frozen=service.state()['result']['optical'];point=frozen['front_px']
-            service.action({'kind':'down','x':point[0]/1383,'y':point[1]/775})
-            page.wait_for_function('visionState.result.initial_heading.calibrated && !visionState.preview_enabled')
-            assert page.locator('#vision-result').is_hidden()
-            assert page.locator('#vision-result-empty').is_visible()
-            assert page.locator('#vision-result').evaluate("image=>image.parentElement.getBoundingClientRect().height")<150
+            world=service.transform({'points':[point]})['points_m'][0]
+            service.action({'kind':'down','x':world[0]/4*1000/999,'y':world[1]/2*500/499,'space':'field'})
+            page.wait_for_function("visionState.result.initial_heading.calibrated && visionState.preview_enabled && visionState.display_space==='field'")
+            assert page.locator('#vision-result').is_visible()
+            assert page.locator('#vision-result-empty').is_hidden()
             assert not service.state()['result']['body_yaw']['usable'] # replay is never live IMU feedback
+            page.locator('.vision-input-preview').evaluate('element=>{element.open=true;}')
+            page.wait_for_function("document.getElementById('vision-raw').naturalWidth===1384 && document.getElementById('vision-raw').naturalHeight===776")
+            page.locator('[data-vision-task=RECORD]').click()
+            page.wait_for_function('visionState.recording.active && visionState.recording.frames>=3')
+            page.locator('[data-vision-task=PREVIEW]').click()
+            page.wait_for_function('!visionState.preview_enabled && visionState.recording.frames>=5')
+            page.locator('[data-vision-task=RECORD]').click()
+            page.wait_for_function('visionState.recording.saved && !visionState.recording.active')
+            recording=service.state()['recording'];assert Path(recording['path']).stat().st_size>1000
+            page.locator('[data-vision-task=PREVIEW]').click()
+            page.wait_for_function('visionState.preview_enabled && visionState.result_ready')
+            page.locator('[data-vision-task=BINARY]').click()
+            page.wait_for_function('visionState.result.debug.binary')
+            page.locator('[data-vision-task=BINARY]').click()
+            page.wait_for_function('!visionState.result.debug.binary')
+            service.action({'task':'THRESHOLD','value':120})
+            page.wait_for_function('visionState.result.debug.threshold===120')
+            for kind,x in [('down',.3),('move',.45),('up',.6)]:service.action({'kind':kind,'x':x,'y':.5,'space':'field'})
+            page.wait_for_function('visionState.result.path_pixels.length>=2')
+            assert not service.state()['result']['tracking']['active']
+            assert page.locator('[data-vision-task=AUTO_START]').is_disabled()
+            page.locator('[data-vision-task=CLEAR_PATH]').click()
+            page.wait_for_function('visionState.result.path_pixels.length===0')
             page.locator('[data-page=overview]').click()
             page.evaluate("""() => {stationMode='mission';autoConnectAttempted=true;
               robotIdentity={firmware:'robotfish',heading_target_supported:true};localRadio={connected:true,mode:3};renderRobot();}""")
@@ -124,7 +163,9 @@ def main():
                 'head_click_is_test_axis_sign_only':True,'replay_never_pairs_live_imu':True,
                 'one_manual_heading_request':[command for command in commands if command['action']=='heading_target'],
                 'full_stop_cancels_a_pending_heading_request':True,'visual_pause_and_exit_do_not_change_native_goal':True,
-                'preview_disabled_but_sampling_ready':True,'csv_rows':len(rows),'downloads_bytes':downloads,
+                'preview_disabled_but_sampling_ready':True,'perspective_preview_shape':[1000,500],'raw_shape':[1384,776],
+                'complete_image_at_user_viewport_sizes':True,'recording_works_with_preview_off':recording['saved'],
+                'debug_tools_preserved':True,'tracking_preview_removed':True,'automatic_controls_preserved':True,'csv_rows':len(rows),'downloads_bytes':downloads,
                 'physical_control_calls':0,'browser_errors':errors}
             (output/'verification.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
             print(json.dumps(report,ensure_ascii=False,indent=2),flush=True);browser.close()

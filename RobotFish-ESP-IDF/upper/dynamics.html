@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>RobotFish · 动力标定</title>
+  <link rel="stylesheet" href="/dynamics.css"/>
+  <script defer src="/dynamics.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">ROBOTFISH <span>动力标定</span></a>
+    <nav aria-label="准备工作"><a href="/#network" target="_blank" rel="noopener">连接 Wi-Fi ↗</a></nav>
+    <button class="stop" id="stop" type="button">全停 <kbd>空格</kbd></button>
+  </header>
+  <main>
+    <div class="page-heading"><div><p class="eyebrow">独立输出 · 分段测量</p><h1>动力测试</h1><p>开始 → 按住动作，松开全停 → 等鱼停止后完成保存。时长由你决定。</p></div><span class="badge" id="connection">正在连接本地服务</span></div>
+    <div class="work-grid">
+      <section class="card controls" aria-label="本段设置">
+        <div class="card-heading"><h2>本段设置</h2><span class="badge" id="phase">未开始</span></div>
+        <p class="hint">开始前让鱼静止，并确认画面中的鱼头箭头正确。</p>
+        <div class="workflow"><button class="primary" id="start" disabled type="button">1 · 鱼已静止，开始本段</button><button class="hold" id="hold" disabled type="button">2 · 按住动作 / 松开全停</button><button class="secondary" id="finish" disabled type="button">3 · 完成本段并保存</button></div>
+        <p class="notice" id="notice" role="status" aria-live="polite">先启动右侧画面，鱼静止后开始本段。</p>
+        <fieldset id="settings">
+          <legend class="sr-only">驱动参数</legend>
+          <label>驱动方式</label><div class="segmented" id="mode"><button class="selected" type="button" data-mode="1" aria-pressed="true">鱼尾</button><button type="button" data-mode="2">双桨</button><button type="button" data-mode="3">混合</button></div>
+          <label>测试动作</label><div class="segmented" id="motion"><button class="selected" type="button" data-motion="straight" aria-pressed="true">直行</button><button type="button" data-motion="left">左转</button><button type="button" data-motion="right">右转</button></div>
+          <label>快捷档位 <span>只加载数值</span></label><div class="segmented" id="level"><button class="selected" type="button" data-level="20" aria-pressed="true">20%</button><button type="button" data-level="30">30%</button><button type="button" data-level="40">40%</button></div>
+          <div id="recipe-wrap"><label>混合推进组合 <span>建议初值，尚未标定</span></label><div class="segmented" id="recipe"><button type="button" data-recipe="props">桨为主</button><button class="selected" type="button" data-recipe="balanced" aria-pressed="true">均衡</button><button type="button" data-recipe="tail">尾为主</button></div><p class="hint">比较转向能力前，先把各组合调到接近相同的实测速度。</p></div>
+          <div class="outputs" aria-label="即将给定的输出"><div><small>尾摆</small><strong id="tail-preview">10%</strong></div><div><small>尾偏置</small><strong id="bias-preview">0%</strong></div><div><small>共同推进</small><strong id="surge-preview">10%</strong></div><div><small>差动</small><strong id="diff-preview">0%</strong></div></div>
+          <details><summary>独立输出详细参数</summary><div class="parameter-grid">
+            <label for="tail">尾部摆动强度 (%)<input id="tail" type="number" min="0" max="100" step="1" value="10"/></label>
+            <label for="bias">尾部偏置 (%)<input id="bias" type="number" min="-100" max="100" step="1" value="0"/><small>正值右转，负值左转</small></label>
+            <label for="surge">双桨共同推进 (%)<input id="surge" type="number" min="-100" max="100" step="1" value="10"/></label>
+            <label for="diff">双桨差动 (%)<input id="diff" type="number" min="-100" max="100" step="1" value="0"/><small>正值右转，负值左转</small></label>
+          </div><label class="check"><input id="baseline" type="checkbox"/>单独记录旧混合规则基线（转向可能补尾推）</label><p class="hint">正常标定使用独立给定，转向不补尾摆。固定输出期间暂停 PID 接管，原 PID 参数保留。</p>
+          </details>
+        </fieldset>
+        <button class="text-button" id="next" type="button">下一组：只加载参数 →</button><p class="hint">每次开始自动清空上一段记录；旧文件保留。松开后仍记录滑行，完成时自动保存桌面。</p>
+      </section>
+      <section class="measurements" aria-label="测量数据">
+        <article class="card camera-card"><div class="card-heading"><div><h2>实时视觉</h2><p>场地长 3.0 m × 宽 1.6 m · 相机高度 2.67 m</p></div><span class="badge" id="camera-state">等待画面</span></div><div class="camera-tools"><button class="primary" id="camera-start" type="button">启动画面</button><button id="camera-stop" type="button" disabled>停止画面</button><button id="camera-head" type="button" disabled>鱼头方向</button><button id="camera-fish" type="button" disabled>框选鱼</button></div><div class="camera-stage"><img id="camera-image" alt="实时机器鱼视觉画面；标定时直接在画面中选择" draggable="false" hidden/><div id="camera-empty">点击“启动画面”使用摄像头。已有视觉会自动显示。</div></div><div class="camera-feedback"><p class="camera-notice" id="camera-notice" role="status">鱼头方向标定后，当前朝向自动设为 0°。</p><span id="camera-yaw">当前朝向 —</span></div><details class="camera-calibration"><summary>更换相机位置时：场地四角标定</summary><p class="hint">已有标定会自动复用，无需每段重做。首次使用或相机移动后，依次点击水池左上、右上、右下、左下；场地尺寸固定 3.0 × 1.6 m。高度仅作为场景信息保存。</p><button id="camera-pool" type="button" disabled>重新选择四角</button></details></article>
+        <div class="stats"><article><small>本段时长</small><strong id="elapsed">0.0 s</strong><span id="segment">等待开始</span></article><article><small>位移复核速度 · 约 1 秒</small><strong id="speed">—</strong><span>来自视觉米制位移</span></article><article><small>角速度 · 约 1 秒</small><strong id="yaw-rate">—</strong><span>足够连续样本后显示</span></article><article><small>采样 / 已记录事件</small><strong id="counts">0 / 0</strong><span id="sample-details">视觉 0 · 鱼端 0</span></article></div>
+        <article class="card plot-card"><div class="card-heading"><div><h2>米制轨迹</h2><p>箭头表示鱼头方向，圆点标记驱动与收油。显示最近样本，原始记录完整保存。</p></div><div class="legend"><span class="before">动作前</span><span class="drive">驱动中</span><span class="coast">滑行 / 余转</span></div></div><canvas id="trajectory" height="280" role="img" aria-label="本段米制轨迹、鱼头方向及动作事件"></canvas><div class="motion-status"><span id="write-status">命令回执：尚无确认</span><span id="motion-status">实际起动：等待视觉位移</span></div></article>
+        <div class="chart-grid"><article class="card plot-card"><h2>速度 / 角速度</h2><p class="chart-legend"><span style="--series:#087c70">速度 m/s · 左轴</span><span style="--series:#b46c25">角速度 °/s · 右轴</span></p><canvas id="kinematics" height="180" role="img" aria-label="速度和角速度随时间变化"></canvas></article><article class="card plot-card"><h2>鱼端回传输出</h2><p class="chart-legend"><span style="--series:#3277b5">左桨 %</span><span style="--series:#a754a4">右桨 %</span><span style="--series:#b46c25">尾 1 °</span><span style="--series:#087c70">尾 2 °</span></p><canvas id="actuators" height="180" role="img" aria-label="左右桨命令和尾部角度随时间变化"></canvas></article></div>
+        <article class="card"><div class="card-heading"><h2>本段结果</h2><span class="badge" id="result-state">完成本段后计算</span></div><div class="results" id="results"></div><p class="hint" id="fit-note">短弧不足以可靠拟合时，半径显示“数据不足”；速度、转角、位移和原始数据仍会保存。</p><div class="saved" id="saved" hidden><strong>已自动保存到桌面</strong><code id="saved-path"></code></div></article>
+        <details class="card events"><summary>事件时间线与采集说明</summary><p class="hint">开始、命令回执确认、松开与停止回执、完成测段分别记录。命令回执不代表执行器已输出或鱼已运动；输出由鱼端分配遥测记录，实际起动由视觉估计。鱼端时间、相机采样时间和输出保存在原始文件中。</p><ol id="event-list"><li>尚无事件</li></ol></details>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

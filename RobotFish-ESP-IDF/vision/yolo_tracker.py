@@ -34,8 +34,8 @@ class YoloBodyTracker(WhiteBlackTracker):
         roi=_clip_roi(roi,frame.shape[1],frame.shape[0])
         if roi is None:raise ValueError('请框选完整机器鱼')
         self.reset_motion();self._selection_roi=roi
-        observation=self.update(frame,timestamp)
-        self._selection_roi=None
+        try:observation=self.update(frame,timestamp)
+        finally:self._selection_roi=None
         if not observation.valid:raise ValueError('选区内没有可靠的 YOLO 鱼体检测')
         return observation
 

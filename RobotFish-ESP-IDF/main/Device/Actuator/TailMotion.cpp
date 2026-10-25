@@ -34,7 +34,7 @@ Motion schedule(const robofish::motion::Request &request, const robofish::motion
   // Keep strength scaling and the existing angular-speed budget for both joints.
   const float turn = std::clamp(std::abs(yaw) * 0.01f * request.outputScale, 0.0f, 1.0f);
   motion.frequencyHz = effective > 0 ?
-      recipe.forwardMaximumFrequencyHz * std::sqrt(std::max(effective, turn)) : 0;
+      recipe.forwardMaximumFrequencyHz * std::sqrt(request.tailFrequencyFromDrive ? effective : std::max(effective, turn)) : 0;
   if (motion.amplitudeDegrees > 0) {
     const double peakSpeed = algorithm::kTwoPi * motion.frequencyHz *
         std::max(motion.amplitudeDegrees, previousAmplitudeDegrees) *

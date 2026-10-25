@@ -24,18 +24,24 @@ inline constexpr bool kPitchOutputEnabled = false, kRollOutputEnabled = false;
 inline constexpr float kPitchKp = 1, kPitchKi = .02f, kPitchKd = .10f;
 inline constexpr float kRollKp = 1, kRollKi = .02f, kRollKd = .10f;
 // Initial PID, not water-tuned. Units: %/deg, %/(deg*s), %*s/deg.
-// Each gain accepts 0..100, with 0.001 resolution over LoRa. No deadband.
+// Each gain accepts 0..100, with 0.001 resolution over LoRa.
 // The UI changes RAM values; reboot restores these defaults, loop remains OFF.
-// Nominal near-level P demand: 5deg -> 25%, 10deg -> 50%, 20deg -> 100%.
+// Outside the deadband, nominal P demand: 10deg -> 25%, 20deg -> 50%.
 // I/D, body-axis projection and actuator slew still affect instantaneous output.
-inline constexpr float kYawKp = 5.0f, kYawKi = 0.02f, kYawKd = 0.10f;
+inline constexpr float kYawKp = 2.5f, kYawKi = 0.02f, kYawKd = 0.10f;
+// Symmetric yaw deadband, degrees (>=0). Clear I/D and turn demand inside it;
+// retain the heading reference and independently requested forward motion.
+inline constexpr float kYawDeadbandDegrees = 1.0f;
+// Closed-loop turn authority, unitless (>0): scale propeller differential and
+// tail steering together. Existing per-actuator and mechanical limits apply.
+inline constexpr float kYawActuatorGain = 1.5f;
 // Yaw PID updates at 10 Hz; the existing gait/PWM scheduler is independent.
 // This is a command update period, not a claim that the servo has reached its target.
 inline constexpr uint32_t kYawPidPeriodMs = 100;
-// Software secondary filtering: two first-order stages, EACH at 3 Hz (>0).
+// Software secondary filtering: two first-order stages, EACH at 4 Hz (>0).
 // Both the yaw controller and displayed Euler angles use this result. Raw
 // measurements remain available. More smoothing adds phase delay in water.
-inline constexpr float kAngleFilterStageHz = 3.0f;
+inline constexpr float kAngleFilterStageHz = 4.0f;
 inline constexpr float kPitchTrimDegrees = 0, kRollTrimDegrees = 0;
 inline constexpr float kMaximumCorrectionPercent = 20; // Pitch/roll preview bounds; outputs remain off.
 // Yaw uses the allocator's full normalized command range, in percent (0 < limit <= 100).
@@ -58,6 +64,7 @@ inline robofish::attitude::Settings makeSettings() {
   settings.rollKp = kRollKp; settings.rollKd = kRollKd;
   settings.rollKi=kRollKi; settings.rollEnabled=kRollOutputEnabled;
   settings.yawKp = kYawKp; settings.yawKi = kYawKi; settings.yawKd = kYawKd;
+  settings.yawDeadbandDegrees = kYawDeadbandDegrees;
   settings.pitchTrimDegrees = kPitchTrimDegrees; settings.rollTrimDegrees = kRollTrimDegrees;
   settings.maximumCorrectionPercent = kMaximumCorrectionPercent;
   settings.maximumYawCorrectionPercent = kMaximumYawCorrectionPercent;

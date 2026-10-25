@@ -30,7 +30,7 @@ std::atomic_bool runtimeReady{false};
 httpd_handle_t server = nullptr;
 esp_netif_t *apNetif = nullptr;
 // One HTTP server task owns both buffers. The control loop never uses them.
-std::array<char, 4608> responseBuffer;
+std::array<char, 6144> responseBuffer;
 std::array<uint8_t, 4096> imageBuffer;
 
 esp_err_t json(httpd_req_t *req, cJSON *body) {
@@ -82,6 +82,9 @@ esp_err_t identity(httpd_req_t *req) {
   cJSON_AddBoolToObject(body, "attitude_control_supported", true);
   cJSON_AddBoolToObject(body, "yaw_pid_supported", true);
   cJSON_AddBoolToObject(body, "heading_target_supported", true);
+  cJSON_AddBoolToObject(body, "heading_tail_guidance_supported", true);
+  cJSON_AddStringToObject(body, "heading_allocation_profile", robofish::config::control::kHeadingAllocationProfile);
+  cJSON_AddBoolToObject(body, "dynamics_calibration_supported", true);
   const auto calibration = robofish::attitude::evaluate(attitudeSettings, {}, 0, false, false, false);
   cJSON_AddBoolToObject(body, "attitude_control_calibrated", calibration.pitchCalibrated || calibration.rollCalibrated || calibration.yawCalibrated);
   return json(req, body);
@@ -148,6 +151,18 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(remote, "surge_pct", target.surgePercent);
   cJSON_AddNumberToObject(remote, "yaw_pct", target.yawPercent);
   cJSON_AddNumberToObject(remote, "heave_pct", target.pitchPercent);
+  cJSON_AddBoolToObject(body, "dynamics_calibration_supported", true);
+  cJSON *calibration = cJSON_AddObjectToObject(body, "dynamics_calibration");
+  cJSON_AddBoolToObject(body, "heading_tail_guidance_supported", true);
+  cJSON_AddStringToObject(body, "heading_allocation_profile", robofish::config::control::kHeadingAllocationProfile);
+  cJSON_AddBoolToObject(calibration, "active", s.control.calibrationActive);
+  cJSON_AddBoolToObject(calibration, "baseline", s.control.calibration.baseline);
+  cJSON_AddNumberToObject(calibration, "mode", static_cast<int>(target.mode));
+  cJSON_AddNumberToObject(calibration, "tail_drive_pct", s.control.calibration.tailDrivePercent);
+  cJSON_AddNumberToObject(calibration, "tail_bias_pct", s.control.calibration.tailBiasPercent);
+  cJSON_AddNumberToObject(calibration, "prop_surge_pct", s.control.calibration.propSurgePercent);
+  cJSON_AddNumberToObject(calibration, "prop_diff_pct", s.control.calibration.propDiffPercent);
+  cJSON_AddNumberToObject(calibration, "command_received_ms", s.control.lastMotionMs);
   cJSON_AddItemToObject(body, "last_frame", frameJson(s.attempted));
   cJSON_AddItemToObject(body, "last_written", frameJson(s.written));
   cJSON_AddNumberToObject(body, "written_mask", s.writtenMask);
@@ -159,6 +174,15 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(allocation, "phase_rad", s.allocation.phaseRad);
   cJSON_AddNumberToObject(allocation, "common_pct", s.allocation.commonPropulsionPercent);
   cJSON_AddNumberToObject(allocation, "differential_pct", s.allocation.differentialPropulsionPercent);
+  cJSON_AddNumberToObject(allocation, "tail_drive_pct", s.allocation.tailDrivePercent);
+  cJSON_AddNumberToObject(allocation, "tail_bias_pct", s.allocation.tailBiasPercent);
+  cJSON_AddNumberToObject(allocation, "tail_frequency_hz", s.allocation.tailFrequencyHz);
+  cJSON_AddNumberToObject(allocation, "tail_amplitude_deg", s.allocation.tailAmplitudeDegrees);
+  cJSON_AddNumberToObject(allocation, "tail_load", s.allocation.tailLoad);
+  cJSON_AddNumberToObject(allocation, "written_common_pct", (s.written.leftPropulsionPercent + s.written.rightPropulsionPercent) * .5f);
+  cJSON_AddNumberToObject(allocation, "written_differential_pct", (s.written.leftPropulsionPercent - s.written.rightPropulsionPercent) * .5f);
+  cJSON_AddNumberToObject(allocation, "written_tail_front_offset_deg", s.written.tailFrontDegrees - robofish::config::lora::kTailFrontCenter);
+  cJSON_AddNumberToObject(allocation, "written_tail_rear_offset_deg", s.written.tailRearDegrees - robofish::config::lora::kTailRearCenter);
   cJSON_AddNumberToObject(allocation, "limited_reasons", s.allocation.limitedReasons);
   cJSON *wifi = cJSON_AddObjectToObject(body, "wifi");
   cJSON_AddStringToObject(wifi, "session", s.wifi.session);
@@ -233,6 +257,10 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddBoolToObject(attitude, "yaw_pid_supported", true);
   cJSON_AddBoolToObject(attitude, "heading_target_supported", true);
   cJSON_AddBoolToObject(attitude, "heading_target_active", s.control.headingTargetActive);
+  cJSON_AddStringToObject(attitude, "heading_allocation_profile", robofish::config::control::kHeadingAllocationProfile);
+  cJSON_AddNumberToObject(attitude, "heading_tail_drive_ratio", robofish::config::control::kHeadingTailDriveRatio);
+  cJSON_AddNumberToObject(attitude, "heading_prop_diff_gain", robofish::config::control::kHeadingPropDiffGain);
+  cJSON_AddNumberToObject(attitude, "heading_prop_diff_limit_pct", robofish::config::control::kHeadingPropDiffLimitPercent);
   if (s.control.headingTargetActive) cJSON_AddNumberToObject(attitude,"requested_heading_cw_deg",s.control.headingTargetCwDegrees);
   cJSON_AddNumberToObject(attitude,"pid_period_ms",robofish::config::attitude::kYawPidPeriodMs);
   cJSON_AddNumberToObject(attitude,"yaw_max_correction_pct",robofish::config::attitude::kMaximumYawCorrectionPercent);
@@ -256,6 +284,10 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(attitude, "pitch_correction_pct", feedback.pitchCorrectionPercent);
   cJSON_AddNumberToObject(attitude, "roll_correction_pct", feedback.rollCorrectionPercent);
   cJSON_AddNumberToObject(attitude, "yaw_correction_pct", feedback.yawCorrectionPercent);
+  cJSON_AddNumberToObject(attitude, "yaw_deadband_deg", robofish::config::attitude::kYawDeadbandDegrees);
+  cJSON_AddNumberToObject(attitude, "yaw_actuator_gain", robofish::config::attitude::kYawActuatorGain);
+  cJSON_AddNumberToObject(attitude, "yaw_turn_pct", feedback.yawActive ? std::clamp(
+      feedback.yawCorrectionPercent * robofish::config::attitude::kYawActuatorGain, -100.0f, 100.0f) : 0);
   cJSON_AddNumberToObject(attitude,"yaw_error_deg",feedback.yawErrorDegrees);
   cJSON_AddNumberToObject(attitude,"yaw_p",feedback.yawP);
   cJSON_AddNumberToObject(attitude,"yaw_i",feedback.yawI);

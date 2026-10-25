@@ -175,7 +175,9 @@ struct Finished {};
 static void headingStep(const MotionSnapshot &s) {
   if(now==100) check(s.control.headingTargetActive && s.attitude.yawActive &&
       std::abs(s.attitude.headingTargetDegrees-30)<.01f && s.control.target.surgePercent==25 &&
-      s.written.leftPropulsionPercent>s.written.rightPropulsionPercent,"actual owner executes absolute yaw and surge target on S3");
+      s.written.leftPropulsionPercent==s.written.rightPropulsionPercent &&
+      s.allocation.tailBiasPercent>0 && s.written.tailFrontDegrees<90,
+      "actual owner steers absolute heading with tail bias while preserving equal prop surge");
   if(now==700) check(s.control.headingTargetActive && s.attitude.yawActive &&
       std::abs(s.attitude.headingTargetDegrees+20)<.01f && s.attitude.yawD==0,
       "moving reference changes native target without setpoint derivative kick");
@@ -183,6 +185,9 @@ static void headingStep(const MotionSnapshot &s) {
       "local angle PID keeps running between PC updates");
   if(now==1100) check(!s.control.headingTargetActive && s.attitude.manualYaw && !s.attitude.yawActive,
       "manual yaw overrides the streamed reference through the actual owner");
+  if(now>=1240 && now<1400) check(s.control.headingTargetActive && s.attitude.yawActive &&
+      s.allocation.tailDrivePercent==0 && s.allocation.tailFrequencyHz==0 && s.allocation.tailAmplitudeDegrees==0,
+      "automatic zero surge cancels periodic tail propulsion even during maximum heading correction");
   if(now>=1420) check(!s.control.attitudeEnabled && !s.control.headingTargetActive && !s.attitude.yawActive &&
       s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0,
       "STOP disarms explicit reference and neutralizes native outputs");

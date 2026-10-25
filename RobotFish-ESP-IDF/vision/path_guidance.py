@@ -177,6 +177,7 @@ class PathGuidance:
         v_min_mps=0.05,
         cruise_speed_mps=0.30,
         min_speed_target_mps=0.12,
+        curve_speed_planner=None,
     ):
         self.spacing_m = float(spacing_m)
         self.lookahead_m = float(lookahead_m)
@@ -218,6 +219,7 @@ class PathGuidance:
         self.min_speed_target_mps = max(0.0, float(min_speed_target_mps))
         self.body_heading = None
         self.body_yaw_rate_rps = 0.0
+        self.curve_speed_planner = curve_speed_planner
         self.clear()
 
     @staticmethod
@@ -248,6 +250,7 @@ class PathGuidance:
         return self.estimated_min_turn_radius_m, "ESTIMATED"
 
     def clear(self):
+        if self.curve_speed_planner is not None:self.curve_speed_planner.reset()
         self.path = None
         self.cumulative = None
         self.progress_m = 0.0
@@ -262,9 +265,13 @@ class PathGuidance:
         return self.path is not None
 
     def start(self, path_points, position, timestamp, initial_heading):
+        if self.curve_speed_planner is not None:
+            path_points=self.curve_speed_planner.round_path(path_points,self.spacing_m,self.cruise_speed_mps)
         self.path = resample_polyline(path_points, self.spacing_m)
         lengths = np.linalg.norm(np.diff(self.path, axis=0), axis=1)
         self.cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+        if self.curve_speed_planner is not None:
+            self.curve_speed_planner.prepare(self.path,self.cumulative,self.cruise_speed_mps)
         self.progress_m = 0.0
         self.segment_index = 0
         self._turn_sign = 0.0
@@ -334,8 +341,7 @@ class PathGuidance:
         ))
         path_curve_severity = abs(curve_feedforward)
 
-        # 前视必须在离轨前由前方曲率缩短；离轨只提供额外收紧。直线
-        # 使用 0.24 m，接近估计最小半径时连续缩至 0.10 m。
+        # 根据前方曲率和离轨距离，在配置的最大／最小前视之间连续调整。
         lookahead_demand = max(path_curve_severity, off_path_ratio)
         active_lookahead_m = (
             self.lookahead_m
@@ -387,8 +393,12 @@ class PathGuidance:
         if not arrived and drive_distance<self.brake_radius_m:
             speed_target_mps=min(speed_target_mps,max(self.min_speed_target_mps,
                 self.cruise_speed_mps*drive_distance/self.brake_radius_m))
+        curve_speed={'enabled':False,'active':False,'status':'disabled'}
+        if self.curve_speed_planner is not None:
+            speed_target_mps,curve_speed=self.curve_speed_planner.limit(self.progress_m,speed_target_mps,self.cruise_speed_mps)
         brake_request=arrived
         result = {
+            "curve_speed": curve_speed,
             "cross_m": x_error_m,
             "x_error_m": x_error_m,
             "body_left_m": body_left_m,

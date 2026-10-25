@@ -23,6 +23,7 @@ struct Settings {
   float pitchTrimDegrees = 0, rollTrimDegrees = 0;
   float maximumCorrectionPercent = 0;
   float maximumYawCorrectionPercent = 0;
+  float yawDeadbandDegrees = 0;
   uint32_t maximumAgeMs = 0;
   uint32_t yawPeriodMs = 0;
 };
@@ -289,6 +290,12 @@ inline void holdHeading(const Settings &s, Result &result, HeadingState &state,
   result.headingTargetDegrees=state.targetDegrees;
   const float error=wrapDegrees(state.targetDegrees-result.yawDegrees);
   result.yawErrorDegrees=error;
+  if (s.yawDeadbandDegrees > 0 && std::abs(error) <= s.yawDeadbandDegrees) {
+    state.pid = {};
+    state.correctionPercent = 0;
+    result.reason = Reason::Active;
+    return;
+  }
   const bool updated=updateAnglePid(state.pid,error,nowMs,s.yawPeriodMs,s.yawKp,s.yawKi,s.yawKd,s.maximumYawCorrectionPercent);
   result.yawP=state.pid.pPercent; result.yawI=state.pid.integralPercent; result.yawD=state.pid.dPercent;
   if (updated) {

@@ -84,4 +84,7 @@ function syncProbeAddress(){
 }
 $('host-input').addEventListener('input',()=>{addressEdited=true;});
 $('probe-link-toggle').onclick=()=>operate(probeLinks.enabled===false?'probe-reconnect':'probe-disconnect');
-setTimeout(pollLinks,0);setInterval(pollLinks,2000);setInterval(renderLinks,1000);
+setTimeout(pollLinks,0);
+setInterval(()=>{if(state.page==='debug'||state.page==='network'||liveState.session_active)pollLinks();},2000);
+setInterval(()=>{if(!document.hidden)renderLinks();},1000);
+window.addEventListener('stationpage',event=>{if(event.detail==='debug'||event.detail==='network')pollLinks();});

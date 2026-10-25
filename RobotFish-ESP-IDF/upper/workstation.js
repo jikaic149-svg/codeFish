@@ -4,6 +4,78 @@ let rawTelemetry={latest:{},count:0,lost:0};
 let dataTableVersion='',chartFrame=0,chartLegendGroup='';
 let liveRows=[],liveSource='',lastLiveSample=0,capturePending=false,captureEpoch=0;
 const hiddenChartSeries=new Set();
+const terminalRows=[],terminalSeen={PC:'',FISH:''};
+let terminalEnabled=true,terminalDirty=true;
+let terminalRenderedRows=[],terminalRenderedSource='';
+function terminalNumber(value,digits=2){return Number.isFinite(value)?value.toFixed(digits):'—';}
+function appendTerminal(source,key,text){
+  if(!terminalEnabled||terminalSeen[source]===key)return;
+  terminalSeen[source]=key;
+  terminalRows.push({source,text:`${new Date().toISOString()} [${source}] ${text}`});
+  if(terminalRows.length>1000)terminalRows.shift();terminalDirty=true;
+}
+function appendVisionTerminal(value,error=''){
+  const result=value?.result||{},frame=value?.frame_age_ms,pose=result.optical||{},point=result.position||{},guide=result.guidance||{};
+  if(!value?.running||!value.ready){appendTerminal('PC','offline:'+error,error||'视觉未启动或尚无画面');return;}
+  const check=result.validation||{};
+  const validationText=check.enabled?' check_1s_mps='+terminalNumber(check.speed_1s_mps,3)+
+    ' common_pct='+terminalNumber(check.common_pct)+' differential_pct='+terminalNumber(check.differential_pct)+
+    ' tail_drive_pct='+terminalNumber(check.tail_drive_pct)+' curve_limit_mps='+terminalNumber(check.curve_speed_limit_mps,3)+
+    ' curve_distance_m='+terminalNumber(check.curve_distance_m,3)+' curve_status='+(check.curve_speed_status||'disabled'):'';
+  appendTerminal('PC',`${value.process_id}:${result.frame}:${result.tracking?.active}:${result.tracking?.sent_targets}:${result.tracking?.stop_reason}`,
+    `${result.replay?'REPLAY':'CAMERA'} frame=${result.frame??'—'} age_ms=${terminalNumber(frame,0)} `+
+    `position_valid=${point.valid===true} x_m=${terminalNumber(point.valid?point.x_m:null,3)} y_m=${terminalNumber(point.valid?point.y_m:null,3)} `+
+    `v_mps=${terminalNumber(result.velocity?.speed_mps,3)} vision_valid=${pose.valid===true} yaw_left_deg=${terminalNumber(pose.valid?pose.relative_deg:null)} `+
+    `imu_left_deg=${terminalNumber(result.body_yaw?.usable?result.body_yaw.yaw_deg:null)} `+
+    `los_world_deg=${terminalNumber(Number.isFinite(guide.psi_ref_rad)?guide.psi_ref_rad*180/Math.PI:null)} `+
+    `heading_error_deg=${terminalNumber(guide.heading_error_deg)} cross_m=${terminalNumber(guide.signed_cross_track_error_m,3)} `+
+    `speed_target_mps=${terminalNumber(guide.speed_target_mps,3)} power_pct=${terminalNumber(result.speed_control?.power_percent)} `+
+    `feedforward_pct=${terminalNumber(result.speed_control?.feedforward_percent)} feedforward_range=${result.speed_control?.feedforward_range||'—'} feedforward_profile=${result.speed_control?.feedforward_profile_id||'—'} `+
+    `tracking=${result.tracking?.active===true} automatic=${result.tracking?.automatic===true} transport=${result.tracking?.transport||'—'} `+
+    `sent_targets=${result.tracking?.sent_targets??'—'} target_ack_age_ms=${terminalNumber(result.tracking?.last_target_at?(Date.now()-result.tracking.last_target_at*1000):null,0)} `+
+    `command_rtt_ms=${terminalNumber(result.tracking?.command_rtt_ms)} feedback_state=${result.speed_control?.state||'—'} `+
+    `stop_reason=${JSON.stringify(result.tracking?.stop_reason||'')} status=${JSON.stringify(result.status||'')}`+validationText);
+}
+function appendFishTerminal(view){
+  if(!view?.online){appendTerminal('FISH','offline:'+robotError,robotError||'未收到有效鱼端回传');return;}
+  const raw=view.diagnostics||{},imu=view.imu||{},pid=view.attitude_control||{},reference=view.heading_reference||{},act=view.actuators||{},radio=raw.lora||{};
+  const key=`${view.host}:${raw.uptime_ms??view.checked_at}:${pid.age_ms}`;
+  appendTerminal('FISH',key,
+    `${stationMode==='simulation'?'SIMULATION ':''}uptime_ms=${raw.uptime_ms??'—'} `+
+    `imu_valid=${imu.valid===true} imu_age_ms=${terminalNumber(imu.age_ms,0)} roll_deg=${terminalNumber(imu.valid?imu.roll:null)} pitch_deg=${terminalNumber(imu.valid?imu.pitch:null)} `+
+    `yaw_left_deg=${terminalNumber(reference.valid&&reference.imu_valid?reference.current_deg:null)} target_left_deg=${terminalNumber(reference.valid?reference.target_deg:null)} `+
+    `body_yaw_cw_deg=${terminalNumber(pid.body_yaw_deg)} error_cw_deg=${terminalNumber(pid.yaw_error_deg)} u_right_pct=${terminalNumber(pid.yaw_correction_pct)} turn_right_pct=${terminalNumber(pid.yaw_turn_pct)} `+
+    `P_pct=${terminalNumber(pid.yaw_p)} I_pct=${terminalNumber(pid.yaw_i)} D_pct=${terminalNumber(pid.yaw_d)} `+
+    `Kp=${terminalNumber(pid.pid?.kp,3)} Ki=${terminalNumber(pid.pid?.ki,3)} Kd=${terminalNumber(pid.pid?.kd,3)} deadband_deg=${terminalNumber(pid.yaw_deadband_deg)} turn_gain=${terminalNumber(pid.yaw_actuator_gain)} `+
+    `allocation_profile=${pid.heading_allocation_profile||'—'} common_pct=${terminalNumber(raw.allocation?.written_common_pct)} differential_pct=${terminalNumber(raw.allocation?.written_differential_pct)} tail_drive_pct=${terminalNumber(raw.allocation?.tail_drive_pct)} tail_bias_pct=${terminalNumber(raw.allocation?.tail_bias_pct)} `+
+    `esc_left_pct=${terminalNumber(act.left_esc,0)} esc_right_pct=${terminalNumber(act.right_esc,0)} tail1_deg=${terminalNumber(act.tail1)} tail2_deg=${terminalNumber(act.tail2)} `+
+    `fin_left_deg=${terminalNumber(act.left_fin)} fin_right_deg=${terminalNumber(act.right_fin)} route=${view.control?.route||'—'} `+
+    `wifi_seq=${raw.wifi?.sequence??'—'} heading_active=${pid.heading_target_active===true} `+
+    `lora_seq=${radio.last_sequence??'—'} lora_age_ms=${terminalNumber(view.control?.lora_age_ms,0)} state=${view.safety_mode||'UNKNOWN'}`);
+}
+function terminalSelection(){const source=$('trace-source').value;return terminalRows.filter(row=>source==='all'||row.source===source);}
+function terminalText(){return terminalSelection().map(row=>row.text).join('\n');}
+function renderTerminal(){
+  if(state.page!=='data'||document.hidden)return;
+  robotText('trace-state',terminalEnabled?'持续输出':'输出已暂停');
+  robotText('trace-count',`${terminalRows.length} / 1000 行 · ${currentRobot()?.online?'鱼端遥测在线':'鱼端无有效回传'}`);
+  if(!terminalDirty)return;
+  const output=$('trace-terminal'),rows=terminalSelection(),source=$('trace-source').value;
+  const first=terminalRenderedRows.indexOf(rows[0]);
+  const overlap=first<0?[]:terminalRenderedRows.slice(first);
+  const reusable=source===terminalRenderedSource&&first>=0&&overlap.length<=rows.length&&overlap.every((row,index)=>row===rows[index]);
+  let existing=0;
+  if(reusable){for(let index=0;index<first;index++)output.firstChild.remove();existing=overlap.length;}
+  else output.replaceChildren();
+  if(!rows.length)output.textContent='等待 PC 视觉观测或鱼端遥测…';
+  else{
+    const added=document.createDocumentFragment();
+    for(const row of rows.slice(existing)){const line=document.createElement('span');line.className='trace-line';line.textContent=row.text;added.append(line);}
+    output.append(added);
+  }
+  terminalRenderedRows=rows;terminalRenderedSource=source;
+  if($('trace-scroll').checked)output.scrollTop=output.scrollHeight;terminalDirty=false;
+}
 function requestChart(){if(!chartFrame)chartFrame=requestAnimationFrame(()=>{chartFrame=0;drawChart();});}
 const PLOTS={imu:[['roll_deg','Roll 横滚','#178b7d'],['pitch_deg','Pitch 俯仰','#637bc5'],['yaw_deg','Yaw 航向','#b27c3c']],battery:[['battery_v','电池电压','#178b7d']],esc:[['left_esc_pct','左螺旋桨','#178b7d'],['right_esc_pct','右螺旋桨','#637bc5']],servo:[['left_fin_deg','左胸鳍','#178b7d'],['right_fin_deg','右胸鳍','#637bc5'],['tail1_deg','尾舵1','#b27c3c'],['tail2_deg','尾舵2','#b56d94']],latency:[['latency_ms','通信往返','#178b7d']]};
 const UNITS={imu:'°',battery:'V',esc:'%',servo:'°',latency:'ms'};
@@ -18,6 +90,7 @@ function plotSeries(rows,key){
   });
 }
 function updateDataTelemetry(view){
+  appendFishTerminal(view);
   const source=stationMode+':'+(view?.host||robotHost());
   if(source!==liveSource){liveRows=[];liveSource=source;lastLiveSample=0;chartFrozen=null;chartHover=-1;$('chart-freeze').textContent='冻结图表';}
   const now=Date.now();if(now-lastLiveSample<80)return;lastLiveSample=now;
@@ -202,5 +275,12 @@ function renderJournal(){
 }
 $('journal-level').onchange=$('journal-search').oninput=renderJournal;
 $('journal-export-csv').onclick=()=>exportLogs('csv');
+$('trace-pause').onclick=()=>{terminalEnabled=!terminalEnabled;$('trace-pause').textContent=terminalEnabled?'暂停输出':'继续输出';terminalDirty=true;renderTerminal();};
+$('trace-clear').onclick=()=>{terminalRows.length=0;terminalSeen.PC=terminalSeen.FISH='';terminalDirty=true;renderTerminal();};
+$('trace-source').onchange=()=>{terminalDirty=true;renderTerminal();};
+$('trace-scroll').onchange=()=>{terminalDirty=true;renderTerminal();};
+$('trace-export').onclick=()=>downloadBlob(new Blob(['\ufeff'+terminalText()+'\n'],{type:'text/plain;charset=utf-8'}),'robotfish-trace-'+new Date().toISOString().replace(/[:.]/g,'-')+'.txt');
+window.addEventListener('stationpage',event=>{if(event.detail==='data'){terminalDirty=true;appendFishTerminal(currentRobot());renderTerminal();}});
+setInterval(renderTerminal,250);
 
 renderJournal();renderCapture();pollData();setInterval(pollData,1000);

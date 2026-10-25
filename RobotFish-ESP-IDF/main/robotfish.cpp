@@ -103,8 +103,22 @@ void tick(uint32_t now, uint32_t elapsed) {
       request.yawPercent = std::clamp(
           request.yawPercent + snapshot.attitude.yawCorrectionPercent, -100.0f, 100.0f);
     }
-    snapshot.allocation = robofish::motion::allocate(request,
-        robofish::config::motion::makeRecipe(control.target.mode),
+    auto recipe = robofish::config::motion::makeRecipe(control.target.mode);
+    if (control.calibrationActive && !control.calibration.baseline) {
+      recipe.turnForwardReductionFraction = 0;
+      recipe.propulsion.commandScale = recipe.propulsion.yawGain = 1;
+    }
+    if (control.headingTargetActive) {
+      control.applyHeadingAllocation(request, recipe);
+    } else if (snapshot.attitude.yawActive) {
+      // Heading error drives turn authority; surge remains its own command.
+      recipe.turnForwardReductionFraction = 0;
+      recipe.propulsion.yawGain *= robofish::config::attitude::kYawActuatorGain;
+      request.independentTailYaw = true;
+      request.tailYawPercent = std::clamp(request.yawPercent *
+          robofish::config::attitude::kYawActuatorGain, -100.0f, 100.0f);
+    }
+    snapshot.allocation = robofish::motion::allocate(request, recipe,
         robofish::config::motion::makeGeometry(), frame,
         gait, now, std::min(elapsed, appconfig::kControlMs));
     frame = snapshot.allocation.candidateFrame;

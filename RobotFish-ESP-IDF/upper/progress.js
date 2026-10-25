@@ -15,6 +15,7 @@ function drawProgress(p){
 }
 setInterval(async()=>{
   if(location.protocol==='file:'||progressPending)return;
+  if(state.page!=='debug'&&!liveBusy&&!state.flashing)return;
   progressPending=true;
   try{drawProgress(await service('progress'));}catch(_){}
   finally{progressPending=false;}

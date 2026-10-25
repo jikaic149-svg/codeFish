@@ -20,17 +20,17 @@ from flask import Flask,Response,request
 from werkzeug.serving import make_server
 from werkzeug.serving import WSGIRequestHandler
 
-TASKS={'START','STOP','CLEAR_PATH','MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB',
+TASKS={'AUTO_START','AUTO_STOP','CLEAR_PATH','MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB',
        'RECORD','SNAPSHOT','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','EXIT','POOL_SIZE'}
 
 
 class WebBridge:
     def __init__(self,*,observer=False):
-        self.observer=observer;self.metadata={}
+        self.observer=observer;self.metadata={};self.control_enabled=False
         self.guard=threading.Lock();self.events=queue.Queue(maxsize=128)
         self.frames={};self.frame_time=0.;self.width=self.height=0
         self.result={};self.last_task=None;self.active_tasks=[];self.closed=threading.Event()
-        self.cruise_speed_mps = 0.30
+        self.cruise_speed_mps = CONTROL['guidance']['cruise_speed_mps']
         self.yaw_sample={'valid':False,'yaw_cw_deg':None,'sample_time':None}
         self.yaw_history=deque(maxlen=128)
         self.parent_token=os.environ['ROBOFISH_PARENT_TOKEN'];self.token=os.environ['ROBOFISH_VISION_TOKEN']
@@ -66,13 +66,18 @@ class WebBridge:
         def action():
             body=request.get_json(silent=True)
             if not isinstance(body,dict):return {'error':'invalid action'},400
-            supported=({'POOL_CALIB','POOL_SIZE','HEAD_DIRECTION','MARKER_ROI','PREVIEW',
-                        'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','EXIT'} if self.observer else TASKS | {'SPEED'})
+            supported=(TASKS|{'SPEED','PREVIEW','VIEW','PREVIEW_FPS','THRESHOLD','PERSPECTIVE_TEST','SAMPLE_START','SAMPLE_STOP'} if self.observer else TASKS|{'SPEED'})
             if body.get('task') not in supported and body.get('kind') not in ('down','move','up','right'):
                 return {'error':'unsupported action'},400
             if body.get('task') == 'SPEED' and (type(body.get('value')) not in (int, float)
-                    or not math.isfinite(body['value']) or not 0 <= body['value'] <= 0.36):
-                return {'error':'speed must be 0..0.36 m/s'},400
+                    or not math.isfinite(body['value']) or body['value'] < 0):
+                return {'error':'speed must be a finite nonnegative value in m/s'},400
+            if body.get('task')=='VIEW' and body.get('value') not in ('raw','perspective'):return {'error':'invalid view'},400
+            if body.get('task')=='PREVIEW_FPS' and (type(body.get('value')) is not int or body['value'] not in (3,10,15,30)):
+                return {'error':'preview FPS must be 3, 10, 15 or 30'},400
+            if body.get('task')=='THRESHOLD' and (type(body.get('value')) is not int or not 0<=body['value']<=255):
+                return {'error':'threshold must be 0..255'},400
+            if 'space' in body and body['space'] not in ('image','field'):return {'error':'invalid coordinate space'},400
             if body.get('task') == 'POOL_SIZE' and any(
                     type(body.get(key)) not in (int, float) or not math.isfinite(body[key])
                     or not 0.05 <= body[key] <= 50 for key in ('width_m', 'height_m')):
@@ -126,6 +131,7 @@ class WebBridge:
         def clean(value):
             if isinstance(value,dict):return {str(k):clean(v) for k,v in value.items()}
             if isinstance(value,(list,tuple)):return [clean(v) for v in value]
+            if isinstance(value,np.ndarray):return clean(value.tolist())
             if isinstance(value,np.generic):value=value.item()
             if isinstance(value,float) and not math.isfinite(value):return None
             return value
@@ -162,7 +168,7 @@ class WebBridge:
 
     def _telemetry_loop(self):
         while not self.closed.is_set():
-            connection=http.client.HTTPConnection('127.0.0.1',int(os.environ.get('ROBOFISH_PARENT_PORT','8766')),timeout=.7)
+            connection=http.client.HTTPConnection('127.0.0.1',int(os.environ.get('ROBOFISH_PARENT_PORT','8766')),timeout=2)
             try:
                 connection.request('GET','/api/vision/telemetry')
                 response=connection.getresponse();value=json.loads(response.read(65536))
@@ -201,14 +207,14 @@ class WebBridge:
         timed=[s for s in history if type(s.get('telemetry_time')) in (int,float)]
         past=[s for s in timed if s['telemetry_time']<=timestamp and timestamp-s['telemetry_time']<=CONTROL['feedback_max_age_s']]
         step=max(past,key=lambda s:s['telemetry_time']) if past else ({} if timed else a)
-        return {**a,**{key:step.get(key,{}) for key in ('heading_reference','onboard','actuators','control')},
+        return {**a,**{key:step.get(key,{}) for key in ('heading_reference','onboard','actuators','control','allocation')},
                 'native_telemetry_time':step.get('telemetry_time'),'native_source_id':step.get('source_id'),
                 'valid':True,'yaw_cw_deg':(y0+fraction*delta+180)%360-180,
                 'sample_time':timestamp,'alignment':'frame_time_interpolated','alignment_span_s':gap}
 
     def parent(self,body):
-        if self.observer:raise RuntimeError('视觉观测进程不发送控制命令')
-        connection=http.client.HTTPConnection('127.0.0.1',int(os.environ.get('ROBOFISH_PARENT_PORT','8765')),timeout=.7)
+        if self.observer and not self.control_enabled:raise RuntimeError('请先明确启动自动循迹')
+        connection=http.client.HTTPConnection('127.0.0.1',int(os.environ.get('ROBOFISH_PARENT_PORT','8765')),timeout=2)
         try:
             if body.get('task')=='prepare':
                 # An old backend would switch to HYBRID before replying. Verify
@@ -222,7 +228,9 @@ class WebBridge:
                 {'Content-Type':'application/json','Origin':'http://127.0.0.1:'+os.environ.get('ROBOFISH_PARENT_PORT','8765'),
                  'X-AmphiLink-Token':self.parent_token})
             response=connection.getresponse();value=json.loads(response.read(65536))
-            if response.status!=200:raise RuntimeError(value.get('error','视觉目标未发送'))
+            if response.status!=200:
+                error=RuntimeError(value.get('error','视觉目标未发送'));error.code=value.get('code')
+                raise error
             return value
         finally:connection.close()
 
@@ -233,6 +241,8 @@ class WorkstationComm:
         self.bridge=bridge;self._udp_lock=threading.Lock();self._wire_lock=threading.Lock()
         self._udp_latest=None;self._udp_latest_t=0.;self._stop=threading.Event()
         self.session='vision-'+uuid.uuid4().hex;self.sequence=0;self.last_error='';self.last_ack=0.
+        self.last_error_code=None;self.last_round_trip_ms=None
+        self.last_stop_reason='not_started';self.sent_targets=0;self.last_target_at=None
         self.speed_loop=VisualSpeedLoop(**CONTROL['speed'],max_age_s=CONTROL['feedback_max_age_s'])
         self.authorized=False;self.vision_seq=0;self.sender=None
         if start_sender:
@@ -243,24 +253,34 @@ class WorkstationComm:
             if task=='heading' and not self.authorized:return None
             self.sequence+=1
             body={'task':task,'session':self.session,'sequence':self.sequence,**(payload or {})}
+            started=time.monotonic()
             try:
-                result=self.bridge.parent(body);self.last_error='';self.last_ack=time.monotonic();return result
+                result=self.bridge.parent(body);self.last_error='';self.last_error_code=None;self.last_ack=time.monotonic()
+                self.last_round_trip_ms=(self.last_ack-started)*1000
+                if task=='heading':self.sent_targets+=1;self.last_target_at=time.time()
+                return result
             except Exception as error:
                 if str(error)!=self.last_error:print('[视觉控制] '+str(error),flush=True)
-                self.last_error=str(error);return None
+                self.last_error=str(error);self.last_error_code=getattr(error,'code',None);return None
 
     def send_latest(self):
         with self._udp_lock:target=self._udp_latest;updated=self._udp_latest_t
         if target is None:return
-        if time.monotonic()-updated>.25:self.stop_now();return
+        if time.monotonic()-updated>.25:self.stop_now('observation_expired');return
         if target['brake']:
             result=self._call('stop')
         else:
             result=self._call('heading',{'heading_cw_deg':target['heading_cw_deg'],'surge_pct':target['power_percent']})
-        if result is None:self.stop_tracking()
+        if result is None:
+            reason=self.last_error_code or self.last_error or 'send_failed'
+            if self.last_error_code in ('vision_session_changed','control_session_changed','lora_primary_active'):self.stop_tracking(reason)
+            else:self.stop_now(reason)
 
     def _send(self):
-        while not self._stop.wait(.05):self.send_latest()
+        while not self._stop.is_set():
+            started=time.monotonic();self.send_latest()
+            # Include HTTP time in the 100 ms period; never queue missed ticks.
+            self._stop.wait(max(0.,.1-(time.monotonic()-started)))
 
     @property
     def speed_status(self):return dict(self.speed_loop.status)
@@ -288,25 +308,29 @@ class WorkstationComm:
         power=self.speed_loop.update(float(speed_target_mps),
             float(speed_mps) if feedback_valid and speed_mps is not None else None,observed_at,now=now,brake=brake_request)
         stopped=brake_request or not self.speed_loop.status['feedback_valid'] or not yaw_fresh or not target_valid
-        if stopped:self.speed_loop.reset('waiting_feedback');power=0.
+        if stopped:
+            reason=self.speed_loop.status['state'] if not self.speed_loop.status['feedback_valid'] else 'stale_imu' if not yaw_fresh else 'invalid_heading_target'
+            self.speed_loop.reset(reason);power=0.
         command={'heading_cw_deg':target_heading_cw_deg,'power_percent':power,'brake':bool(stopped)}
         with self._udp_lock:self._udp_latest=command;self._udp_latest_t=time.monotonic()
         return command
 
-    def stop_tracking(self):
+    def stop_tracking(self,reason='stopped'):
         self.authorized=False
+        self.last_stop_reason=reason
         with self._udp_lock:self._udp_latest=None;self._udp_latest_t=0.
-        self.speed_loop.reset()
+        self.speed_loop.reset(reason)
 
     def ensure_bionic_mode(self):
         # Retain the existing UI callback name; the actual mode is now HYBRID.
-        self.stop_tracking();result=self._call('prepare')
+        self.stop_tracking('preparing');result=self._call('prepare')
         self.authorized=result is not None and result.get('mode')==3 and result.get('ready') is True and result.get('yaw_owner')=='S3'
+        if self.authorized:self.last_stop_reason=''
         if result is not None and not self.authorized:self.last_error=result.get('message','等待鱼端航向目标接口')
         return self.authorized
 
-    def stop_now(self):
-        was_authorized=self.authorized;self.stop_tracking()
+    def stop_now(self,reason='user_stop'):
+        was_authorized=self.authorized;self.stop_tracking(reason)
         return self._call('stop') is not None if was_authorized else True
 
     def send_command(self,command):

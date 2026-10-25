@@ -5,6 +5,19 @@
 
 // Latest F405 allocation policy, with unrelated services and safety omitted.
 namespace robofish::config::control {
+// HeadingTarget only: props provide common propulsion; tail bias steers.
+// 2026-10-25 trials found weak/inconsistent differential yaw. Keep differential
+// and periodic tail drive off until this combined recipe is measured in water.
+// Tail ratio [0,1] multiplies the PC surge, so zero surge always means zero gait.
+inline constexpr float kHeadingTailDriveRatio = 0.0f;
+// Optional differential gain [0,1] and cap [0,100]%; remaining common-drive
+// headroom also limits it. Neither changes the existing yaw PID or tail gain.
+inline constexpr float kHeadingPropDiffGain = 0.0f;
+inline constexpr float kHeadingPropDiffLimitPercent = 0.0f;
+inline constexpr const char *kHeadingAllocationProfile = "prop_surge_tail_bias";
+static_assert(kHeadingTailDriveRatio >= 0 && kHeadingTailDriveRatio <= 1 &&
+              kHeadingPropDiffGain >= 0 && kHeadingPropDiffGain <= 1 &&
+              kHeadingPropDiffLimitPercent >= 0 && kHeadingPropDiffLimitPercent <= 100);
 inline constexpr uint32_t kPeriodMs = 20;
 inline constexpr uint32_t kMaximumSlewElapsedMs = kPeriodMs;
 // Ordinary start/stop: 0 to 100% (or back to neutral) takes 500 ms.

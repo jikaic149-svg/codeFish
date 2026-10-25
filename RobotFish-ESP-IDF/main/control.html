@@ -1,54 +1,362 @@
 <!doctype html>
 <html lang="zh-CN">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RobotFish 遥测</title>
+<meta name="theme-color" content="#10675b">
+<title>RobotFish · 机器鱼控制台</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#eef3f7;color:#153344;font:16px system-ui,sans-serif}
-main{max-width:760px;margin:auto;padding:20px}section,details{background:white;border:1px solid #d4dfe7;border-radius:14px;padding:18px;margin:16px 0}
-h1{font-size:25px}h2{font-size:19px;margin:0 0 14px}p{line-height:1.6}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.65}
-button,input{font:inherit;max-width:100%}button{padding:12px;border:0;border-radius:9px;background:#087f74;color:white;cursor:pointer}button:disabled{opacity:.45}small{color:#536b7b}a{color:#087f74}
+:root{color-scheme:light;--bg:#f3f5f1;--card:#fff;--ink:#203d36;--muted:#718078;--line:#e1e7df;--green:#10675b;--pale:#eaf3ec;--orange:#e49b57;--red:#b94e43;--shadow:0 4px 24px #1e493507}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}button,input{font:inherit}button,a,input{-webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.42}button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #d99c56;outline-offset:4px}button{border:1px solid var(--line);border-radius:11px;padding:10px 17px;background:white;color:var(--ink);font-weight:600;transition:background .15s,transform .15s}button:hover:enabled{background:#eff4ee}button:active:enabled{transform:translateY(1px)}button.primary{background:var(--green);border-color:var(--green);color:#fff}button.primary:hover:enabled{background:#0c5148}button.ghost{background:transparent}button.danger{color:var(--red);border-color:#eed7d1;background:#fff5f1}a{color:var(--green);text-underline-offset:3px}svg{display:block}h1,h2,h3,p{margin:0}h2{font-size:18px;font-weight:650}h3{font-size:14px}small,.muted{color:var(--muted)}small{font-size:12px}strong{font-weight:650}[hidden]{display:none!important}.shell{max-width:1360px;margin:auto;padding:0 38px}.topbar{background:#fbfcf9;border-bottom:1px solid var(--line)}.header{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:85px}.brand{display:flex;align-items:center;gap:12px}.brand-mark{width:43px;height:43px;background:var(--green);border-radius:13px;display:grid;place-items:center;color:white}.brand-name{font-size:21px;font-weight:750;letter-spacing:-.7px}.brand-name span{font-weight:400}.brand small{display:block;line-height:1.1;font-size:10px;letter-spacing:2px}.header-meta{display:flex;align-items:center;gap:16px;font-size:12px}.mono{font-family:Consolas,"SFMono-Regular",monospace;font-variant-numeric:tabular-nums}.badge{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--line);border-radius:30px;background:#fff;white-space:nowrap;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:#a1aba3}.badge[data-tone=good]{color:var(--green);background:#edf6ee;border-color:#d5e6d7}.badge[data-tone=good] .dot{background:#3c9877}.badge[data-tone=bad]{color:var(--red);background:#fff3ee;border-color:#eed7d1}.badge[data-tone=bad] .dot{background:var(--red)}.intro{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:33px 0 26px}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--green);font-weight:700;margin-bottom:7px}h1{font-size:30px;font-weight:650;letter-spacing:-1px;margin-bottom:5px}.intro p{font-size:13px;color:var(--muted)}.connect-group{text-align:right}.connect-group small{display:block;margin-top:7px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}.metric{display:flex;align-items:center;gap:13px;padding:19px 22px;background:#fff;border:1px solid var(--line);border-radius:14px}.metric-icon{display:grid;place-items:center;flex-shrink:0;width:36px;height:36px;color:#6d8b7d;background:#f2f5ee;border-radius:11px}.metric-icon svg{width:19px;height:19px}.metric small{font-size:11px}.metric-value{font-size:20px;font-weight:650;line-height:1.45;font-variant-numeric:tabular-nums}.metric-value em{font-size:11px;font-weight:400;font-style:normal;color:var(--muted);margin-left:4px}.tabs{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:26px 0 22px}.tabs button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:11px 2px 14px;color:var(--muted);font-size:14px;font-weight:500}.tabs button[aria-selected=true]{color:var(--green);border-bottom-color:var(--green);font-weight:700}.tabs span{font-size:11px;color:#9ca69c;margin-left:6px}.workspace{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(310px,1fr);gap:22px;align-items:start}.stack{display:grid;gap:19px}.card{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:24px;box-shadow:var(--shadow);min-width:0}.card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}.card-heading p{font-size:12px;color:var(--muted);margin-top:3px}.section-index{font-size:11px;color:var(--green);background:var(--pale);padding:3px 8px;border-radius:5px;letter-spacing:1px}.notice{display:flex;align-items:flex-start;gap:10px;border:1px solid #dfe9da;background:#f4f8ef;border-radius:10px;padding:11px 13px;color:#61705c;font-size:12px;margin-bottom:22px;overflow-wrap:anywhere}.notice[data-tone=bad]{border-color:#eed7d1;background:#fff5f0;color:var(--red)}.notice .dot{flex-shrink:0;margin-top:6px;background:#92a277}.notice[data-tone=bad] .dot{background:var(--red)}.drive-layout{display:grid;grid-template-columns:minmax(0,1fr) 156px;gap:28px;align-items:center;padding:0 12px 22px}.dpad{display:grid;grid-template-columns:repeat(3,72px);grid-template-rows:repeat(3,67px);gap:8px;justify-content:center}.drive-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;border:1px solid #dce5da;border-radius:12px;color:#536d60;background:#f8faf5;padding:4px;touch-action:none;user-select:none;-webkit-user-select:none}.drive-btn svg{width:19px;height:19px}.drive-btn small{font-size:10px;line-height:1.2;color:inherit}.drive-btn .key{font-size:9px;opacity:.5}.drive-btn.held{background:var(--green);color:white;border-color:var(--green);box-shadow:0 3px 10px #10675b22}.dpad .forward{grid-column:2;grid-row:1}.dpad .left{grid-column:1;grid-row:2}.dpad .stop{grid-column:2;grid-row:2;color:var(--red);background:#fff1e9;border-color:#f0d7c7;touch-action:manipulation}.dpad .right{grid-column:3;grid-row:2}.dpad .backward{grid-column:2;grid-row:3}.dpad .corner{display:grid;place-items:center;color:#ccd6cb}.dpad .corner:first-child{grid-column:1;grid-row:1}.dpad .corner:last-child{grid-column:3;grid-row:3}.heave{border-left:1px solid var(--line);padding-left:26px;display:grid;gap:9px}.heave .drive-btn{min-height:64px;width:100%}.heave-label{color:var(--muted);text-align:center;font-size:11px}.axis-readout{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:15px;font-size:11px;color:var(--muted)}#control-axis-value{color:var(--green)}.control-help{font-size:11px;color:var(--muted);margin-top:13px;line-height:1.9}.mode-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.mode-options button{display:grid;gap:3px;padding:13px 6px;font-weight:500}.mode-options small{font-size:10px;font-weight:400}.mode-options [aria-pressed=true]{color:var(--green);background:#eef5ed;border-color:#93b29b}.mode-options [aria-pressed=true] small{color:var(--green)}.footnote{font-size:11px;color:var(--muted);margin-top:14px}.attitude-readout{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:center;margin:0 0 18px}.angle{font-size:25px;line-height:1.5;font-weight:550;font-variant-numeric:tabular-nums}.angle small{font-size:12px}.attitude-readout .label{font-size:10px;color:var(--muted);letter-spacing:1px}.compass{height:96px;border:1px solid #e6ebdf;background:linear-gradient(90deg,#f8faf5,#f0f5ed,#f8faf5);border-radius:12px;position:relative;overflow:hidden;margin-bottom:16px}.compass::before{content:"";position:absolute;inset:18px 0 20px;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(12.5% - 1px),#d4dfd0 calc(12.5% - 1px),#d4dfd0 12.5%)}.compass-center{position:absolute;left:50%;top:8px;transform:translateX(-50%);width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid var(--orange)}.compass-labels{position:absolute;bottom:9px;inset-inline:19px;display:flex;justify-content:space-between;font-size:9px;color:#8a9787}.fish-heading{width:54px;height:54px;color:var(--green);position:absolute;left:calc(50% - 27px);top:17px;transition:transform .25s}.fish-heading svg{width:100%;height:100%}.data-row{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:9px 0;border-bottom:1px solid #eef1ea;font-size:12px}.data-row:last-child{border:0}.data-row dt{color:var(--muted)}.data-row dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.outputs{margin:0}.output-name{color:var(--muted);font-size:11px}.motor-row{display:grid;grid-template-columns:38px 1fr 51px;gap:10px;align-items:center;margin-bottom:12px;font-size:12px}.bar-track{height:5px;background:#edf1e8;border-radius:4px;position:relative;overflow:hidden}.bar-track::after{content:"";position:absolute;top:0;bottom:0;left:50%;width:1px;background:#c3cfbe}.bar-track span{position:absolute;left:50%;height:100%;background:#80aa88;border-radius:4px}.output-angles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:19px;padding-top:15px;border-top:1px solid var(--line)}.output-angles .value{font-size:14px;white-space:nowrap}.output-angles .value small{font-size:10px}.output-angles .label{font-size:10px;color:var(--muted)}details{border-top:1px solid var(--line);padding-top:13px;margin-top:16px}summary{font-size:11px;cursor:pointer;color:var(--muted)}pre{font:11px/1.9 Consolas,"Microsoft YaHei",monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#688072;margin:12px 0 0}.sliders{display:grid;gap:24px}.slider-label{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:13px}.slider-label output{color:var(--green);font-family:Consolas,monospace}input[type=range]{display:block;width:100%;accent-color:var(--green);height:18px;margin:0}.range-scale{display:flex;justify-content:space-between;font:10px Consolas,monospace;color:#98a28f;margin-top:3px}.form-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-bottom:17px}.field label{display:block;font-size:12px;margin-bottom:7px}.field label small{margin-left:5px;font-size:10px}.field input{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;background:#fbfcf8;color:var(--ink);font-family:Consolas,monospace}.actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.actions small{font-size:11px}.pid-current{background:#f5f7f0;border-radius:9px;padding:10px 13px;color:#78846f;font-size:11px;margin-bottom:18px}.switch-row{display:flex;justify-content:space-between;align-items:center;gap:15px}.switch-row p{font-size:12px;color:var(--muted);margin-top:6px}.switch-row button{white-space:nowrap}.upload-zone{border:1px dashed #b9ccad;border-radius:13px;background:#f7faf2;padding:28px 15px;text-align:center;position:relative}.upload-zone.drag{border-color:var(--green);background:#e9f3e8}.upload-icon{display:grid;place-items:center;width:48px;height:48px;margin:0 auto 12px;background:#e7efdf;color:#6e8862;border-radius:15px}.upload-icon svg{width:24px;height:24px}.upload-zone h3{font-size:14px;margin-bottom:5px}.upload-zone p{font-size:11px;color:var(--muted);margin-bottom:16px}.file-input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}.file-label{display:inline-block;padding:7px 17px;background:#fff;border:1px solid #d8e3d0;border-radius:8px;font-size:12px;color:var(--green);cursor:pointer}.file-input:focus-visible+.file-label{outline:3px solid #d99c56;outline-offset:4px}.file-info{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:15px 0;font-size:12px}.file-info strong{display:block;overflow-wrap:anywhere}.file-info small{font-size:11px}.file-size{white-space:nowrap;color:var(--muted)}progress{display:block;width:100%;height:7px;border:0;border-radius:8px;overflow:hidden;accent-color:var(--green);background:#e9eee2;margin:0 0 10px}progress::-webkit-progress-bar{background:#e9eee2}progress::-webkit-progress-value{background:var(--green);border-radius:8px}progress::-moz-progress-bar{background:var(--green)}.ota-state{font-size:12px;color:var(--muted);min-height:40px;margin-bottom:12px;overflow-wrap:anywhere}.ota-state[data-tone=bad]{color:var(--red)}.ota-steps{display:grid;gap:18px;margin-top:20px;counter-reset:step}.ota-step{display:flex;gap:13px;font-size:12px}.ota-step::before{counter-increment:step;content:counter(step);display:grid;place-items:center;background:#f1f4e9;color:#82916d;border-radius:50%;width:25px;height:25px;flex-shrink:0;font:11px Consolas,monospace}.ota-step p{font-size:11px;color:var(--muted);margin-top:3px}.status-line{font-size:11px;min-height:18px;overflow-wrap:anywhere;color:var(--muted)}.status-line[data-tone=bad]{color:var(--red)}.footer{display:flex;justify-content:space-between;gap:20px;color:#8c9887;font-size:10px;padding:27px 0 24px;margin-top:9px}.footer span:last-child{letter-spacing:1px}.stale{opacity:.58}.icon-defs{position:absolute;width:0;height:0;overflow:hidden}
+@media(min-width:1150px){.drive-layout{padding:5px 20px 30px;gap:40px}.dpad{grid-template-columns:repeat(3,82px);grid-template-rows:repeat(3,72px);gap:9px}.heave .drive-btn{min-height:70px}.drive-btn small{font-size:11px}}
+@media(max-width:900px){.shell{padding:0 22px}.workspace{grid-template-columns:minmax(0,1.1fr) minmax(280px,1fr);gap:15px}.card{padding:19px}.metrics{gap:10px}.metric{padding:15px;gap:9px}.metric-value{font-size:18px}.metric-icon{width:30px;height:30px}.drive-layout{padding-inline:0;gap:15px;grid-template-columns:minmax(0,1fr) 104px}.dpad{grid-template-columns:repeat(3,61px);grid-template-rows:repeat(3,62px);gap:6px}.heave{padding-left:15px}.header-meta .hardware{display:none}.attitude-readout{gap:6px}.angle{font-size:21px}}
+@media(max-width:720px){.workspace{grid-template-columns:minmax(0,1fr)}.shell{padding:0 18px}.header{min-height:73px}.brand-name{font-size:19px}.brand-mark{width:37px;height:37px}.header-meta{gap:8px}.header-meta .version{display:none}.intro{padding:25px 0 23px;align-items:flex-start}h1{font-size:25px}.intro p{font-size:11px;max-width:185px}.intro .primary,.intro .danger{font-size:12px;padding:9px 11px}.connect-group .actions{gap:6px;flex-direction:column;align-items:stretch}.connect-group small{font-size:10px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{padding:13px 16px}.metric-value{font-size:19px}.metric-icon{width:33px;height:33px}.tabs{margin:21px 0 18px;gap:24px}.tabs button{font-size:13px;padding-bottom:12px}.tabs span{display:none}.drive-layout{grid-template-columns:minmax(0,1fr) 84px;gap:13px;padding:0 0 20px}.dpad{grid-template-columns:repeat(3,62px);grid-template-rows:repeat(3,64px);gap:6px}.card{padding:20px}.heave{padding-left:18px}.heave .drive-btn{min-height:63px}.axis-readout{font-size:10px;gap:8px}.footer{font-size:9px;gap:10px}.footer span:last-child{letter-spacing:0}.form-row{gap:10px}.field input{padding:10px 8px}.field label small{display:block;margin:0}.attitude-readout{gap:12px}.angle{font-size:26px}}
+@media(max-width:374px){.shell{padding:0 12px}.card{padding:16px}.drive-layout{gap:8px;grid-template-columns:minmax(0,1fr) 74px}.dpad{grid-template-columns:repeat(3,53px);grid-template-rows:repeat(3,60px)}.heave{padding-left:10px}.brand small{font-size:8px}.badge{padding:4px 8px}.intro p{max-width:165px}.mode-options button{font-size:12px}.mode-options small{font-size:9px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
 </style>
-<main>
-<h1>RobotFish · LoRa 遥控 / Wi-Fi 遥测</h1>
-<p id="connection" role="status">正在读取机器鱼状态…</p>
-<p>运动命令通过 LoRa 接收。此页面显示命令结果、执行器输出和陀螺仪数据。</p>
-<section><h2>命令回传</h2><pre id="command-result">等待数据…</pre><small><a href="/lora_status" target="_blank">查看详细状态</a></small></section>
-<section><h2>实时输出</h2><pre id="outputs">等待数据…</pre><small>数值表示驱动成功提交的目标，不代表实际位置或推力。</small></section>
-<section><h2>JY61P 陀螺仪</h2><pre id="imu">等待数据…</pre></section>
-<section><h2>陀螺仪姿态辅助</h2><pre id="attitude">等待数据…</pre><small>开启后在静止和前进时保持航向；普通松键归零保留闭环，全停关闭闭环。手动浮沉与转向优先，松开转向后保持新航向。</small></section>
-<details><summary>固件升级</summary><p>选择本工程的 RobotFish 应用 BIN。写入前自动全停，完成后重启。</p>
-<input id="firmware" type="file" accept=".bin"><button id="upload">上传固件</button><pre id="ota-result"></pre></details>
+</head>
+<body>
+<svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-fish" viewBox="0 0 32 32"><path d="M7 16C12 7 23 7 28 16c-5 9-16 9-21 0ZM7 16l-5-5v10l5-5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="23" cy="15" r="1.3" fill="currentColor"/><path d="m15 10 3-4 3 4M15 22l3 4 3-4" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+<symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 8c3-5 6 5 9 0s6 5 9 0M3 15c3-5 6 5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="20" r="1" fill="currentColor"/></symbol>
+<symbol id="i-heading" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m15 7-1 7-5 3 1-7 5-3Z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 7v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="m6 11 6-6 6 6M12 5v15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="m8 8 4-4 4 4m-4-4v12M4 15v5h16v-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</defs></svg>
+<header class="topbar"><div class="shell header">
+ <div class="brand"><div class="brand-mark"><svg width="31" height="31" aria-hidden="true"><use href="#i-fish"/></svg></div><div><div class="brand-name">Robot<span>Fish</span></div><small>UNDERWATER EXPLORATION</small></div></div>
+ <div class="header-meta"><span class="hardware mono muted">XIAO ESP32-S3</span><span class="version mono muted" id="firmware-version">版本读取中</span><span class="badge" id="link-badge"><i class="dot"></i><span id="connection" role="status">正在连接</span></span></div>
+</div></header>
+<main class="shell">
+ <div class="intro"><div><div class="eyebrow">ONBOARD CONTROL / 机载控制</div><h1>机器鱼控制台</h1><p>实时遥控、快速调参、无线更新。</p></div><div class="connect-group"><div class="actions"><button class="danger" id="global-stop" disabled>■ 全停</button><button class="primary" id="connect">连接遥控 <span aria-hidden="true">↗</span></button></div><small id="session-state">使用当前网页登录授权</small></div></div>
+ <div class="metrics" aria-label="运行概况">
+  <div class="metric"><div class="metric-icon"><svg aria-hidden="true"><use href="#i-wifi"/></svg></div><div><small>控制来源</small><div class="metric-value" id="source-value">—</div></div></div>
+  <div class="metric"><div class="metric-icon"><svg aria-hidden="true"><use href="#i-wave"/></svg></div><div><small>运动模式</small><div class="metric-value" id="mode-value">—</div></div></div>
+  <div class="metric"><div class="metric-icon"><svg aria-hidden="true"><use href="#i-heading"/></svg></div><div><small>鱼体航向</small><div class="metric-value"><span id="yaw-value">—</span><em>deg</em></div></div></div>
+  <div class="metric"><div class="metric-icon"><svg aria-hidden="true"><use href="#i-clock"/></svg></div><div><small>运行时间</small><div class="metric-value mono" id="uptime-value">—</div></div></div>
+ </div>
+ <nav class="tabs" role="tablist" aria-label="控制台功能"><button id="tab-control" role="tab" aria-selected="true" aria-controls="panel-control" data-tab="control">遥控驾驶 <span>CONTROL</span></button><button id="tab-tuning" role="tab" aria-selected="false" aria-controls="panel-tuning" tabindex="-1" data-tab="tuning">基础调参 <span>TUNING</span></button><button id="tab-update" role="tab" aria-selected="false" aria-controls="panel-update" tabindex="-1" data-tab="update">固件升级 <span>UPDATE</span></button></nav>
+ <div class="workspace">
+  <div>
+   <section id="panel-control" role="tabpanel" aria-labelledby="tab-control" class="stack">
+    <div class="card"><div class="card-heading"><div><h2>遥控驾驶</h2><p>按住移动，松开归零</p></div><span class="section-index">01 / DRIVE</span></div>
+     <div class="notice" id="control-notice" role="status"><i class="dot"></i><span id="control-hint">等待设备状态，连接后即可遥控。</span></div>
+     <div class="drive-layout"><div class="dpad" aria-label="方向控制">
+      <span class="corner" aria-hidden="true">·</span>
+      <button class="drive-btn forward" data-axis="forward" aria-label="前进，按住 W 或方向上键" disabled><svg aria-hidden="true"><use href="#i-up"/></svg><small>前进 <span class="key">W</span></small></button>
+      <button class="drive-btn left" data-axis="left" aria-label="左转，按住 A 或方向左键" disabled><svg style="transform:rotate(-90deg)" aria-hidden="true"><use href="#i-up"/></svg><small>左转 <span class="key">A</span></small></button>
+      <button class="drive-btn stop" id="stop" aria-label="全停，空格键" disabled><span aria-hidden="true">■</span><small>全停 <span class="key">SPACE</span></small></button>
+      <button class="drive-btn right" data-axis="right" aria-label="右转，按住 D 或方向右键" disabled><svg style="transform:rotate(90deg)" aria-hidden="true"><use href="#i-up"/></svg><small>右转 <span class="key">D</span></small></button>
+      <button class="drive-btn backward" data-axis="backward" aria-label="后退，按住 S 或方向下键" disabled><svg style="transform:rotate(180deg)" aria-hidden="true"><use href="#i-up"/></svg><small>后退 <span class="key">S</span></small></button>
+      <span class="corner" aria-hidden="true">·</span>
+     </div><div class="heave"><div class="heave-label">垂直运动</div><button class="drive-btn" data-axis="up" aria-label="上浮，按住 R" disabled><svg aria-hidden="true"><use href="#i-up"/></svg><small>上浮 <span class="key">R</span></small></button><button class="drive-btn" data-axis="down" aria-label="下潜，按住 F" disabled><svg style="transform:rotate(180deg)" aria-hidden="true"><use href="#i-up"/></svg><small>下潜 <span class="key">F</span></small></button></div></div>
+     <div class="axis-readout"><span>当前操控量</span><span class="mono" id="control-axis-value">前后 0 · 转向 0 · 浮沉 0</span></div>
+     <p class="control-help">键盘 WASD / 方向键移动，R / F 浮沉，空格全停。<br>普通松键保留航向辅助，全停关闭辅助。断网后设备保持最后指令。</p>
+    </div>
+    <div class="card"><div class="card-heading"><div><h2>运动模式</h2><p>选择本次驾驶的推进方式</p></div><span class="section-index">MODE</span></div><div class="mode-options" role="group" aria-label="运动模式"><button data-mode="1" aria-pressed="false" disabled>仿生模式<small>鱼尾推进</small></button><button data-mode="2" aria-pressed="false" disabled>螺旋桨模式<small>双桨推进</small></button><button data-mode="3" aria-pressed="false" disabled>混合模式<small>鱼尾 + 双桨</small></button></div><p class="footnote">切换前发送全停；模式以设备回读为准。</p></div>
+   </section>
+   <section id="panel-tuning" role="tabpanel" aria-labelledby="tab-tuning" class="stack" hidden>
+    <div class="card"><div class="card-heading"><div><h2>操控力度</h2><p>调整本页遥控量，不直接启动运动</p></div><span class="section-index">02 / TUNE</span></div><div class="sliders">
+     <div><label class="slider-label" for="surge-level">前进 / 后退<output id="surge-output">35%</output></label><input id="surge-level" type="range" min="0" max="100" value="35"><div class="range-scale"><span>0%</span><span>100%</span></div></div>
+     <div><label class="slider-label" for="yaw-level">转向力度<output id="turn-output">40%</output></label><input id="yaw-level" type="range" min="0" max="100" value="40"><div class="range-scale"><span>0%</span><span>100%</span></div></div>
+     <div><label class="slider-label" for="heave-level">上浮 / 下潜<output id="heave-output">50%</output></label><input id="heave-level" type="range" min="0" max="100" value="50"><div class="range-scale"><span>0%</span><span>100%</span></div></div>
+    </div><p class="footnote">仅影响本页按键。浮沉控制鱼鳍角度，不自动启动推进。</p></div>
+    <div class="card"><div class="card-heading"><div><h2>航向 PID</h2><p>三个参数，快速调整航向响应</p></div><span class="section-index">YAW</span></div><div class="pid-current mono" id="pid-current">等待设备参数…</div><form id="pid-form"><div class="form-row"><div class="field"><label for="pid-kp">Kp <small>比例</small></label><input id="pid-kp" name="kp" type="number" min="0" max="100" step="0.001" placeholder="—" required disabled></div><div class="field"><label for="pid-ki">Ki <small>积分</small></label><input id="pid-ki" name="ki" type="number" min="0" max="100" step="0.001" placeholder="—" required disabled></div><div class="field"><label for="pid-kd">Kd <small>微分</small></label><input id="pid-kd" name="kd" type="number" min="0" max="100" step="0.001" placeholder="—" required disabled></div></div><div class="actions"><button class="primary" id="pid-apply" type="submit" disabled>应用参数</button><button class="ghost" id="pid-read" type="button" disabled>读取当前值</button></div></form><p class="footnote">范围 0–100。写入运行内存，重启恢复固件默认值；修改参数不会开启航向辅助。</p><p class="status-line" id="pid-result" role="status"></p></div>
+    <div class="card"><div class="switch-row"><div><h2>航向辅助</h2><p>开启后保持当前航向，静止时也可能纠偏。</p></div><button id="attitude-toggle" disabled>开启辅助</button></div><p class="footnote">需有效 IMU 和航向标定。俯仰 / 横滚仅显示。</p></div>
+   </section>
+   <section id="panel-update" role="tabpanel" aria-labelledby="tab-update" class="stack" hidden>
+    <div class="card"><div class="card-heading"><div><h2>无线固件升级</h2><p>直接更新机载程序，无需连接数据线</p></div><span class="section-index">03 / UPDATE</span></div><div class="upload-zone" id="upload-zone"><div class="upload-icon"><svg aria-hidden="true"><use href="#i-upload"/></svg></div><h3>将固件拖到这里，或点击选择</h3><p>RobotFish ESP32-S3 应用固件 · .bin · 最大 3.19 MiB</p><input class="file-input" id="firmware" type="file" accept=".bin,application/octet-stream"><label class="file-label" for="firmware">选择 BIN 文件</label></div><div class="file-info"><div><strong id="file-name">尚未选择固件</strong><small id="file-version">自动检查芯片与工程标识</small></div><span class="file-size mono" id="file-size">—</span></div><progress id="ota-progress" max="100" value="0" aria-label="固件上传进度"></progress><p class="ota-state" id="ota-result" role="status" aria-live="polite">选择应用 BIN 后即可升级。</p><button class="primary" id="upload" disabled>开始升级 <span aria-hidden="true">↗</span></button></div>
+    <div class="card"><h2>升级流程</h2><div class="ota-steps"><div class="ota-step"><div><strong>选择匹配的应用固件</strong><p>使用本工程生成的 RobotFish ESP32-S3 应用 BIN。</p></div></div><div class="ota-step"><div><strong>上传并等待设备校验</strong><p>写入前设备自动全停。进度 100% 表示上传完成，随后进行镜像校验。</p></div></div><div class="ota-step"><div><strong>重启后核对版本</strong><p>保持连接机器鱼热点。设备重新上线后回读版本；遥控需重新连接。</p></div></div></div></div>
+   </section>
+   <p class="status-line" id="command-feedback" role="status" aria-live="polite" style="margin:12px 3px 0"></p>
+  </div>
+  <aside class="stack" aria-label="设备实时状态" id="telemetry">
+   <section class="card"><div class="card-heading"><div><h2>实时姿态</h2><p>JY61P · 鱼体坐标</p></div><span class="badge" id="imu-badge"><i class="dot"></i><span id="imu-state">等待 IMU</span></span></div><div class="compass" aria-hidden="true"><div class="compass-center"></div><div class="fish-heading" id="fish-heading"><svg viewBox="0 0 32 32"><use href="#i-fish" transform="rotate(-90 16 16)"/></svg></div><div class="compass-labels"><span>−180°</span><span>−90°</span><span>0°</span><span>+90°</span><span>+180°</span></div></div><div class="attitude-readout"><div><div class="angle"><span id="roll-value">—</span><small>°</small></div><div class="label">ROLL / 横滚</div></div><div><div class="angle"><span id="pitch-value">—</span><small>°</small></div><div class="label">PITCH / 俯仰</div></div><div><div class="angle"><span id="heading-value">—</span><small>°</small></div><div class="label">YAW / 航向</div></div></div><dl style="margin:0"><div class="data-row"><dt>航向辅助</dt><dd id="attitude">等待数据</dd></div><div class="data-row"><dt>目标航向</dt><dd id="heading-target">—</dd></div><div class="data-row"><dt>输出状态</dt><dd id="safety-value">—</dd></div></dl><details><summary>传感器原始数据与链路</summary><pre id="imu">等待有效数据…</pre><pre id="command-result"></pre><a href="/lora_status" target="_blank" rel="noopener" style="font-size:11px">查看完整遥测 ↗</a></details></section>
+   <section class="card"><div class="card-heading"><div><h2>执行器输出</h2><p>驱动最后成功提交的目标值</p></div><span class="section-index">LIVE</span></div><div id="outputs" class="outputs"><div class="motor-row"><span class="output-name">左桨</span><div class="bar-track"><span id="left-motor-bar"></span></div><span class="mono" id="left-motor">— %</span></div><div class="motor-row"><span class="output-name">右桨</span><div class="bar-track"><span id="right-motor-bar"></span></div><span class="mono" id="right-motor">— %</span></div><div class="output-angles"><div><div class="label">前尾 / 后尾</div><div class="value mono"><span id="tail-front">—</span> <small>/</small> <span id="tail-rear">—</span></div></div><div><div class="label">左鳍 / 右鳍</div><div class="value mono"><span id="fin-left">—</span> <small>/</small> <span id="fin-right">—</span></div></div></div></div><p class="footnote">目标值不代表实际位置或推力。</p></section>
+  </aside>
+ </div>
+ <footer class="footer"><span id="last-sync">等待设备快照</span><span>ROBOTFISH / ESP32-S3</span></footer>
 </main>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
+const all=selector=>Array.from(document.querySelectorAll(selector));
 const modes={1:'仿生',2:'螺旋桨',3:'混合'};
 const number=value=>Number.isFinite(value)?value.toFixed(1):'—';
-const vector=(sample,unit)=>sample?.valid?`${number(sample.x)}, ${number(sample.y)}, ${number(sample.z)} ${unit}（${sample.age_ms} ms 前）`:'尚未收到有效数据';
+const reasons={disabled:'已关闭',uncalibrated:'轴向或方向未标定',waiting_motion:'当前未允许闭环',imu_unavailable:'没有有效 IMU',imu_stale:'IMU 数据过期',invalid_sample:'IMU 数据无效',manual_pitch:'手动浮沉优先',manual_yaw:'手动转向优先',heading_unavailable:'航向暂不可用',active:'辅助生效'};
+const errors={invalid_password:'网页登录授权失效，请刷新后重新登录',control_session_changed:'控制已被其他客户端接管，请重新连接',stale_sequence:'控制序号已失效，请重新连接',lora_primary_active:'LoRa 正在主控，请释放 LoRa 操作后再使用 Wi-Fi',neutral_pending:'设备正在归零，请稍后重新操作',output_recovery:'输出恢复中，请等待设备就绪',output_fault:'设备输出故障已锁定，请排障后重启',ota_locked:'设备处于固件维护状态',heading_unavailable:'没有新鲜有效的航向数据',control_busy:'设备正忙，请稍后操作',control_timeout:'设备未及时确认命令',command_expired:'命令已过期，请重新操作',runtime_not_ready:'设备运行尚未就绪',invalid_control:'参数不符合设备要求'};
+let state=null,online=false,session='',sequence=0,connectedAt=0,connecting=false,busy=false,activeTab='control';
+let queue=Promise.resolve(),motionEpoch=0,targetInFlight=false,targetDirty=false,pidLoaded=false,pidDirty=false,pendingPid=null;
+let selectedFile=null,fileReady=false,fileVersion='',otaActive=false,reboot=null;
+const held=new Map();
+function message(id,text,bad=false){$(id).textContent=text;$(id).dataset.tone=bad?'bad':'';}
+function badge(id,tone){$(id).dataset.tone=tone;}
+function canDrive(){return !!session&&online&&state?.wifi_control_allowed===true&&state?.control_protocol===1&&!busy&&!connecting&&!otaActive&&!state?.lora?.healthy&&!state?.ota_locked&&!state?.output_fault&&!state?.output_recovery;}
+function axes(){
+ const directions=new Set(held.values());
+ return {surge:(Number(directions.has('forward'))-Number(directions.has('backward')))*Number($('surge-level').value),
+  yaw:(Number(directions.has('right'))-Number(directions.has('left')))*Number($('yaw-level').value),
+  heave:(Number(directions.has('up'))-Number(directions.has('down')))*Number($('heave-level').value)};
+}
+function paintAxes(){
+ const a=axes();$('control-axis-value').textContent=`前后 ${a.surge} · 转向 ${a.yaw} · 浮沉 ${a.heave}`;
+ all('[data-axis]').forEach(button=>button.classList.toggle('held',Array.from(held.values()).includes(button.dataset.axis)));
+}
+function clearInputs(){held.clear();++motionEpoch;targetDirty=false;paintAxes();}
+function updateControls(){
+ const ready=canDrive(),a=state?.attitude_control||{};
+ all('[data-axis], [data-mode]').forEach(button=>button.disabled=!ready);
+ $('connect').disabled=connecting||busy||otaActive||(!session&&(!online||state?.wifi_control_allowed!==true||state?.control_protocol!==1));
+ $('connect').textContent=connecting?'正在连接…':session?'全停并断开':'连接遥控 ↗';
+ $('session-state').textContent=session?'Wi-Fi 控制会话已连接':'使用当前网页登录授权';
+ $('stop').disabled=$('global-stop').disabled=!session||busy||otaActive;
+ const pidSupported=state?.attitude_control_supported&&a.yaw_pid_supported;
+ ['pid-kp','pid-ki','pid-kd','pid-apply'].forEach(id=>$(id).disabled=!ready||!pidSupported);
+ $('pid-read').disabled=!a.pid||!pidSupported||otaActive||busy;
+ const fresh=a.body_valid&&a.heading_valid&&Number.isFinite(a.age_ms)&&a.age_ms<=a.maximum_age_ms;
+ $('attitude-toggle').disabled=!ready||!state?.attitude_control_supported||(!a.enabled&&(!a.yaw_calibrated||!fresh));
+ $('attitude-toggle').textContent=a.enabled?'关闭辅助':'开启辅助';
+ $('attitude-toggle').classList.toggle('primary',!!a.enabled);
+ $('upload').disabled=!fileReady||!online||otaActive||connecting||busy;
+ $('firmware').disabled=otaActive||busy;
+ let hint='连接遥控后，可使用按键或触控驾驶。',bad=false;
+ if(otaActive)hint='正在更新固件，等待设备完成写入。';
+ else if(!online){hint=state?'状态读取失败，显示上次快照；命令状态请重新确认。':'等待设备状态，连接后即可遥控。';bad=!!state;}
+ else if(state?.ota_locked){hint='设备处于固件维护状态，运动控制已锁定。';bad=true;}
+ else if(state?.output_fault||state?.output_recovery){hint=state.output_fault?errors.output_fault:errors.output_recovery;bad=true;}
+ else if(state?.lora?.healthy)hint='LoRa 正在主控；Wi-Fi 保留全停功能，方向与调参暂不可用。';
+ else if(session)hint='Wi-Fi 遥控已就绪。按住方向移动，松开归零。';
+ message('control-hint',hint);$('control-notice').dataset.tone=bad?'bad':'';
+}
+async function jsonRequest(url,options={}){
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),2000);
+ try{
+  const response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,signal:controller.signal});
+  const text=await response.text();let data;
+  try{data=JSON.parse(text);}catch{throw Error(response.ok?'设备返回的数据格式无效':`HTTP ${response.status}`);}
+  if(!response.ok){const error=Error(errors[data.error]||data.error||`HTTP ${response.status}`);error.code=data.error;throw error;}
+  return data;
+ }finally{clearTimeout(timeout);}
+}
+function command(action,payload={},epoch=motionEpoch){
+ const owner=session;
+ const task=queue.then(async()=>{
+  if(!owner||owner!==session||(action==='target'&&epoch!==motionEpoch))return null;
+  if(sequence>=0xffffffff){session='';throw Error('控制序号已用尽，请重新连接');}
+  const reply=await jsonRequest('/api/v1/control',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({action,session:owner,sequence:++sequence,...payload})});
+  if(reply.accepted!==true||reply.session!==owner)throw Error('设备未确认控制命令');
+  return reply;
+ });
+ queue=task.catch(()=>{});return task;
+}
+function controlError(error){
+ clearInputs();
+ if(['invalid_password','control_session_changed','stale_sequence'].includes(error.code))session='';
+ message('command-feedback',`命令未确认：${error.name==='AbortError'?'连接超时':error.message}。`,true);
+ updateControls();
+}
+async function sendAxes(){
+ if(!session||!online||busy||otaActive)return;
+ if(targetInFlight){targetDirty=true;return;}
+ targetInFlight=true;targetDirty=false;
+ try{await command('target',{axes:axes()});}catch(error){controlError(error);}
+ finally{targetInFlight=false;if(targetDirty){targetDirty=false;sendAxes();}}
+}
+function changeInput(key,direction){
+ if(direction){if(!canDrive())return;held.set(key,direction);}else if(!held.delete(key))return;
+ ++motionEpoch;paintAxes();sendAxes();
+}
+async function stop(){
+ if(!session||otaActive||busy)return;
+ clearInputs();busy=true;updateControls();
+ try{const reply=await command('stop');if(reply)message('command-feedback','全停已确认，航向辅助已关闭。');}
+ catch(error){controlError(error);}
+ finally{busy=false;updateControls();}
+}
+async function connect(){
+ if(connecting||busy||otaActive)return;
+ if(session){await stop();session='';clearInputs();updateControls();return;}
+ connecting=true;updateControls();
+ try{
+  const values=new Uint32Array(4);crypto.getRandomValues(values);
+  const candidate='web-'+Array.from(values,value=>value.toString(16)).join('');
+  const reply=await jsonRequest('/api/v1/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'acquire',session:candidate})});
+  if(reply.accepted!==true||reply.session!==candidate)throw Error('设备未确认控制会话');
+  session=candidate;sequence=reply.sequence||0;connectedAt=Date.now();clearInputs();
+  message('command-feedback','控制会话已连接。LoRa 健康时仍保持主控优先。');
+ }catch(error){controlError(error);}
+ finally{connecting=false;updateControls();}
+}
+async function operate(action,payload={},resultId='command-feedback'){
+ if(!canDrive())return;
+ busy=true;updateControls();
+ try{
+  if(action==='mode'){clearInputs();await command('stop');}
+  const reply=await command(action,payload);
+  if(reply){
+   if(action==='yaw_pid'){pendingPid=payload.pid;message(resultId,'参数已下发，等待设备回读确认…');}
+   else message(resultId,action==='mode'?'模式已下发，等待设备回读。':action==='attitude_on'?'已请求开启航向辅助。':'已请求关闭航向辅助。');
+  }
+ }catch(error){controlError(error);if(resultId!=='command-feedback')message(resultId,error.message,true);}
+ finally{busy=false;updateControls();}
+}
+function loadPid(){
+ const p=state?.attitude_control?.pid;
+ if(!p||!['kp','ki','kd'].every(key=>Number.isFinite(p[key])))return;
+ for(const key of ['kp','ki','kd'])$('pid-'+key).value=p[key];
+ pidLoaded=true;pidDirty=false;message('pid-result','已读取当前设备参数。');
+}
+function selectTab(name){
+ if(held.size)stop();activeTab=name;
+ all('[data-tab]').forEach(button=>{const selected=button.dataset.tab===name;button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;$('panel-'+button.dataset.tab).hidden=!selected;});
+}
+function vector(sample,unit){return sample?.valid?`${number(sample.x)}, ${number(sample.y)}, ${number(sample.z)} ${unit}（${sample.age_ms} ms）`:'尚未收到有效数据';}
+function paintMotor(side,value){
+ $(side+'-motor').textContent=`${number(value)}%`;
+ const v=Number.isFinite(value)?Math.max(-100,Math.min(100,value)):0,bar=$(side+'-motor-bar');
+ bar.style.width=`${Math.abs(v)/2}%`;bar.style.left=`${v<0?50+v/2:50}%`;
+}
+function render(s){
+ const a=s.attitude_control||{},i=s.imu||{},f=s.last_written||{},r=s.command_result||{},l=s.lora||{};
+ const fresh=!!(a.body_valid&&Number.isFinite(a.age_ms)&&a.age_ms<=a.maximum_age_ms),heading=fresh&&a.heading_valid;
+ $('source-value').textContent={wifi:'Wi-Fi',lora:'LoRa',failsafe:'故障处理',none:'待机'}[s.source]||'—';
+ $('mode-value').textContent=modes[s.mode]||'—';
+ $('yaw-value').textContent=heading?number(a.body_yaw_deg):'—';
+ $('roll-value').textContent=fresh?number(a.body_roll_deg):'—';
+ $('pitch-value').textContent=fresh?number(a.body_pitch_deg):'—';
+ $('heading-value').textContent=heading?number(a.body_yaw_deg):'—';
+ $('fish-heading').style.transform=heading?`rotate(${a.body_yaw_deg}deg)`:'none';
+ $('fish-heading').style.opacity=heading?'1':'.25';
+ const seconds=Math.floor((s.uptime_ms||0)/1000);$('uptime-value').textContent=Number.isFinite(s.uptime_ms)?`${String(Math.floor(seconds/3600)).padStart(2,'0')}:${String(Math.floor(seconds/60)%60).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`:'—';
+ $('imu-state').textContent=fresh?'数据有效':i.angles_deg?.valid?'原始数据有效':'等待有效数据';badge('imu-badge',fresh?'good':'');
+ $('attitude').textContent=s.attitude_control_supported?(a.enabled?(reasons[a.reason]||'等待状态'):'已关闭'):'此固件尚未提供';
+ $('heading-target').textContent=a.heading_locked?`${number(a.heading_target_deg)}°`:'未锁定';
+ const safety={WAIT_COMMAND:'待机就绪',RUNNING:'运行中',SOFT_STOPPING:'缓停中',OUTPUT_WARNING:'输出告警',OUTPUT_RECOVERY:'输出恢复中',OUTPUT_FAULT:'输出故障锁定',OTA:'固件维护',OTA_LOCKED:'固件维护',MAINTENANCE:'固件维护',STOPPING:'缓停中',LEASE_EXPIRED:'指令超时'};
+ $('safety-value').textContent=s.output_fault?'输出故障锁定':s.output_recovery?'输出恢复中':s.output_warning?'输出告警':s.ota_locked?'固件维护':safety[s.safety_state]||s.safety_state||'—';
+ paintMotor('left',f.left_motor_pct);paintMotor('right',f.right_motor_pct);
+ for(const [id,key] of [['tail-front','tail_front_deg'],['tail-rear','tail_rear_deg'],['fin-left','pectoral_left_deg'],['fin-right','pectoral_right_deg']])$(id).textContent=number(f[key])+'°';
+ $('imu').textContent=`串口：${i.uart_ready?'已初始化':'未就绪'}${i.baud?' · '+i.baud+' bps':''}\n加速度：${vector(i.acceleration_g,'g')}\n角速度：${vector(i.angular_velocity_dps,'°/s')}\n原始姿态：${vector(i.angles_deg,'°')}\n有效帧 ${i.frames??'—'} · 校验错误 ${i.checksum_errors??'—'}`;
+ $('command-result').textContent=(r.available?`LoRa 命令：${r.result} · 序号 ${r.sequence}\n`:'')+`LoRa 接收 ${l.accepted??'—'} · 拒绝 ${l.rejected??'—'}\nWi-Fi 接收 ${s.wifi?.accepted??'—'} · 拒绝 ${s.wifi?.rejected??'—'}`;
+ all('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.mode)===s.mode)));
+ if(a.pid&&['kp','ki','kd'].every(key=>Number.isFinite(a.pid[key]))){
+  $('pid-current').textContent=`设备回读 · Kp ${a.pid.kp} / Ki ${a.pid.ki} / Kd ${a.pid.kd}`;
+  if(!pidLoaded&&!pidDirty)loadPid();
+  if(pendingPid&&['kp','ki','kd'].every(key=>Math.abs(a.pid[key]-pendingPid[key])<.0005)){pendingPid=null;pidDirty=false;message('pid-result','参数已生效，设备回读确认。');}
+ }else $('pid-current').textContent='当前固件尚未提供航向 PID 参数。';
+ message('last-sync',`快照已更新 · ${new Date().toLocaleTimeString('zh-CN',{hour12:false})} · 500 ms 轮询`);
+}
+async function readIdentity(){
+ const info=await jsonRequest('/get_ip');
+ $('firmware-version').textContent=info.version?'v'+info.version:'版本未知';
+ return info;
+}
 async function poll(){
  try{
-  const response=await fetch('/motion_status',{cache:'no-store'});if(!response.ok)throw Error(`HTTP ${response.status}`);
-  const s=await response.json(),r=s.command_result||{},l=s.lora||{},f=s.last_written||{},i=s.imu||{};
-  $('connection').textContent=`Wi-Fi 已连接 · ${modes[s.mode]||'未知模式'} · ${s.safety_state||'未知状态'}`;
-  $('command-result').textContent=(r.available?`来源 ${r.source} · 序号 ${r.sequence} · 命令 ${r.code}\n结果：${r.result}\n`:'尚未收到命令\n')+`LoRa 接收：${l.accepted||0} · 拒绝：${l.rejected||0} · 重复：${l.duplicates||0}\n最近成功回执：${l.last_ack||'—'}`;
-  $('outputs').textContent=`前尾 ${number(f.tail_front_deg)}° · 后尾 ${number(f.tail_rear_deg)}°\n左鳍 ${number(f.pectoral_left_deg)}° · 右鳍 ${number(f.pectoral_right_deg)}°\n左桨 ${number(f.left_motor_pct)}% · 右桨 ${number(f.right_motor_pct)}%\n输出故障：${s.output_fault?'锁定':s.output_recovery?'恢复中':s.output_warning?'告警':'无'}`;
-  $('imu').textContent=`串口：${i.uart_ready?'已初始化':'未就绪'} · ${i.baud||'—'} bps\n加速度：${vector(i.acceleration_g,'g')}\n角速度：${vector(i.angular_velocity_dps,'°/s')}\n姿态角：${vector(i.angles_deg,'°')}\n有效帧 ${i.frames||0} · 校验错误 ${i.checksum_errors||0} · 接收错误 ${i.receive_errors||0}`;
-  const a=s.attitude_control||{},states={disabled:'已关闭',uncalibrated:'轴向或执行器方向未标定',waiting_motion:'当前未允许闭环（倒退或停机期间）',imu_unavailable:'没有有效 IMU 数据',imu_stale:'IMU 数据过期',invalid_sample:'IMU 数据无效',manual_pitch:'手动浮沉优先',manual_yaw:'手动转向优先',heading_unavailable:'航向暂不可用',active:'辅助生效'};
-  $('attitude').textContent=s.attitude_control_supported?`请求：${a.enabled?'开启':'关闭'} · 快照状态：${states[a.reason]||'未知'}\nyaw 纠偏范围：±${number(a.yaw_max_correction_pct)}%\n标定：俯仰 ${a.pitch_calibrated?'已确认':'未确认'} · 横滚 ${a.roll_calibrated?'已确认':'未确认'} · 航向 ${a.yaw_calibrated?'已确认':'未确认'}\n修正：俯仰 ${number(a.pitch_correction_pct)}% · 横滚 ${number(a.roll_correction_pct)}% · 偏航 ${number(a.yaw_correction_pct)}%\n相对航向目标：${a.heading_locked?number(a.heading_target_deg)+'°':'未锁定'}`:'此固件尚未提供姿态辅助';
- }catch(error){$('connection').textContent=`状态读取失败：${error.message}。下方保留上次读取结果。`;}
- setTimeout(poll,500);
+  if(otaActive)return;
+  const s=await jsonRequest('/motion_status'),previous=state;
+  state=s;online=true;
+  if(session&&((s.wifi?.session!==session&&Date.now()-connectedAt>500)||(previous&&s.uptime_ms<previous.uptime_ms))){session='';clearInputs();message('command-feedback','设备已重启或控制被接管，请重新连接遥控。',true);}
+  if(session&&s.wifi?.session===session)sequence=Math.max(sequence,s.wifi.sequence||0);
+  if(held.size&&!canDrive()){clearInputs();}
+  message('connection','Wi-Fi 已连接');badge('link-badge','good');$('telemetry').classList.remove('stale');render(s);
+  if(reboot&&(reboot.seenDown||s.uptime_ms<reboot.uptime)){
+   try{const info=await readIdentity();if(info.runtime_ready){message('ota-result',`设备已重新上线 · 当前版本 ${info.version||'未知'}${info.version===reboot.version?' · 与所选固件一致':' · 请核对所选固件版本'}`);reboot=null;}}
+   catch{/* The next regular snapshot will allow another version read. */}
+  }
+ }catch(error){
+  if(reboot)reboot.seenDown=true;
+  online=false;clearInputs();message('connection','状态读取失败');badge('link-badge','bad');$('telemetry').classList.add('stale');
+  message('last-sync',`状态读取失败：${error.name==='AbortError'?'连接超时':error.message}；下方保留上次快照。`,true);
+ }finally{updateControls();setTimeout(poll,500);}
 }
-$('upload').addEventListener('click',async()=>{
- const file=$('firmware').files[0];if(!file){$('ota-result').textContent='请先选择应用 BIN。';return;}
- $('upload').disabled=true;$('ota-result').textContent='正在全停并上传固件…';
+function imageString(bytes,offset,length){return new TextDecoder().decode(bytes.subarray(offset,offset+length)).split('\0')[0];}
+async function chooseFile(file){
+ if(otaActive)return;selectedFile=file||null;fileReady=false;fileVersion='';$('ota-progress').value=0;
+ $('file-name').textContent=file?.name||'尚未选择固件';$('file-size').textContent=file?`${(file.size/1048576).toFixed(2)} MiB`:'—';
+ message('file-version','自动检查芯片与工程标识');message('ota-result',file?'正在检查固件…':'请先选择应用 BIN。');updateControls();
+ if(!file)return;
  try{
-  const response=await fetch('/ota_upload',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
-  const text=await response.text();if(!response.ok)throw Error(text);
-  $('ota-result').textContent='固件已提交，机器鱼正在重启。重启后请重新读取状态。';
- }catch(error){$('ota-result').textContent=`升级失败：${error.message}`;}
- finally{$('upload').disabled=false;}
+  if(!/\.bin$/i.test(file.name)||file.size<288||file.size>0x330000)throw Error('请选择有效应用 BIN，大小需为 288 字节至 3.19 MiB。');
+  const bytes=new Uint8Array(await file.slice(0,288).arrayBuffer());if(selectedFile!==file)return;
+  const view=new DataView(bytes.buffer);
+  if(bytes[0]!==0xe9||view.getUint16(12,true)!==9||view.getUint32(32,true)!==0xabcd5432||imageString(bytes,80,32)!=='robotfish')throw Error('此文件不是 RobotFish ESP32-S3 应用固件。请勿选择 bootloader 或合并镜像。');
+  fileVersion=imageString(bytes,48,32);fileReady=true;
+  message('file-version',`目标版本 ${fileVersion||'未标注'} · ESP32-S3 / robotfish`);message('ota-result','固件标识检查通过，设备会在写入时继续校验镜像。');
+ }catch(error){if(selectedFile===file)message('ota-result',error.message,true);}
+ updateControls();
+}
+function uploadFirmware(file){
+ return new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest();xhr.open('POST','/ota_upload');xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.timeout=120000;
+  xhr.upload.onprogress=event=>{if(event.lengthComputable){const percent=Math.min(100,Math.round(event.loaded/event.total*100));$('ota-progress').value=percent;message('ota-result',percent===100?'上传完成，等待设备校验并写入…':`正在上传固件 ${percent}%…`);}};
+  xhr.onload=()=>{
+   let reply;try{reply=JSON.parse(xhr.responseText);}catch{}
+   if(xhr.status>=200&&xhr.status<300&&reply?.success===true){resolve();return;}
+   const raw=reply?.error||xhr.responseText||`HTTP ${xhr.status}`;
+   const known=[['Invalid application size','应用大小不符合要求'],['Expected robotfish','芯片或工程标识不匹配'],['Application exceeds','固件超过升级分区容量'],['Actuator stop not confirmed','设备未确认执行器全停，尚未写入'],['OTA transfer failed','写入中断，运动保持锁定'],['Image validation failed','镜像校验失败，运动保持锁定']].find(([key])=>raw.includes(key));
+   reject(Error(known?known[1]:errors[raw]||`设备拒绝升级：HTTP ${xhr.status}`));
+  };
+  xhr.onerror=()=>reject(Error('连接中断，升级结果未确认；设备上线后请核对版本。'));
+  xhr.ontimeout=()=>reject(Error('等待升级结果超时；设备上线后请核对版本。'));
+  xhr.onabort=()=>reject(Error('上传已中断，升级结果未确认。'));
+  xhr.send(file);
+ });
+}
+async function upload(){
+ if(!fileReady||!selectedFile||!online||otaActive||busy)return;
+ const file=selectedFile,version=fileVersion,uptime=state?.uptime_ms||0;
+ clearInputs();otaActive=true;updateControls();message('ota-result','正在提交固件，设备将自动全停…');
+ try{
+  await queue;await uploadFirmware(file);
+  $('ota-progress').value=100;session='';online=false;fileReady=false;reboot={uptime,version,seenDown:false};
+  message('ota-result','固件已提交，设备正在重启。等待重新上线并核对版本…');
+  message('connection','等待设备重启');badge('link-badge','');
+ }catch(error){message('ota-result',error.message,true);}
+ finally{otaActive=false;updateControls();}
+}
+$('connect').addEventListener('click',connect);$('stop').addEventListener('click',stop);$('global-stop').addEventListener('click',stop);
+all('[data-mode]').forEach(button=>button.addEventListener('click',()=>operate('mode',{mode:Number(button.dataset.mode)})));
+all('[data-tab]').forEach((button,index,buttons)=>{
+ button.addEventListener('click',()=>selectTab(button.dataset.tab));
+ button.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;selectTab(buttons[next].dataset.tab);buttons[next].focus();});
 });
-poll();
+all('[data-axis]').forEach(button=>{
+ button.addEventListener('pointerdown',event=>{if(event.button!==0||!canDrive())return;event.preventDefault();button.setPointerCapture(event.pointerId);changeInput('pointer:'+event.pointerId,button.dataset.axis);});
+ for(const name of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(name,event=>changeInput('pointer:'+event.pointerId,null));
+ button.addEventListener('contextmenu',event=>event.preventDefault());
+});
+const keys={w:'forward',arrowup:'forward',s:'backward',arrowdown:'backward',a:'left',arrowleft:'left',d:'right',arrowright:'right',r:'up',f:'down'};
+document.addEventListener('keydown',event=>{
+ if(event.defaultPrevented||event.target.matches('input,select,textarea')||event.target.isContentEditable||event.ctrlKey||event.altKey||event.metaKey)return;
+ if(event.key===' '&&session){event.preventDefault();if(!event.repeat)stop();return;}
+ const direction=keys[event.key.toLowerCase()];if(!direction||activeTab!=='control'||!canDrive())return;
+ event.preventDefault();if(!event.repeat)changeInput('key:'+event.key.toLowerCase(),direction);
+});
+document.addEventListener('keyup',event=>{if(keys[event.key.toLowerCase()])changeInput('key:'+event.key.toLowerCase(),null);});
+window.addEventListener('blur',()=>{if(held.size)stop();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&held.size)stop();});
+window.addEventListener('pagehide',()=>{
+ if(!session||otaActive)return;clearInputs();const owner=session;session='';
+ fetch('/api/v1/control',{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop',session:owner,sequence:++sequence})}).catch(()=>{});
+});
+setInterval(()=>{if(held.size&&canDrive())sendAxes();},200);
+for(const [input,output] of [['surge-level','surge-output'],['yaw-level','turn-output'],['heave-level','heave-output']])$(input).addEventListener('input',()=>{$(output).textContent=$(input).value+'%';if(held.size){++motionEpoch;paintAxes();sendAxes();}});
+for(const key of ['kp','ki','kd'])$('pid-'+key).addEventListener('input',()=>{pidDirty=true;});
+$('pid-read').addEventListener('click',loadPid);
+$('pid-form').addEventListener('submit',event=>{
+ event.preventDefault();if(!$('pid-form').reportValidity())return;
+ const pid=Object.fromEntries(['kp','ki','kd'].map(key=>[key,$('pid-'+key).valueAsNumber]));
+ if(!Object.values(pid).every(value=>Number.isFinite(value)&&value>=0&&value<=100)){message('pid-result','参数必须为 0–100 的有限数值。',true);return;}
+ operate('yaw_pid',{pid},'pid-result');
+});
+$('attitude-toggle').addEventListener('click',()=>operate(state?.attitude_control?.enabled?'attitude_off':'attitude_on'));
+$('firmware').addEventListener('change',()=>chooseFile($('firmware').files[0]));$('upload').addEventListener('click',upload);
+for(const name of ['dragenter','dragover'])$('upload-zone').addEventListener(name,event=>{event.preventDefault();if(!otaActive)$('upload-zone').classList.add('drag');});
+for(const name of ['dragleave','drop'])$('upload-zone').addEventListener(name,event=>{event.preventDefault();$('upload-zone').classList.remove('drag');if(name==='drop'&&!otaActive)chooseFile(event.dataTransfer.files[0]);});
+updateControls();readIdentity().catch(()=>{$('firmware-version').textContent='版本暂不可用';});poll();
 </script>
+</body>
 </html>

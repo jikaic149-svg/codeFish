@@ -132,7 +132,7 @@ Result allocate(const Request &input, const Recipe &recipe,
     request.allowFlowAssist = false;
     result.unsupportedReverse = true;
     result.limitedReasons |= ReverseUnsupported;
-  } else if (request.enabled && backward) {
+  } else if (request.enabled && backward && !request.fixedCalibration) {
     // Prop/Hybrid reverse is provided by the reversible props. A static tail
     // steering law in reversed flow has not been calibrated for this machine.
     request.tailEnabled = false;
@@ -238,6 +238,10 @@ Result allocate(const Request &input, const Recipe &recipe,
   }
   const auto tail = device::tail::allocate(request, recipe.tail, geometry, lastCommitted,
       result.phaseRad, state.tailAmplitudeDegrees, state.tailBiasDegrees, slewMs);
+  result.tailDrivePercent = request.enabled && request.tailEnabled && tailDriveActive ? request.tailDrivePercent : 0;
+  result.tailBiasPercent = request.enabled && request.tailEnabled ? tailYaw : 0;
+  result.tailFrequencyHz = motion.frequencyHz;
+  result.tailAmplitudeDegrees = state.tailAmplitudeDegrees;
   const auto propulsion = device::propulsion::allocate(request, recipe.propulsion, lastCommitted, slewMs,
       state.propulsionDirection == 0 ? 1 : state.propulsionDirection);
   const auto pectoral = device::pectoral::allocate(request, recipe.pectoral, geometry, lastCommitted,
@@ -268,6 +272,7 @@ Result allocate(const Request &input, const Recipe &recipe,
   if (!validHistory(result.targetFrame, geometry) || !validHistory(result.candidateFrame, geometry)) {
     result.targetFrame = result.candidateFrame = neutralFrame(geometry);
     result.commonPropulsionPercent = result.differentialPropulsionPercent = result.tailLoad = 0;
+    result.tailDrivePercent = result.tailBiasPercent = result.tailFrequencyHz = result.tailAmplitudeDegrees = 0;
     result.pectoralCorrectionScale = 1;
     result.limitedReasons |= InvalidInput;
   }

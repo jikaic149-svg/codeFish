@@ -5,12 +5,24 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from vision_service import VisionService, WORKSPACE
 
 
 class VisionServiceTests(unittest.TestCase):
+    def test_camera_scan_uses_vision_environment_and_leaves_running_capture_alone(self):
+        service=VisionService()
+        cameras={'cameras':[{'index':2,'width':1280,'height':720}]}
+        with patch('vision_service.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(cameras))) as run:
+            self.assertEqual(service.cameras(),cameras)
+            self.assertIn('camera_sources.py',run.call_args.args[0][-1])
+            self.assertEqual(run.call_args.kwargs['timeout'],25)
+            service.process=SimpleNamespace(poll=lambda:None)
+            with self.assertRaisesRegex(RuntimeError,'停止视觉'):service.cameras()
+            self.assertEqual(run.call_count,1)
+
     def test_runtime_requires_and_selects_the_delivered_yolo_model(self):
         service=VisionService()
         self.assertTrue(service.configuration()['model_required'])
@@ -18,8 +30,11 @@ class VisionServiceTests(unittest.TestCase):
         self.assertEqual(service.model_path(None),WORKSPACE/'vision/fish_body_yolo/best.pt')
         self.assertEqual(service.model_path(''),service.model_path(None))
         self.assertTrue((WORKSPACE/'vision/observer_runtime.py').is_file())
-        self.assertTrue(service.configuration()['observation_only'])
-        self.assertNotIn('START',service.configuration()['supported_tasks'])
+        self.assertFalse(service.configuration()['observation_only'])
+        self.assertTrue({'AUTO_START','AUTO_STOP','RECORD','BINARY','CLAHE','VIEW','THRESHOLD'}.issubset(service.configuration()['supported_tasks']))
+        self.assertFalse({'START','STOP'} & set(service.configuration()['supported_tasks']))
+        for task in ('START','STOP'):
+            with self.assertRaises(ValueError):service.action({'task':task})
         with self.assertRaises(ValueError):service.model_path('../outside.pt')
 
     def test_reader_preserves_final_recording_status_after_process_exit(self):

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
 set(IDF_TARGET esp32s3 CACHE STRING "Target")
-set(PROJECT_VER "2.7.0-heading-target")
+set(PROJECT_VER "2.7.4-web-console")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(robotfish)

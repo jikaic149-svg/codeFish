@@ -102,12 +102,12 @@ class WorkstationTests(unittest.TestCase):
         client=SimpleNamespace(is_robotfish=lambda host:True,
             control_binding=lambda host,radio_session=None:'connected-session',
             motion_control=lambda *args,**kwargs:dict(accepted=True),
-            robot=lambda host:dict(motion={'mode':3},attitude_control={'enabled':False,'heading_target_supported':True}))
+            robot=lambda host:dict(motion={'mode':3},attitude_control={'enabled':False,'heading_target_supported':True,'heading_tail_guidance_supported':True}))
         return station,client
 
     def test_prepare_uses_existing_session_and_manual_takeover_revokes_vision(self):
         station,client=self.setup_client();calls=[]
-        view=dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True})
+        view=dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True,'heading_tail_guidance_supported':True})
         client.robot=lambda host:view
         def command(*args,**kwargs):
             calls.append((args,kwargs))
@@ -118,9 +118,9 @@ class WorkstationTests(unittest.TestCase):
         with patch('station.device_client.CLIENT',client):
             result=station.prepare_vision('vision-test',1)
             self.assertTrue(result['ready'])
-            self.assertEqual([args[1] for args,_ in calls],['mode'])
+            self.assertEqual([args[1] for args,_ in calls],['stop','mode'])
             self.assertTrue(all(args[2]=='connected-session' for args,_ in calls))
-            self.assertEqual(calls[0][1]['mode'],3)
+            self.assertTrue(calls[0][1]['via_wifi']);self.assertEqual(calls[1][1]['mode'],3)
             station.vision_command('heading_target',dict(heading_cw_deg=-5,surge_pct=10),'vision-test',2)
             station.target(dict(surge=0,yaw=0,heave=0),'manual-page',1,'auto')
             with self.assertRaises(device_client.DeviceError):
@@ -128,11 +128,11 @@ class WorkstationTests(unittest.TestCase):
 
     def test_prepare_waits_for_mode_readback_and_preserves_onboard_angle_loop(self):
         station,client=self.setup_client();calls=[]
-        client.robot=lambda host:dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True})
+        client.robot=lambda host:dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True,'heading_tail_guidance_supported':True})
         client.motion_control=lambda *args,**kwargs:calls.append(args[1]) or dict(queued=True)
         with patch('station.device_client.CLIENT',client):
             self.assertFalse(station.prepare_vision('vision-test',1)['ready'])
-        self.assertEqual(calls,['mode'])
+        self.assertEqual(calls,['stop','mode'])
         self.assertFalse(station.vision_sessions)
 
     def test_pid_tuning_preserves_mission_and_manual_mode_stops_the_native_goal(self):
@@ -144,7 +144,7 @@ class WorkstationTests(unittest.TestCase):
             self.assertIn('vision-test',station.vision_sessions)
             station.vision_command('heading_target',dict(heading_cw_deg=20,surge_pct=30),'vision-test',2)
             station.configure_control('mode',2,'manual',2)
-            self.assertEqual(calls,['yaw_pid','heading_target','stop','mode'])
+            self.assertEqual(calls,['stop','yaw_pid','heading_target','stop','mode'])
             self.assertFalse(station.vision_sessions)
 
     def test_old_firmware_cannot_be_prepared_or_switched_to_a_new_mode(self):
@@ -162,6 +162,14 @@ class WorkstationTests(unittest.TestCase):
             result=station.vision_telemetry()
         self.assertTrue(result['valid']);self.assertAlmostEqual(result['sample_time'],9.9)
         self.assertEqual(result['yaw_cw_deg'],25.)
+
+    def test_measured_speed_cannot_start_with_old_heading_allocation(self):
+        station,client=self.setup_client();calls=[]
+        client.robot=lambda host:dict(motion={'mode':3},attitude_control={'heading_target_supported':True})
+        client.motion_control=lambda *args,**kwargs:calls.append(args)
+        with patch('station.device_client.CLIENT',client),self.assertRaises(device_client.DeviceError):
+            station.prepare_vision('vision-test',1)
+        self.assertFalse(calls or station.vision_sessions)
 
     def test_yaw_alignment_uses_angle_timestamp_rather_than_older_rate_timestamp(self):
         station=Workstation()

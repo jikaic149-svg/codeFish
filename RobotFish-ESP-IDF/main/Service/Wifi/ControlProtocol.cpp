@@ -36,8 +36,9 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   cJSON *root = cJSON_ParseWithLengthOpts(data, length, &end, false);
   if (!root) return false;
   bool valid = cJSON_IsObject(root);
-  const char *const fields[] = {"action", "session", "sequence", "mode", "axes", "propulsion_scale", "pid", "heading_cw_deg", "surge_pct"};
-  valid = valid && uniqueFields(root, fields, 9);
+  const char *const fields[] = {"action", "session", "sequence", "mode", "axes", "propulsion_scale", "pid", "heading_cw_deg", "surge_pct",
+      "tail_drive_pct", "tail_bias_pct", "prop_surge_pct", "prop_diff_pct", "baseline"};
+  valid = valid && uniqueFields(root, fields, sizeof(fields) / sizeof(fields[0]));
   for (const char *p = end; valid && p < data + length; ++p)
     if (*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') valid = false;
   Command parsed{};
@@ -50,6 +51,11 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   const cJSON *pid = cJSON_GetObjectItemCaseSensitive(root, "pid");
   const cJSON *heading = cJSON_GetObjectItemCaseSensitive(root, "heading_cw_deg");
   const cJSON *surgeGoal = cJSON_GetObjectItemCaseSensitive(root, "surge_pct");
+  const cJSON *tailDrive = cJSON_GetObjectItemCaseSensitive(root, "tail_drive_pct");
+  const cJSON *tailBias = cJSON_GetObjectItemCaseSensitive(root, "tail_bias_pct");
+  const cJSON *propSurge = cJSON_GetObjectItemCaseSensitive(root, "prop_surge_pct");
+  const cJSON *propDiff = cJSON_GetObjectItemCaseSensitive(root, "prop_diff_pct");
+  const cJSON *baseline = cJSON_GetObjectItemCaseSensitive(root, "baseline");
   valid = valid && cJSON_IsString(action) && cJSON_IsString(session);
   if (valid) {
     const size_t size = std::strlen(session->valuestring);
@@ -66,6 +72,7 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
     else if (!std::strcmp(action->valuestring, "attitude_off")) parsed.action = Action::AttitudeOff;
     else if (!std::strcmp(action->valuestring, "yaw_pid")) parsed.action = Action::YawPid;
     else if (!std::strcmp(action->valuestring, "heading_target")) parsed.action = Action::HeadingTarget;
+    else if (!std::strcmp(action->valuestring, "calibration_target")) parsed.action = Action::CalibrationTarget;
     else valid = false;
   }
   if (valid && parsed.action != Action::Acquire) {
@@ -114,6 +121,21 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
       parsed.axes.surge=static_cast<float>(surgeGoal->valuedouble);
     }
   } else if (heading || surgeGoal) valid=false;
+  if (valid && parsed.action == Action::CalibrationTarget) {
+    valid = !axes && !propulsionScale && integer(mode, 1, 3) && axis(tailDrive) &&
+        tailDrive->valuedouble >= 0 && axis(tailBias) && axis(propSurge) && axis(propDiff) &&
+        (!baseline || cJSON_IsBool(baseline));
+    if (valid) {
+      parsed.mode = static_cast<DriveMode>(static_cast<unsigned>(mode->valuedouble));
+      parsed.calibration = {static_cast<float>(tailDrive->valuedouble), static_cast<float>(tailBias->valuedouble),
+          static_cast<float>(propSurge->valuedouble), static_cast<float>(propDiff->valuedouble), cJSON_IsTrue(baseline) != 0};
+      if (parsed.calibration.baseline) valid = parsed.mode == DriveMode::Hybrid &&
+          tailDrive->valuedouble == propSurge->valuedouble && tailBias->valuedouble == propDiff->valuedouble;
+      // Unused actuator inputs must be zero, so recorded given values match the selected trial.
+      if (parsed.mode == DriveMode::Bionic) valid = valid && propSurge->valuedouble == 0 && propDiff->valuedouble == 0;
+      if (parsed.mode == DriveMode::Prop) valid = valid && tailDrive->valuedouble == 0 && tailBias->valuedouble == 0;
+    }
+  } else if (tailDrive || tailBias || propSurge || propDiff || baseline) valid = false;
   cJSON_Delete(root);
   if (valid) command = parsed;
   return valid;

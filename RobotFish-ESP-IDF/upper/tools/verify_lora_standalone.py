@@ -60,6 +60,7 @@ def main():
         ports=[]
         with patch('device_client.CLIENT',client),patch('device_client.KEYS',keys),patch('server.KEYS',keys), \
                 patch.object(client,'discover_robotfish',return_value=None), \
+                patch.object(server.VISION,'cameras',return_value={'cameras':[{'index':2,'width':1280,'height':720}]}), \
                 patch('device_client.available_ports',side_effect=lambda:list(ports)), \
                 patch('device_client.capture_network_context',return_value=None):
             server.STATION.start()
@@ -71,6 +72,7 @@ def main():
                     page.on('pageerror',lambda error:errors.append(str(error)))
                     page.goto(f'http://127.0.0.1:{web.server_port}')
                     page.wait_for_function('localRadio.sent === 0 && !autoConnectPending')
+                    page.wait_for_function('!cameraScanning && $("vision-camera-index").value === "2"')
                     assert page.locator('#lora-control-state').is_visible()
                     assert page.locator('[data-axis=forward]').is_disabled()
                     page.locator('#lora-open-settings').click()
@@ -119,12 +121,27 @@ def main():
                     # This legacy branch explicitly exercises strict radio-only mode.
                     page.locator('#control-source').select_option('lora')
                     page.wait_for_function('!controlConfigPending && localRadio.control_transport === "lora"')
-                    assert page.locator('#lora-control-state').inner_text()=='LoRa 已连接 · COM119'
+                    assert page.locator('#lora-control-state').inner_text()=='LoRa 发送端已打开 · COM119'
                     assert page.locator('#wifi-telemetry-state').inner_text()=='Wi-Fi 遥测未连接'
                     assert page.locator('#control-stop').is_enabled()
                     page.locator('#robot-control-mode').select_option('2')
                     page.wait_for_function('!controlConfigPending && localRadio.mode === 2')
                     wait_frame(page,uart,lambda f:f[0]==101 and f[4:6]==[22,2])
+                    # A slow Wi-Fi connection must not hold the LoRa command queue.
+                    page.evaluate('''host=>{
+                        $('robot-host').value=host;
+                        const original=service;
+                        window.originalSlowService=original;
+                        service=(path,body)=>path==='device/auto-connect'?new Promise((resolve,reject)=>{window.rejectSlowConnect=reject;}):original(path,body);
+                        autoConnect(true);
+                    }''',host)
+                    page.wait_for_function('typeof window.rejectSlowConnect === "function"')
+                    start=len(uart.writes);page.evaluate('document.activeElement.blur()');page.keyboard.down('w')
+                    wait_frame(page,uart,lambda f:f[0]==101 and f[4]==20 and f[6]==350,start)
+                    assert page.evaluate('autoConnectPending'), 'Radio waited for Wi-Fi connection to finish'
+                    page.keyboard.up('w')
+                    page.evaluate('service=window.originalSlowService;window.rejectSlowConnect(new Error("Synthetic slow Wi-Fi connection"))')
+                    page.wait_for_function('!autoConnectPending')
                     page.evaluate('document.activeElement.blur()')
                     for key in ('w','d','r'):page.keyboard.down(key)
                     wait_frame(page,uart,lambda f:f[0]==101 and f[4:9]==[20,2,350,400,1000])
@@ -160,6 +177,7 @@ def main():
                     page.evaluate("$('connection-advanced').open=true")
                     page.locator('#robot-host').fill(host)
                     page.wait_for_function('robotIdentity?.firmware === "robotfish" && !modePending')
+                    assert page.locator('#control-video-start').is_enabled(), 'S3 profile disabled the external preview'
                     assert page.locator('#lora-config').is_visible(), 'S3 profile hid the radio panel'
                     page.locator('#robot-refresh').click()
                     page.wait_for_function('robotState?.online && !autoConnectPending && localRadio.control_transport === "lora"')
@@ -177,6 +195,8 @@ def main():
                     wait_frame(page,uart,lambda f:f[0]==101 and f[4]==20 and f[6:9]==[350,-400,0],start)
                     assert page.locator('[data-axis=forward]').is_enabled()
                     assert page.locator('#wifi-telemetry-state').inner_text()=='Wi-Fi 遥测未连接'
+                    assert page.locator('#robot-device-badge').inner_text()=='RobotFish 遥测已断线'
+                    assert '鱼端状态未知' in page.locator('#lora-control-detail').inner_text()
                     page.keyboard.up('w');page.keyboard.up('a')
                     wait_frame(page,uart,lambda f:f[0]==101 and f[4]==20 and f[6:9]==[0,0,0],start)
 

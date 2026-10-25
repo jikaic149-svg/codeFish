@@ -1,8 +1,38 @@
 {
   "units": "World x right/y down; heading CCW positive; raw body IMU yaw CW positive. Speed m/s; PID outputs percent.",
-  "model": {"imgsz": 960, "confidence": 0.25},
+  "model": {
+    "imgsz": 960,
+    "confidence": 0.25
+  },
   "feedback_max_age_s": 0.35,
-  "camera_latency_s": 0.30,
-  "speed": {"reference_mps": 0.36, "kp": 60.0, "ki": 30.0, "kd": 4.0, "integral_limit": 20.0, "max_speed_mps": 0.8},
-  "guidance": {"lookahead_m": 0.24, "min_lookahead_m": 0.10, "cross_track_gain": 1.2, "cruise_speed_mps": 0.30, "min_speed_mps": 0.05}
+  "camera_latency_s": 0.3,
+  "speed": {
+    "profile_file": "measured_dynamics_20261025.json",
+    "reference_mps": 0.5,
+    "kp": 60.0,
+    "ki": 10.0,
+    "kd": 6.0,
+    "integral_limit": 12.0,
+    "max_speed_mps": 0.8
+  },
+  "guidance": {
+    "lookahead_m": 0.5,
+    "min_lookahead_m": 0.35,
+    "cross_track_gain": 0.6,
+    "full_attraction_error_m": 0.4,
+    "curve_preview_m": 0.5,
+    "cruise_speed_mps": 0.1,
+    "min_speed_mps": 0.04
+  },
+  "curve_speed": {
+    "enabled": false,
+    "profile_file": null,
+    "gentle_speed_mps": 0.07,
+    "tight_speed_mps": 0.045,
+    "simplify_tolerance_m": 0.02,
+    "max_rounding_offset_m": 0.15
+  },
+  "trace_validation": {
+    "enabled": true
+  }
 }

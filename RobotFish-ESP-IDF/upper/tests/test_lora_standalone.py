@@ -17,6 +17,20 @@ from test_robotfish import MOTION
 
 
 class StandaloneRadioTests(unittest.TestCase):
+    def test_direction_change_uses_next_250ms_slot_without_waiting_for_renewal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client,now=self.client(directory);client.configure_lora('',port='COM28');link=client.lora
+            link.submit('','target',dict(mode=3,axes={'surge':35,'yaw':-40,'heave':0}));link.step()
+            first=link.sequence
+            now[0]=.10;link.submit('','target',dict(mode=3,axes={'surge':35,'yaw':40,'heave':0}));link.step()
+            self.assertEqual(link.sequence,first)
+            now[0]=.249;link.step();self.assertEqual(link.sequence,first)
+            now[0]=.25;link.step()
+            self.assertEqual(wire(link.serial.writes[-1])[6:8],[350,400])
+            self.assertEqual(link.sequence,first+1)
+            now[0]=.26;link.submit('','stop',{'mode':3});link.step()
+            self.assertEqual(wire(link.serial.writes[-1])[4],17);link.close()
+
     def test_selected_radio_never_sends_wifi_control_even_when_receiver_unhealthy(self):
         with tempfile.TemporaryDirectory() as directory:
             client,now=self.client(directory)
