@@ -2,13 +2,13 @@
 
 完整配置、接线、烧录、测试和操作经过：[LoRa 与 IMU 配置及操作记录](docs/lora-imu-setup-and-test.md)。
 
-当前源码版本 **2.7.4-web-console**，运行于单块 XIAO ESP32-S3。手动命令以 **LoRa 为主、认证 Wi-Fi 为备用**，画线自动循迹使用 **Wi-Fi**，命令结果、执行器状态和 JY61P 数据通过 **Wi-Fi HTTP 回传**；OTA 继续使用 Wi-Fi。S3 本地 yaw PID 支持指定航向、静止和前进保持，默认 Kp/Ki/Kd 为 **2.5 / 0.02 / 0.1**，死区 **±1°**，角度环转向分配增益 **1.5**，纠偏范围 **±100%**，保留用户最终确认正确的原极性 **+1**。闭环上电默认关闭，pitch／roll 仅预览。完整参数与行为见[姿态控制说明](docs/attitude-control.md)。
+当前源码版本 **2.7.7-steering-priority**，运行于单块 XIAO ESP32-S3。手动命令以 **LoRa 为主、认证 Wi-Fi 为备用**，画线自动循迹使用 **Wi-Fi**，命令结果、执行器状态和 JY61P 数据通过 **Wi-Fi HTTP 回传**；OTA 继续使用 Wi-Fi。S3 本地 yaw PID 支持指定航向、静止和前进保持，默认 Kp/Ki/Kd 为 **2.5 / 0.02 / 0.1**，死区 **±1°**，角度环转向分配增益 **1.5**，纠偏范围 **±100%**，保留用户最终确认正确的原极性 **+1**。闭环上电默认关闭，pitch／roll 仅预览。完整参数与行为见[姿态控制说明](docs/attitude-control.md)。
 
-最新应用固件：[RobotFish-ESP32S3-2.7.4-web-console.bin](artifacts/RobotFish-ESP32S3-2.7.4-web-console.bin)，961232 字节，SHA256：`cbb061c9b4466d3c84b411aca39f8ce94d73e2e139ab962fe3c4f2e1f08b720c`。本次上传不自动烧录或启用实鱼闭环；`2.6.4-yaw-sign` 反向对照版已按用户确认撤回。
+最新应用固件：[RobotFish-ESP32S3-2.7.7-steering-priority.bin](artifacts/RobotFish-ESP32S3-2.7.7-steering-priority.bin)，961600 字节，SHA256：`20f9f9b30a8958f76242afb09858262b198db965f78295bbe6da05498c612e59`。本次上传不自动烧录或启用实鱼闭环；`2.6.4-yaw-sign` 反向对照版已按用户确认撤回。
 
 上位机入口为 `upper/start.cmd`；视觉默认加载 [黑色机器鱼 best.pt](vision/fish_body_yolo/best.pt)，检测与数据来源见[模型说明](vision/fish_body_yolo/README.md)。仓库保留源码、测试、模型和当前应用固件，本地录像、日志、训练中间文件、旧固件／硬件备份及个人运行数据不随本次提交上传。
 
-当前上位机为 `workstation-32-measured-tracking`：画线循迹默认0.10m/s，PC使用实测双桨推进前馈加视觉速度PID，S3使用本地IMU控制鱼尾静态攻角；循迹的尾摆推进、桨差动默认均为0。原角度PID保持2.5／0.02／0.1、±1°死区和1.5尾偏置增益。动力参考取自用户32段实验中两段纯桨直行的末2秒记录，明确是仍在加速的参考值；低速使用零点至首档推定和速度反馈，不宣称已经完成水中整定。须升级含此分配能力的固件并重开 `upper/start.cmd`。独立动力测试页内含实时画面、选鱼与鱼头自动置零，复用既有四角；场地固定3×1.6m，高度2.67m。终端记录实测前馈、实际分配及一秒位移速度。完整操作和边界见[循迹说明](docs/vision-control.md)与[动力测试说明](docs/dynamics-calibration.md)。
+当前上位机为 `workstation-36-steering-priority`：画线循迹默认0.12m/s，前向量同时给双桨和摆尾（1∶1指令比例，不代表推力份额）；IMU角度PID只叠加尾偏置，差动保持0，收油时周期摆尾归零。保留2.7.6的1.5倍目标摆幅；2.7.7在关节行程不足时优先保留转向偏置，剩余行程用于摆动，避免大摆幅挤掉转向量。推进20%、满转向时，前节名义偏置24°、半摆幅8°，仍受原速率约束。原角度PID、死区和尾偏置增益保持。速度前馈使用10+10／15+15／20+20三段混合推进参考，并保留速度反馈；该数据来自加大摆幅之前，新版仍需水测。须更新2.7.7固件并重开 `upper/start.cmd`。动力测试页顶部直接提供摆尾联合推进和静态尾角对照入口，内含实时画面、选鱼与鱼头自动置零。完整操作和边界见[循迹说明](docs/vision-control.md)与[动力测试说明](docs/dynamics-calibration.md)。
 
 早期 USB 实机记录的固件为 **2.3.2-lora-imu**，目标为 COM26（MAC `e8:f6:0a:8b:38:e4`），当时按用户要求仅使用 Type-C 串口做实机测试，不更换电脑 Wi-Fi。JY61P 已按实际 **115200/8N1** 接入，三轴有效输出及手动转动响应已确认；LoRa 已在软件内交换 TX/RX 分配以适配现有接线，定点接收 10/10 通过。历史记录见 `validation/lora-imu-usb-20261022.json`，对应诊断镜像为 `artifacts/RobotFish-ESP32S3-OTA-20261022-200659.bin`。这些结果不代表新版姿态控制已经上板验收。
 

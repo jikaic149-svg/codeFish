@@ -181,8 +181,9 @@ static void headingStep(const MotionSnapshot &s) {
   if(now==700) check(s.control.headingTargetActive && s.attitude.yawActive &&
       std::abs(s.attitude.headingTargetDegrees+20)<.01f && s.attitude.yawD==0,
       "moving reference changes native target without setpoint derivative kick");
-  if(now==900) check(s.control.lastMotionMs==600 && s.attitude.yawActive && s.attitude.yawCorrectionPercent<0,
-      "local angle PID keeps running between PC updates");
+  if(now==900) check(s.control.lastMotionMs==600 && s.attitude.yawActive && s.attitude.yawCorrectionPercent<0 &&
+      s.allocation.tailDrivePercent==25 && s.allocation.tailFrequencyHz>0 && s.allocation.tailAmplitudeDegrees>0,
+      "local angle PID and forward tail gait keep running between PC updates");
   if(now==1100) check(!s.control.headingTargetActive && s.attitude.manualYaw && !s.attitude.yawActive,
       "manual yaw overrides the streamed reference through the actual owner");
   if(now>=1240 && now<1400) check(s.control.headingTargetActive && s.attitude.yawActive &&

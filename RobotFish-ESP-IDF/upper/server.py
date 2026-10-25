@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
-REVISION = 'workstation-32-measured-tracking'
+REVISION = 'workstation-36-steering-priority'
 DYNAMICS = DynamicsControl(STATION,VISION)
 FEATURES = {'attitude_control': True, 'shutdown': True}
 # Simulator controls proxy only when explicitly requested, so a normal run

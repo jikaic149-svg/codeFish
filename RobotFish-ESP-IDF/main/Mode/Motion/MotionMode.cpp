@@ -242,6 +242,8 @@ Result allocate(const Request &input, const Recipe &recipe,
   result.tailBiasPercent = request.enabled && request.tailEnabled ? tailYaw : 0;
   result.tailFrequencyHz = motion.frequencyHz;
   result.tailAmplitudeDegrees = state.tailAmplitudeDegrees;
+  result.effectiveTailBiasDegrees = tail.effectiveBiasDegrees;
+  result.effectiveTailAmplitudeDegrees = tail.effectiveAmplitudeDegrees;
   const auto propulsion = device::propulsion::allocate(request, recipe.propulsion, lastCommitted, slewMs,
       state.propulsionDirection == 0 ? 1 : state.propulsionDirection);
   const auto pectoral = device::pectoral::allocate(request, recipe.pectoral, geometry, lastCommitted,
@@ -273,6 +275,7 @@ Result allocate(const Request &input, const Recipe &recipe,
     result.targetFrame = result.candidateFrame = neutralFrame(geometry);
     result.commonPropulsionPercent = result.differentialPropulsionPercent = result.tailLoad = 0;
     result.tailDrivePercent = result.tailBiasPercent = result.tailFrequencyHz = result.tailAmplitudeDegrees = 0;
+    result.effectiveTailBiasDegrees = result.effectiveTailAmplitudeDegrees = 0;
     result.pectoralCorrectionScale = 1;
     result.limitedReasons |= InvalidInput;
   }

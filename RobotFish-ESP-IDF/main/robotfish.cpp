@@ -104,6 +104,7 @@ void tick(uint32_t now, uint32_t elapsed) {
           request.yawPercent + snapshot.attitude.yawCorrectionPercent, -100.0f, 100.0f);
     }
     auto recipe = robofish::config::motion::makeRecipe(control.target.mode);
+    recipe.tail.amplitudeDegrees *= control.tailAmplitudeGain();
     if (control.calibrationActive && !control.calibration.baseline) {
       recipe.turnForwardReductionFraction = 0;
       recipe.propulsion.commandScale = recipe.propulsion.yawGain = 1;

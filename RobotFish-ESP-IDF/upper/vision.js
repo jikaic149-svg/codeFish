@@ -280,7 +280,11 @@ async function pollVision(){
     }
     if($('control-video-source').value==='vision')robotText('control-video-state',!visionState.running?'外部视觉未启动':visionState.ready?(visionState.source.endsWith('.mp4')?'录像回放；画面不代表控制效果。':'实时外部视觉画面'):'等待摄像头画面…');
     syncVisionParameters();renderVisionControls();updateVisionImages();
-    if(automatic||previousAutomatic)robotText('vision-task-state',visionState.result?.status||'等待自动循迹状态');
+    if(automatic||previousAutomatic){
+      const tracking=result.tracking||{},ackAge=tracking.target_ack_age_ms??(tracking.last_target_at?Date.now()-tracking.last_target_at*1000:null);
+      const warning=automatic&&Number.isFinite(ackAge)&&ackAge>1000?` ⚠ 航向目标已 ${(ackAge/1000).toFixed(1)} 秒未确认，请检查通信；停止原因：${tracking.stop_reason||tracking.pause_reason||'尚未停止'}`:'';
+      robotText('vision-task-state',(result.status||'等待自动循迹状态')+warning);
+    }
     previousAutomatic=automatic;
   }catch(error){appendVisionTerminal(null,error.message);robotText('vision-service-state',error.message);}
   finally{visionPolling=false;}

@@ -5,16 +5,21 @@
 
 // Latest F405 allocation policy, with unrelated services and safety omitted.
 namespace robofish::config::control {
-// HeadingTarget only: props provide common propulsion; tail bias steers.
-// 2026-10-25 trials found weak/inconsistent differential yaw. Keep differential
-// and periodic tail drive off until this combined recipe is measured in water.
-// Tail ratio [0,1] multiplies the PC surge, so zero surge always means zero gait.
-inline constexpr float kHeadingTailDriveRatio = 0.0f;
+// HeadingTarget only: the speed loop supplies both tail gait and common props;
+// yaw adds tail bias without increasing gait amplitude/frequency or adding a floor.
+// Equal command percentages match the measured hybrid 10/10, 15/15 and 20/20
+// recipes; they do not imply equal thrust. Ratio [0,1], zero surge means zero gait.
+inline constexpr float kHeadingTailDriveRatio = 1.0f;
+// Increase requested oscillation amplitude, independently of frequency and bias.
+// Applies to heading control and explicit HYBRID calibration (not old baseline).
+// Existing actuator travel/rate limits still bound actual joint commands.
+inline constexpr float kHybridTailAmplitudeGain = 1.5f;
+static_assert(kHybridTailAmplitudeGain >= 1 && kHybridTailAmplitudeGain <= 2);
 // Optional differential gain [0,1] and cap [0,100]%; remaining common-drive
 // headroom also limits it. Neither changes the existing yaw PID or tail gain.
 inline constexpr float kHeadingPropDiffGain = 0.0f;
 inline constexpr float kHeadingPropDiffLimitPercent = 0.0f;
-inline constexpr const char *kHeadingAllocationProfile = "prop_surge_tail_bias";
+inline constexpr const char *kHeadingAllocationProfile = "hybrid_gait_tail_bias";
 static_assert(kHeadingTailDriveRatio >= 0 && kHeadingTailDriveRatio <= 1 &&
               kHeadingPropDiffGain >= 0 && kHeadingPropDiffGain <= 1 &&
               kHeadingPropDiffLimitPercent >= 0 && kHeadingPropDiffLimitPercent <= 100);

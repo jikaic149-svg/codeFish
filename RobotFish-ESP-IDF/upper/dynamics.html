@@ -15,6 +15,7 @@
   </header>
   <main>
     <div class="page-heading"><div><p class="eyebrow">独立输出 · 分段测量</p><h1>动力测试</h1><p>开始 → 按住动作，松开全停 → 等鱼停止后完成保存。时长由你决定。</p></div><span class="badge" id="connection">正在连接本地服务</span></div>
+    <section class="card preset-entry"><div class="segmented"><button class="primary" id="test-swim" type="button">摆尾＋双桨测试 · 当前循迹配方</button><button id="test-static" type="button">静态尾角测试 · 不摆尾对照</button></div><p class="hint">点击只加载参数，不启动运动。摆尾测试默认尾摆10%＋双桨共同推进10%；2.7.6固件的联合推进目标摆幅提高50%。静态对照关闭尾摆，两者均可单独改变尾偏置。</p></section>
     <div class="work-grid">
       <section class="card controls" aria-label="本段设置">
         <div class="card-heading"><h2>本段设置</h2><span class="badge" id="phase">未开始</span></div>
@@ -25,10 +26,11 @@
           <legend class="sr-only">驱动参数</legend>
           <label>驱动方式</label><div class="segmented" id="mode"><button class="selected" type="button" data-mode="1" aria-pressed="true">鱼尾</button><button type="button" data-mode="2">双桨</button><button type="button" data-mode="3">混合</button></div>
           <label>测试动作</label><div class="segmented" id="motion"><button class="selected" type="button" data-motion="straight" aria-pressed="true">直行</button><button type="button" data-motion="left">左转</button><button type="button" data-motion="right">右转</button></div>
-          <label>快捷档位 <span>只加载数值</span></label><div class="segmented" id="level"><button class="selected" type="button" data-level="20" aria-pressed="true">20%</button><button type="button" data-level="30">30%</button><button type="button" data-level="40">40%</button></div>
-          <div id="recipe-wrap"><label>混合推进组合 <span>建议初值，尚未标定</span></label><div class="segmented" id="recipe"><button type="button" data-recipe="props">桨为主</button><button class="selected" type="button" data-recipe="balanced" aria-pressed="true">均衡</button><button type="button" data-recipe="tail">尾为主</button></div><p class="hint">比较转向能力前，先把各组合调到接近相同的实测速度。</p></div>
+          <div id="level-wrap"><label>快捷档位 <span>只加载数值</span></label><div class="segmented" id="level"><button class="selected" type="button" data-level="20" aria-pressed="true">20%</button><button type="button" data-level="30">30%</button><button type="button" data-level="40">40%</button></div></div>
+          <div id="recipe-wrap"><label>混合推进组合 <span>建议初值，尚未标定</span></label><div class="segmented" id="recipe"><button type="button" data-recipe="props">桨为主</button><button class="selected" type="button" data-recipe="balanced" aria-pressed="true">均衡</button><button type="button" data-recipe="tail">尾为主</button><button type="button" data-recipe="swim">摆尾＋双桨循迹</button><button type="button" data-recipe="static">静态尾角对照</button></div><p class="hint">比较转向能力前，先把各组合调到接近相同的实测速度。</p></div>
+          <div id="static-wrap" hidden><label>尾偏置 <span>只加载偏置，尾摆和共同推进保持不变</span></label><div class="segmented" id="static-bias"><button type="button" data-static-bias="0">0%</button><button type="button" data-static-bias="40">40%</button><button type="button" data-static-bias="60">60%</button><button type="button" data-static-bias="80">80%</button><button type="button" data-static-bias="100">100%</button></div><p class="hint" id="tail-recipe-note">桨差动固定为0。调好实际速度后保持推进不变，只扫尾偏。时长由你控制，避免触壁。</p><p class="hint"><strong>E2阶跃：</strong>先选左／右转、尾偏0，按住动作等速度稳定；按 <kbd>X</kbd> 加到±60%，按 <kbd>Z</kbd> 回到0，尾摆和双桨推进保持不变。可以人工重复；松开动作仍全停并继续记录余转，完成后用事件与CSV辨识响应时间。</p></div>
           <div class="outputs" aria-label="即将给定的输出"><div><small>尾摆</small><strong id="tail-preview">10%</strong></div><div><small>尾偏置</small><strong id="bias-preview">0%</strong></div><div><small>共同推进</small><strong id="surge-preview">10%</strong></div><div><small>差动</small><strong id="diff-preview">0%</strong></div></div>
-          <details><summary>独立输出详细参数</summary><div class="parameter-grid">
+          <details id="output-details"><summary>独立输出详细参数</summary><div class="parameter-grid">
             <label for="tail">尾部摆动强度 (%)<input id="tail" type="number" min="0" max="100" step="1" value="10"/></label>
             <label for="bias">尾部偏置 (%)<input id="bias" type="number" min="-100" max="100" step="1" value="0"/><small>正值右转，负值左转</small></label>
             <label for="surge">双桨共同推进 (%)<input id="surge" type="number" min="-100" max="100" step="1" value="10"/></label>

@@ -691,3 +691,104 @@ Read all 32 Desktop/RobotFish-Dynamics segments and the supplied analysis/out re
 HeadingTarget now separates common prop propulsion from static tail attack-angle steering. Periodic tail drive and prop differential default to zero; no yaw-driven extra propulsion, no mode changes to manual/calibration/baseline. Existing tail polarity, 1.5 gain, +/-24 degree geometry and local periods remain. Identity/status advertise heading_tail_guidance_supported and prop_surge_tail_bias. PC checks capability before preparation. Ordinary turn speed reduction remains; optional measured-radius/coast planner stays disabled because the new static-tail recipe lacks matching tests and recorded coast paths mostly end before stopping. Trace validation enabled. Corrected future calibration CSV imu_yaw_cw_deg to mapped body yaw; original sensor fields retained.
 
 Version was initially 2.7.3-tail-guidance, then concurrent on-board-console work advanced the shared source/build to 2.7.4-web-console. Preserved that work and confirmed the allocation/capability survived. Final independently validated image snapshot: artifacts/RobotFish-ESP32S3-2.7.4-measured-tracking.bin, 961232 bytes, SHA256 cbb061c9b4466d3c84b411aca39f8ce94d73e2e139ab962fe3c4f2e1f08b720c. PC revision workstation-32-measured-tracking. ESP-IDF build and image validation passed; 54 allocation/calibration, 2140 LoRa-heading and 2161 Wi-Fi-heading owner checks passed; 14 targeted PC checks passed. Legacy yaw_full test still assumes the earlier P=5 saturation threshold, unrelated to the retained P=2.5. Delivered BIN/startup before documentation. No fish commands, camera, serial or flashing; new recipe water performance is unverified.
+
+
+## 2026-10-26: continuous tracking and controlled hydrodynamic trials
+
+14:52 trace review found a PC imu_unavailable STOP at 14:51:27.823 while fish IMU remained valid. The 107-degree restart spike came from path progress reset/local projection, not an IMU flip. Active-only PC zero-power count is 1/207; did not add minimum propulsion. WebBridge keeps original timestamps during transport gaps; a bounded 250ms zero-output observation pause retains authorization and path, while persistent invalidity/manual STOP/takeover/reboot cannot resume automatically. Camera receipt freshness is separate from the estimated 300ms exposure delay; sample timestamps still drive speed derivatives and logging. ACK >1s and pause history are explicit.
+
+PathGuidance initializes from global path projection and initial heading, keeps valid progress, applies bounded curvature lookahead to the actual heading target, filters lateral error and limits heading-reference slew. Trial values: straight .12m/s, tight-curve base .05, minimum target .04; existing PID/firmware unchanged. Geometric target radius .60m is used only when it fits within .15m offset; constrained U turns keep the original path and report achieved curvature/unachievable, never silently use a tighter fillet. Actual velocity-vector projections/course/sideslip are logged; main speed feedback is unchanged.
+
+The supplied yaw_map.py adds absolute prop differential to tail bias, so its 80-percent point and 67-percent extrapolation are not single-tail-bias measurements; pure-tail drive/bias are also confounded. Added an explicit static-tail test recipe: no oscillation/differential, 0/40/60/80/100 bias presets, fixed prop common. During manual hold X/Z apply +/-60/0 bias steps without changing common propulsion; release remains full STOP and coast recording. No automatic test duration, assumed tau, or fictitious hydrodynamic envelope.
+
+Workstation revision33. 23 focused no-hardware tests plus Node tail-step invariants and syntax/diff checks passed. No camera/serial/fish commands or new firmware build. New water performance remains unverified; kinematic replay cannot establish a 10cm physical tracking error. Existing 2.7.4 image is retained.
+
+
+## 2026-10-26: restore and strengthen tail gait
+
+User explicitly corrected the static-tail interpretation: tracking must use oscillating tail propulsion as well as common prop thrust. Heading tail-drive ratio is now 1.0; yaw shifts its centre without increasing drive/frequency or restoring the 35-percent floor. Replaced pure-prop forward references with the measured 1:1 hybrid points (.05734369/.14829029/.23487840m/s at 10/15/20 percent). New nine angle-radius trials have zero tail drive, left common10/right20 and remain static references, not an oscillating-tail envelope.
+
+After the 16:53 trace (about73s continuous to arrival, median tail drive11.44%) user requested stronger motion. Final 2.7.6 adds amplitude gain1.5 to heading and explicit non-baseline HYBRID calibration; unchanged nominal frequency, bias gains, periods and mechanical/rate limits. Old baseline and static comparison retained. Source forward references were measured at gain1 and are now marked initial estimates, not verified gain1.5 calibration.
+
+Made two always-visible test entry buttons and direct #swim/#static links. Selecting them never sends motion; bias steps preserve each chosen gait/common output. PC revision35 requires the matching firmware. Final image artifacts/RobotFish-ESP32S3-2.7.6-strong-tail.bin: 961344 bytes, SHA256 94c4518c817d1c11e1e2bd5b4e0ee2179ed996dbd29fe27b004ca90880a3d110. ESP-IDF build and image validation,161 native checks,20 PC checks and JS step invariants passed. No physical commands, camera, serial or flashing; delivered first, then documented. New water response remains unverified.
+
+
+## 2026-10-26: preserve steering bias with stronger gait
+
+User confirmed the screenshot was captured after 2.7.6. Identified a deterministic joint-travel allocation conflict: front travel +/-32deg, requested full bias24deg plus gain1.5 gait at drive20% (16.77deg half-amplitude) previously scaled both, reducing bias to18.84deg. 2.7.7 gives heading and non-baseline HYBRID calibration bias priority, retaining24deg bias and8deg half-amplitude in that case. Straight gait gain1.5 remains; no new propulsion floor, PID, speed/path gains, mechanical or rate limits. Ordinary manual/pure-tail/pure-prop calibration and old baseline remain on their original allocation.
+
+Motion request preserveTailBias and result effectiveTailBiasDegrees/effectiveTailAmplitudeDegrees make the allocation explicit. Identity/status advertise heading_bias_priority_supported. Allocation telemetry effective_tail_bias_deg/effective_tail_amplitude_deg represents nominal front-joint values after travel limiting but before final angle slew, not measured servo feedback. PC revision36 requires this capability and records these fields in terminal, host telemetry and observation CSV. Path progress/segment is also recorded to distinguish future self-crossing association problems; current screenshot alone does not establish a wrong branch.
+
+ESP-IDF build and image validation passed. Image artifacts/RobotFish-ESP32S3-2.7.7-steering-priority.bin: 961600 bytes; SHA256 20f9f9b30a8958f76242afb09858262b198db965f78295bbe6da05498c612e59. Native checks:193 targeted calibration/allocation,2140 LoRa owner,2161 Wi-Fi owner,60561 existing allocation checks over51840 ticks.20 focused PC checks plus Python/JS syntax and diff whitespace checks passed. Did not start or stop services, open camera/serial, flash, or send fish commands. Existing water measurements remain reference only; new physical tracking response is unverified.
+
+## 补录：2026-10-25 Git 交付结果（时间按 UTC）
+
+范围／原因：此前记录了实测动力接入，但遗漏后续上传结果。用户明确确认将源码、测试、说明与2.7.4固件共74个文件，推送到 `jikaic149-svg/codeFish` 的 `main` 分支、`RobotFish-ESP-IDF` 子目录；排除本机标定和原始实验。
+
+最终结果：当时已按远端历史增量推送提交 `1c1e9c6947a4642f99b9428db18f7045d40787ed`，标题“融合实测动力循迹、独立标定与机载控制台”，74文件、4811行新增／326行删除；未强制覆盖历史。使用既有发布工作树 `build/git-publish-heading-observer`，保留远端其他目录。2.7.4测量循迹和机载控制台命名BIN为相同镜像，校验见前文。
+
+验证／边界：原推送完成后曾核对远端提交；本次补录只读核验发布工作树HEAD、提交统计和 `origin/main` reflog，后者明确记录 `2026-10-25 16:06:25 +0100` 的 `update by push`，即UTC 15:06:25。本次没有重新推送，也没有查询远端当前HEAD；2.7.5～2.7.7及之后的本地修改不在该提交内。原自动审批拒绝后，用户已明确确认上述目标与范围，随后完成推送；此事不是当前阻碍。
+
+## 补录：2.7.5恢复摆尾交付与水动力数据适用范围
+
+范围／原因：前文将恢复摆尾与2.7.6加大摆幅合并记录，漏记2.7.5产物。用户明确要求鱼尾同时导向和摆动推进，覆盖此前2.7.4静态尾角循迹方案；静态尾角保留为独立对照入口。
+
+最终交付：`artifacts/RobotFish-ESP32S3-2.7.5-hybrid-guidance.bin`，961216字节，SHA256 `ad137fda3acac7c362ea4525b06597659d8e78fa4c7119d3e728b926210b973a`。PC前向百分比同时给尾驱动与双桨共模，指令比例1∶1不代表推力比例；yaw只移动尾摆中心，零前向量不额外产生摆尾推进。随后2.7.6增加1.5倍摆幅、2.7.7改为偏置优先，当前应使用2.7.7；不把这三版水测条件混为一组。本次通过现有 `inspect_image` 复核2.7.5身份、版本、大小与哈希，未重新编译、烧录或运行水测。
+
+数据来源／决策：`vision/configs/measured_hybrid_dynamics_20261025.json` 的混合10+10／15+15／20+20末2秒速度参考为0.05734369／0.14829029／0.23487840m/s。来源段ID为 `9d8460992078`、`7d7d9fe74596`、`90673349a059`，有效点19／19／18，驱动时长27.93／11.91／6.66秒；后两档未确认稳态。测量时摆幅增益为1，当前为1.5，故仅作速度前馈初值，不代表当前配方已经标定。原始实验与用户报告保持只读。
+
+新增九段攻角实验：从metadata／summary核验均为尾驱动0、桨差动0；左转40／60／80／100%偏置配共同推进10%，右转对应档位配20%，另有一段零偏置直行。目录名17:11～17:22对应metadata UTC **16:11:32～16:22:40**，不将目录时间当UTC。左−80%段 `91c4ca0363e7` 的现存拟合半径0.3778166m、RMSE 0.0180662m、弧覆盖211.528°、243点／242内点，质量good，稳态偏航率字段为空。这是静态尾角的圆弧拟合，不是摆尾循迹包线；左右推进不同，不能直接比较左右转向能力。
+
+水动力讨论的有效边界：已有低速转弯记录，不再用不匹配的稳态外推声称鱼“低速转不动”。用户报告中的偏置回归、速度独立性、差动无效和响应时间均只能在各自数据范围内讨论；旧脚本将尾偏与桨差动相加的问题已在前文纠正。沿轨／横轨速度已经记录，主速度环反馈尚未改成沿轨投影；坐标投影本身不能补足执行能力。E1低速偏置定圆、E2开环阶跃、E3推进影响实验仍为待测计划，尚无可用的当前配方完整包线或已辨识τ；没有写入猜测的动态补偿，也没有验证横偏已降至10cm以内。额外实测曲率／滑行规划继续关闭，现有几何预瞄和弯道限速仍运行。
+
+## 补录：16:53:56循迹日志复核与统计口径
+
+范围／证据：用户文件 `C:/Users/rlyoulo/Desktop/robotfish-trace-2026-10-25T16-53-56-576Z.txt`。此前只记“约73秒、尾驱动11.44%”，本次补齐活动区间和去重口径。该日志来自加大摆幅之前，不作2.7.6／2.7.7的直接验收数据。
+
+结果：118条活动PC样本覆盖UTC 16:52:19.959～16:53:32.376，采样首末72.417秒；16:53:33.381首次明确 `arrived`，从首条活动样本至抵达73.422秒。横向绝对误差均值10.376cm、中位7.9cm、P95 25.79cm；实测／目标速度中位0.0835／0.0885m/s；零推进1/118条。原始210条活动FISH的尾驱动中位11.44%、满偏置8/210＝3.81%；按uptime去重187条后为11.56%、8/187＝4.28%，两种口径不得混写。
+
+连续性／边界：活动段没有新增暂停，开头 `pause_count=5`、`last_pause_reason=imu_stale` 属于此前遗留，不代表本轮又中断五次。以上为读取用户日志，不能代替独立水动力标定或证明不同路径之间的性能提升。本次仅补录、核算，没有改变PID、控制代码或设备状态。
+
+## 补录：17:45:35循迹日志复盘与下一步待办（UTC）
+
+范围／原因：用户提供 `C:/Users/rlyoulo/Desktop/robotfish-trace-2026-10-25T17-45-35-598Z.txt` 后已交付分析图和逐帧表，但遗漏Process记录。文件恰好1000行，覆盖17:44:17.975～17:45:35.495；首条已在执行Wi-Fi序号120，首条PC路径进度1.350m，缺少起航段。219条活动PC覆盖65.387秒，活动FISH原始626条、按uptime去重561条；停车样本从性能统计中排除。
+
+控制连续性：保留的活动窗口内没有观察到暂停，`paused=false`、`pause_count=0`、`ack_delayed=false`；鱼端IMU持续有效，uptime与Wi-Fi序号无回退。PC目标计数121→763，约9.82次/秒；ACK年龄中位56ms、最大124ms，RTT中位89.13ms、最大119.91ms。相邻PC航向误差最大环绕变化9.29°／约0.30秒，未再现此前107°恢复跳变。PC零推进仅2/219条，仍处于tracking，分别发生于明显超速时。鱼端17:45:23.684进入WAIT_COMMAND，PC17:45:23.901明确 `stop_reason=arrived`；之后39条PC均为抵达后状态。该结论限于保留窗口，不能扩展为完整起航过程已验证无中断。
+
+循迹结果：横向绝对误差均值10.8507cm、中位10.5cm、P95 20.01cm、最大21.5cm；航向绝对误差中位11.87°、P95 46.174°。实测／目标速度中位0.075／0.074m/s，逐帧速度误差绝对值中位0.025m/s，中位速度接近并不代表瞬时误差很小。抵达时横偏仍约15.9cm；`arrived`仅表示满足现有到达判据，不表示鱼精确贴到终点。
+
+分配验证：2.7.7偏置优先已在该日志中兑现，满转向124条去重FISH中122条保住−24°，另两条约−22.84°处于偏置过渡。活动尾偏饱和占22.1%，尾驱动中位8.58%、频率0.44Hz、有效半摆幅10.44°；14.1%的去重活动样本因关节行程压缩摆幅。关键弯道17:44:49～58，尾偏中位100%、有效偏置−24°，尾驱动中位3.73%、频率0.29Hz（约3.45秒一拍）、有效半摆幅7.24°，PC航向误差绝对值中位约42°，实测／目标速度约0.043／0.041m/s；17:44:49.763～57.815连续饱和约8.05秒。17:44:53～58的前尾指令在58.00～73.89°间往复，未表现为静态卡死。`effective_*`为行程分配后的名义量，`tail1_deg`也是驱动指令，均不是舵机实测位置。
+
+路径／因果限制：活动PC均为 `path_shape=unachievable`，期望0.60m几何圆角未成功，仍使用原手绘线。日志 `achieved_radius_m=0.076` 是离散局部最小半径，可能包含手绘锯齿，不等于整个U弯半径。进度和段号单调，但缺原始参考路径，不能据此证明或否定交叉点选段错误。17:45:08～18横偏中位约16.4cm而鱼端航向误差约5.62°、无转向饱和，不能将所有偏差归因于尾部力量不足。低推进导致低尾频是可核实的软件耦合，其水动力影响仍需同配方试验；满偏置受±32°行程限制仅余±8°摆动，继续加大全局摆幅倍率无法增加该阶段幅度。
+
+产物／复核：`build/host-vision/trace-174535/analyze.py`、`summary.json`、`pc_active.csv`、`fish_active_unique.csv`、`tracking.png`。脚本已完成运行，图已查看，控制连续性和分配统计另做只读核对。该目录被Git忽略，是本机分析产物；关键数值已保留在本Process，原始桌面日志未改写。本轮没有改控制代码、参数、固件或操作实鱼。
+
+待办而非已完成：先改善路径平滑／参考航向，再在总推进预算内测试桨推与尾拍的分配及稳定尾频；保留零推进不自动补尾推的既有要求。上位机 `terminalRows` 与TXT导出目前均只保留最近1000行（`upper/workstation.js`），本次未修复整航次留存，后续应补完整运行记录再作跨版本比较。尚未辨识新水动力模型、验证新分配或证明跟踪误差改善。
+
+## 本次遗漏核查范围与记录要求
+
+已逐项核对前述用户要求与现有Process。早期队列／Wi-Fi发送、P降至2.5与小死区、删除速度输入上限、透视鱼头点击修复、上位机性能、独立测试页、固定3×1.6m与高2.67m、复用场地／点头自动置零、人工控制时长／松开继续记录／桌面命名保存，以及2.7.6／2.7.7实现和验证均已有条目，保留原记录，不重复认领或把历史限制当作当前实现。
+
+用户本次明确要求补齐所有漏记事项。上述补录区分实际交付、代码可证行为、日志观测、用户参考报告和待测建议；“先交付再补说明”不等于可以省略Process。未完成的验证与建议保持未完成，本次只编辑 `process.md`，通过文档差异／空白检查，不为补文档重跑设备测试或上传Git。
+
+## 2026-10-25数据综合评估：运动性能与循迹问题报告
+
+范围／原因：用户要求依据此前全部数据评估机器鱼运动性能和现存问题，并交付报告。本次核查桌面现存41段动力试验（早期32段498.785秒驱动、新静态9段167.039秒驱动）、14:52／16:09／16:53／17:45四份循迹TXT、已有分析脚本／报告及当前2.7.7源码。08:57／09:51原始TXT本轮桌面未找到，沿用既有Process作为历史背景，不声称重新计算该两份原始日志。
+
+关键修正：旧kinematics的v_steady实际为运动开始后到松开前后60%时间窗口中位值，不是稳态检验；早期32段只有21段在线summary稳态候选非空。旧“混合80%”是尾偏40%加差动40%，不能当单独尾偏80%参与回归。尾角是命令，名义关节偏置不等于实测水动力攻角；滑行数据多为未停稳的有限记录窗口；运动超过1cm／3°的门限触发延迟不等于执行器延迟或动态时间常数。旧纯差动40%左右效能差异显著，不能概括成均为7～10°/s。运动轨迹曲率满足κ=(r+β̇)/U，只有侧滑变化可忽略时才可用R≈U/|r|，同时应统一时间窗口和角率来源。
+
+统一日志口径：PC仅tracking=true；FISH按启动代次／uptime去重，并限制在各连续活动PC首末窗口。四轮横偏MAE/P95依次为11.76/21.20、9.94/19.44、10.38/25.79、10.85/20.01cm；对应16:09仍是静态尾偏配方。最新严格窗口FISH为558条、饱和22.22%；此前561条／22.1%含首PC前3条，不是结果矛盾。16:53统一窗口188条与此前187／210口径也不同。14:52明确退出到恢复4.397秒；恢复首帧误差107.61°，相邻帧环绕变化159.82°，两者不能混称。其余三份保留活动窗无新暂停，不能外推为截断窗口之外也已验收。新静态右转组同共同桨推20%时，偏置40/60/80/100%的等效半径0.787/0.536/0.365/0.303m；左80%、共同桨推10%约0.378m，支持低速具备转弯能力，但不适用于当前1.5倍摆尾包线。
+
+最终评估：已具备低速持续循迹与有效转弯的实验能力，当前平均横偏约10～12cm，尚未完成精确曲线跟踪整定。2.7.7偏置优先已经在最新日志兑现；仍存在路径圆角未满足约束、尾偏与摆动共享±32°关节行程、收油同步降尾频、非饱和路段横向收敛不足，以及1000行导出不完整。最新满偏窗口航向误差中位42.22°／尾频0.29Hz／连续饱和8.052秒；另一个大横偏窗口没有转向饱和，不能把全部问题归因于尾力不足。补测顺序为完整记录、当前配方开环阶跃、低速局部转弯包线及同条件桨尾分配；报告中的验收目标和E1/E2/E3均为建议，未冒充已经完成的测试或新控制实现。
+
+交付／文件：`docs/reports/2026-10-25-motion-performance/机器鱼运动性能与循迹问题评估报告.html` 为自包含中文报告，配套同名PDF共13页，5张自绘中文图提供SVG／PNG，`source_manifest.json`记录225个来源文件的路径、大小和SHA256。复算脚本、核验JSON、逐段／逐帧CSV与渲染检查保存在 `build/host-vision/motion-performance-report`。报告引用Fossen海洋航行器模型和控制分配综述作为分层建模依据，不套用未测水动力参数。
+
+验证／边界：独立复核主要科学与统计结论；生成脚本检查11段直行／9段静态／4轮日志和5幅内嵌图；无界面浏览器检查无JS错误、无横向溢出、无缺失图片；PDF13页均有正文，已目视检查封面与分页缩略图。原沙箱阻止浏览器子进程，按仅本地报告转换的范围通过自动审批后完成PDF，不涉及设备。未修改原始实验、生产代码、PID或参数，未启动／停止用户服务、连接实鱼、烧录或推送Git；本次评估与产物已经同步写入本Process。
+
+## 本轮Git交付：2.7.7循迹修复与运动性能评估
+
+范围／授权：用户明确要求先上传Git，再说明下一步最直接的优化。沿用已确认仓库 `jikaic149-svg/codeFish`、`main` 分支、`RobotFish-ESP-IDF` 子目录；交付当前源码、测试、说明、Process、混合动力参考、13页报告及图表和2.7.7应用BIN。排除本机标定变更、原始实验、录像、日志和构建缓存，保留发布树既有本地配置文件而不覆盖为本机数据。
+
+验证／决策：复用前述已完成的编译、目标软件回归和报告渲染检查；本次检查发布差异、固件身份／哈希、文件范围和空白错误，不追加实鱼测试。使用独立发布工作树增量提交，不改写已有远端历史。下一步最直接建议是先消除手绘锯齿，使实际执行路径满足曲率与场地约束并可预览；当前圆角失败仍跑原线，应明确提示调整路线。路径修正后保持现有PID和配方进行同路线对照；该建议本轮尚未实施。
+
+交付状态：发布准备完成后执行提交和推送；最终提交号与远端核验结果在完成后补录。

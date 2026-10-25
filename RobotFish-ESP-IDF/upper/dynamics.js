@@ -2,6 +2,7 @@
 const $=id=>document.getElementById(id);
 const clientId=crypto.randomUUID?.()||'dynamics-'+Date.now()+'-'+Math.random().toString(16).slice(2);
 let token='',sequence=0,segmentId='',current={active:false},mode=1,motion='straight',level=20,recipe='balanced';
+let staticBiasLevel=40;
 let busy=false,held=false,generation=0,driveRequest=null,startRequest=null,polling=false,connected=false;
 let vision={running:false},visionBusy=false,visionPolling=false,visionPointerDown=false,visionPointerAt=0,visionPointerQueue=Promise.resolve(),visionPointerSelection=null,headingSynced='',headingSyncError='';
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
@@ -22,6 +23,8 @@ async function request(path,body,options={}){
 function settings(){
   for(const id of ['tail','bias','surge','diff'])if(!$(id).reportValidity()||!Number.isFinite(Number($(id).value))||!$(id).value.trim())throw Error('请填写有效参数。');
   const result={mode,motion,tail_drive_pct:Number($('tail').value),tail_bias_pct:Number($('bias').value),prop_surge_pct:Number($('surge').value),prop_diff_pct:Number($('diff').value),baseline:$('baseline').checked,pool_width_m:3,pool_height_m:1.6,camera_height_m:2.67};
+  if(mode===3&&recipe==='static'&&(result.tail_drive_pct!==0||result.prop_diff_pct!==0||result.baseline))throw Error('静态尾角测量要求尾摆、桨差动均为 0，且关闭旧混合基线。');
+  if(mode===3&&recipe==='swim'&&(result.tail_drive_pct!==result.prop_surge_pct||result.prop_surge_pct<0||result.prop_diff_pct!==0||result.baseline))throw Error('摆尾循迹配方要求尾摆与共同推进相同且非负，差动为0。');
   if(result.baseline&&(mode!==3||result.tail_drive_pct!==result.prop_surge_pct||result.prop_surge_pct<0||result.tail_bias_pct!==result.prop_diff_pct))throw Error('旧混合基线要求：尾摆 = 共同推进 ≥ 0，尾偏置 = 差动；请重新选择档位或调整数值。');
   return result;
 }
@@ -32,16 +35,34 @@ function applyPreset(){
   let tail=0,bias=0,surge=0,diff=0;
   if(mode===1){tail=level;bias=direction*level;}
   if(mode===2){surge=direction?0:level;diff=direction*level;}
-  if(mode===3){const tailShare=recipe==='tail'?.75:recipe==='props'?.25:.5;tail=Math.round(level*tailShare);surge=level-tail;bias=direction*level;diff=direction*level;if($('baseline').checked){tail=level;surge=level;}}
+  const staticRecipe=mode===3&&recipe==='static',tailStudy=mode===3&&['static','swim'].includes(recipe);
+  if(tailStudy){surge=Number($('surge').value);tail=staticRecipe?0:surge;bias=direction*staticBiasLevel;$('baseline').checked=false;}
+  else if(mode===3){const tailShare=recipe==='tail'?.75:recipe==='props'?.25:.5;tail=Math.round(level*tailShare);surge=level-tail;bias=direction*level;diff=direction*level;if($('baseline').checked){tail=level;surge=level;}}
   for(const [id,value] of Object.entries({tail,bias,surge,diff}))$(id).value=String(value);
-  $('recipe-wrap').hidden=mode!==3;$('baseline').disabled=mode!==3;
+  $('recipe-wrap').hidden=mode!==3;$('baseline').disabled=mode!==3||tailStudy;
+  $('static-wrap').hidden=!tailStudy;$('level-wrap').hidden=tailStudy;
+  $('tail').disabled=$('diff').disabled=tailStudy;
+  $('surge').min=tailStudy?'0':'-100';
+  $('tail-recipe-note').textContent=staticRecipe?'静态对照：尾摆与差动均为0，只改变尾偏。':'摆尾循迹配方：尾摆量＝双桨共同推进量，差动为0；转向只改变摆动中心偏置。';
+  if(tailStudy)$('output-details').open=true;
   for(const [selector,key,value] of [['[data-mode]','mode',mode],['[data-motion]','motion',motion],['[data-level]','level',level],['[data-recipe]','recipe',recipe]])document.querySelectorAll(selector).forEach(button=>{const selected=String(button.dataset[key])===String(value);button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});
   updatePreview();
 }
-function updatePreview(){for(const [target,id] of [['tail-preview','tail'],['bias-preview','bias'],['surge-preview','surge'],['diff-preview','diff']])$(target).textContent=Number($(id).value)+'%';}
+function selectTailTest(value){
+  if(busy||held||current.active||(current.phase==='finished'&&!current.saved)){notice('先完成并保存当前测段，再切换测试配方。');return;}
+  mode=3;recipe=value;motion='straight';staticBiasLevel=0;$('baseline').checked=false;
+  if(value==='swim')$('surge').value='10';
+  applyPreset();refreshButtons();history.replaceState(null,'','#'+value);
+  notice(value==='swim'?'已加载摆尾10%＋双桨10%循迹配方，尚未驱动。':'已打开静态尾角对照：尾摆关闭，尚未驱动。');
+}
+function updatePreview(){
+  for(const [target,id] of [['tail-preview','tail'],['bias-preview','bias'],['surge-preview','surge'],['diff-preview','diff']])$(target).textContent=Number($(id).value)+'%';
+  document.querySelectorAll('[data-static-bias]').forEach(button=>{const selected=Number(button.dataset.staticBias)===Math.abs(Number($('bias').value));button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});
+}
 function resetDisplay(){current={active:false,phase:'pre',recent_samples:[],recent_events:[],summary:{},samples:{vision:0,fish:0}};segmentId='';render();}
 function refreshButtons(){
   const savePending=current.phase==='finished'&&!current.saved&&!!segmentId;
+  for(const kind of ['swim','static']){$('test-'+kind).disabled=busy||held||current.active||savePending;$('test-'+kind).classList.toggle('selected',mode===3&&recipe===kind);}
   $('start').disabled=busy||current.active||savePending||!connected||visionBusy||!!vision.selection_id;
   $('hold').disabled=busy||!current.active||current.readiness?.ready!==true;
   $('hold').classList.toggle('active',held);$('hold').textContent=held?'正在驱动 · 松开立即全停':'2 · 按住动作 / 松开全停';
@@ -70,8 +91,16 @@ async function driveOnce(turn){
 function press(event){
   if(event?.type==='pointerdown'&&event.button!==0)return;
   if(held||$('hold').disabled)return;
-  event?.preventDefault();if(event?.pointerId!==undefined)$('hold').setPointerCapture(event.pointerId);
+  event?.preventDefault();$('hold').focus({preventScroll:true});if(event?.pointerId!==undefined)$('hold').setPointerCapture(event.pointerId);
   held=true;const turn=++generation;refreshButtons();notice('正在请求驱动。松开即全停，之后继续记录滑行与余转。');driveOnce(turn);
+}
+function stepTailBias(value){
+  if(!held||mode!==3||!['static','swim'].includes(recipe))return;
+  if(driveRequest){notice('等待当前命令回执后再做下一次尾偏阶跃。');return;}
+  if(value&&motion==='straight'){notice('做尾偏阶跃前先选择左转或右转。');return;}
+  $('bias').value=String((motion==='left'?-1:1)*value);staticBiasLevel=value;
+  updatePreview();notice(`保持共同推进 ${$('surge').value}%，只将尾偏置改为 ${$('bias').value}%；松开动作仍全停。`);
+  driveOnce(generation);
 }
 function release(reason='release',force=false){
   const pending=held||!!driveRequest||!!startRequest;
@@ -89,7 +118,12 @@ async function finishSegment(){
 }
 function nextGroup(){
   if(current.active||busy)return;
-  if(motion==='straight')motion='left';else if(motion==='left')motion='right';else{motion='straight';if(level<40)level+=10;else{level=20;mode=mode===3?1:mode+1;}}
+  if(mode===3&&['static','swim'].includes(recipe)){
+    if(motion==='straight'){motion='left';if(!staticBiasLevel)staticBiasLevel=40;}
+    else if(motion==='left')motion='right';
+    else if(staticBiasLevel<100){staticBiasLevel=[40,60,80,100].find(value=>value>staticBiasLevel);motion='left';}
+    else{staticBiasLevel=0;motion='straight';}
+  }else if(motion==='straight')motion='left';else if(motion==='left')motion='right';else{motion='straight';if(level<40)level+=10;else{level=20;mode=mode===3?1:mode+1;}}
   $('baseline').checked=false;applyPreset();refreshButtons();notice('已加载下一组参数，未开始记录或驱动。鱼静止、鱼头箭头正确后，点击开始本段。');
 }
 function lastValue(samples,key){for(let i=samples.length-1;i>=0;i--)if(finite(samples[i][key]))return samples[i][key];return null;}
@@ -244,8 +278,10 @@ async function poll(){
 document.querySelectorAll('[data-mode]').forEach(button=>button.onclick=()=>{mode=Number(button.dataset.mode);if(mode!==3)$('baseline').checked=false;applyPreset();});
 document.querySelectorAll('[data-motion]').forEach(button=>button.onclick=()=>{motion=button.dataset.motion;applyPreset();});
 document.querySelectorAll('[data-level]').forEach(button=>button.onclick=()=>{level=Number(button.dataset.level);applyPreset();});
-document.querySelectorAll('[data-recipe]').forEach(button=>button.onclick=()=>{recipe=button.dataset.recipe;applyPreset();});
-for(const id of ['tail','bias','surge','diff'])$(id).addEventListener('input',updatePreview);
+document.querySelectorAll('[data-recipe]').forEach(button=>button.onclick=()=>{if($('settings').disabled)return;recipe=button.dataset.recipe;if(recipe==='static')mode=3;applyPreset();});
+document.querySelectorAll('[data-static-bias]').forEach(button=>button.onclick=()=>{if($('settings').disabled||mode!==3||!['static','swim'].includes(recipe))return;if(motion==='straight'&&Number(button.dataset.staticBias)>0){notice('先选择左转或右转，再加载尾偏置；共同推进保持不变。');return;}staticBiasLevel=Number(button.dataset.staticBias);applyPreset();});
+for(const id of ['tail','bias','surge','diff'])$(id).addEventListener('input',()=>{if(id==='surge'&&mode===3&&recipe==='swim')$('tail').value=$('surge').value;if(id==='bias'&&mode===3&&['static','swim'].includes(recipe)&&Number.isFinite(Number($('bias').value)))staticBiasLevel=Math.min(100,Math.abs(Number($('bias').value)));updatePreview();});
+$('test-swim').onclick=()=>selectTailTest('swim');$('test-static').onclick=()=>selectTailTest('static');
 $('baseline').onchange=applyPreset;
 $('camera-start').onclick=startCamera;$('camera-stop').onclick=stopCamera;$('camera-head').onclick=()=>cameraTask('HEAD_DIRECTION');$('camera-fish').onclick=()=>cameraTask('MARKER_ROI');$('camera-pool').onclick=()=>cameraTask('POOL_SIZE');
 $('camera-image').onload=()=>{const image=$('camera-image');if(!image.dataset.stream)return;const url=new URL(image.dataset.stream,location.href);image.dataset.pointerSpace=url.searchParams.get('space')||'image';image.dataset.selectionId=url.searchParams.get('selection')||'';image.dataset.pointerReady='true';};
@@ -258,9 +294,16 @@ $('start').onclick=beginSegment;$('finish').onclick=finishSegment;$('next').oncl
 $('hold').addEventListener('pointerdown',press);$('hold').addEventListener('contextmenu',event=>event.preventDefault());
 window.addEventListener('pointerup',()=>release('pointerup'));window.addEventListener('pointercancel',()=>release('pointercancel'));$('hold').addEventListener('lostpointercapture',()=>release('capture_lost'));
 $('hold').addEventListener('keydown',event=>{if(event.code==='Enter'&&!event.repeat)press(event);});$('hold').addEventListener('keyup',event=>{if(event.code==='Enter')release('key_release');});
-window.addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();if(!event.repeat)release('space_stop',true);}if(event.code==='Escape')release('escape_stop',true);});
+window.addEventListener('keydown',event=>{
+  if(held&&mode===3&&['static','swim'].includes(recipe)&&['KeyZ','KeyX'].includes(event.code)&&!/INPUT|TEXTAREA|SELECT/.test(event.target.tagName)){
+    event.preventDefault();if(!event.repeat)stepTailBias(event.code==='KeyZ'?0:60);return;
+  }
+  if(event.code==='Space'){event.preventDefault();if(!event.repeat)release('space_stop',true);}
+  if(event.code==='Escape')release('escape_stop',true);
+});
 window.addEventListener('blur',()=>release('window_blur'));
 document.addEventListener('visibilitychange',()=>{if(document.hidden)release('page_hidden');else{poll();pollVision();}updateCameraImage();});
 window.addEventListener('pagehide',()=>release('page_exit',held||!!startRequest));
 window.addEventListener('resize',()=>render());
-applyPreset();render();poll();pollVision();setInterval(()=>{poll();pollVision();},500);
+if(['#static','#swim'].includes(location.hash))selectTailTest(location.hash.slice(1));else applyPreset();
+render();poll();pollVision();setInterval(()=>{poll();pollVision();},500);

@@ -17,23 +17,32 @@ function appendTerminal(source,key,text){
 function appendVisionTerminal(value,error=''){
   const result=value?.result||{},frame=value?.frame_age_ms,pose=result.optical||{},point=result.position||{},guide=result.guidance||{};
   if(!value?.running||!value.ready){appendTerminal('PC','offline:'+error,error||'视觉未启动或尚无画面');return;}
+  const tracking=result.tracking||{},ackAge=tracking.target_ack_age_ms??(tracking.last_target_at?Date.now()-tracking.last_target_at*1000:null);
+  const ackDelayed=tracking.automatic===true&&Number.isFinite(ackAge)&&ackAge>1000;
   const check=result.validation||{};
   const validationText=check.enabled?' check_1s_mps='+terminalNumber(check.speed_1s_mps,3)+
     ' common_pct='+terminalNumber(check.common_pct)+' differential_pct='+terminalNumber(check.differential_pct)+
     ' tail_drive_pct='+terminalNumber(check.tail_drive_pct)+' curve_limit_mps='+terminalNumber(check.curve_speed_limit_mps,3)+
     ' curve_distance_m='+terminalNumber(check.curve_distance_m,3)+' curve_status='+(check.curve_speed_status||'disabled'):'';
-  appendTerminal('PC',`${value.process_id}:${result.frame}:${result.tracking?.active}:${result.tracking?.sent_targets}:${result.tracking?.stop_reason}`,
+  appendTerminal('PC',`${value.process_id}:${result.frame}:${tracking.active}:${tracking.sent_targets}:${tracking.stop_reason}:${tracking.pause_count}:${ackDelayed}`,
     `${result.replay?'REPLAY':'CAMERA'} frame=${result.frame??'—'} age_ms=${terminalNumber(frame,0)} `+
     `position_valid=${point.valid===true} x_m=${terminalNumber(point.valid?point.x_m:null,3)} y_m=${terminalNumber(point.valid?point.y_m:null,3)} `+
     `v_mps=${terminalNumber(result.velocity?.speed_mps,3)} vision_valid=${pose.valid===true} yaw_left_deg=${terminalNumber(pose.valid?pose.relative_deg:null)} `+
     `imu_left_deg=${terminalNumber(result.body_yaw?.usable?result.body_yaw.yaw_deg:null)} `+
     `los_world_deg=${terminalNumber(Number.isFinite(guide.psi_ref_rad)?guide.psi_ref_rad*180/Math.PI:null)} `+
     `heading_error_deg=${terminalNumber(guide.heading_error_deg)} cross_m=${terminalNumber(guide.signed_cross_track_error_m,3)} `+
+    `v_along_mps=${terminalNumber(guide.v_along_mps,3)} v_cross_mps=${terminalNumber(guide.v_cross_mps,3)} sideslip_deg=${terminalNumber(guide.sideslip_deg)} `+
+    `curvature_per_m=${terminalNumber(guide.path_curvature_per_m,3)} curve_ff_deg=${terminalNumber(guide.curve_heading_feedforward_deg)} reference_limited=${guide.reference_rate_limited===true} `+
+    `path_shape=${guide.path_geometry?.status||'original'} achieved_radius_m=${terminalNumber(guide.path_geometry?.achieved_min_radius_m,3)} `+
+    `path_progress_m=${terminalNumber(guide.along_m,3)} path_segment=${guide.seg_index??'—'} `+
     `speed_target_mps=${terminalNumber(guide.speed_target_mps,3)} power_pct=${terminalNumber(result.speed_control?.power_percent)} `+
     `feedforward_pct=${terminalNumber(result.speed_control?.feedforward_percent)} feedforward_range=${result.speed_control?.feedforward_range||'—'} feedforward_profile=${result.speed_control?.feedforward_profile_id||'—'} `+
     `tracking=${result.tracking?.active===true} automatic=${result.tracking?.automatic===true} transport=${result.tracking?.transport||'—'} `+
-    `sent_targets=${result.tracking?.sent_targets??'—'} target_ack_age_ms=${terminalNumber(result.tracking?.last_target_at?(Date.now()-result.tracking.last_target_at*1000):null,0)} `+
+    `sent_targets=${tracking.sent_targets??'—'} target_ack_age_ms=${terminalNumber(ackAge,0)} ack_delayed=${ackDelayed} `+
     `command_rtt_ms=${terminalNumber(result.tracking?.command_rtt_ms)} feedback_state=${result.speed_control?.state||'—'} `+
+    `observation_age_ms=${terminalNumber(result.speed_control?.observation_age_ms,0)} receipt_age_ms=${terminalNumber(result.speed_control?.receipt_age_ms,0)} `+
+    `paused=${tracking.paused===true} pause_reason=${JSON.stringify(tracking.pause_reason||'')} pause_age_ms=${terminalNumber(tracking.pause_age_ms,0)} `+
+    `pause_count=${tracking.pause_count??0} last_pause_reason=${JSON.stringify(tracking.last_pause_reason||'')} last_pause_at=${terminalNumber(tracking.last_pause_at,3)} `+
     `stop_reason=${JSON.stringify(result.tracking?.stop_reason||'')} status=${JSON.stringify(result.status||'')}`+validationText);
 }
 function appendFishTerminal(view){
@@ -48,6 +57,8 @@ function appendFishTerminal(view){
     `P_pct=${terminalNumber(pid.yaw_p)} I_pct=${terminalNumber(pid.yaw_i)} D_pct=${terminalNumber(pid.yaw_d)} `+
     `Kp=${terminalNumber(pid.pid?.kp,3)} Ki=${terminalNumber(pid.pid?.ki,3)} Kd=${terminalNumber(pid.pid?.kd,3)} deadband_deg=${terminalNumber(pid.yaw_deadband_deg)} turn_gain=${terminalNumber(pid.yaw_actuator_gain)} `+
     `allocation_profile=${pid.heading_allocation_profile||'—'} common_pct=${terminalNumber(raw.allocation?.written_common_pct)} differential_pct=${terminalNumber(raw.allocation?.written_differential_pct)} tail_drive_pct=${terminalNumber(raw.allocation?.tail_drive_pct)} tail_bias_pct=${terminalNumber(raw.allocation?.tail_bias_pct)} `+
+    `tail_amp_gain=${terminalNumber(raw.allocation?.tail_amplitude_gain)} tail_amp_deg=${terminalNumber(raw.allocation?.tail_amplitude_deg)} tail_freq_hz=${terminalNumber(raw.allocation?.tail_frequency_hz)} `+
+    `effective_bias_deg=${terminalNumber(raw.allocation?.effective_tail_bias_deg)} effective_amp_deg=${terminalNumber(raw.allocation?.effective_tail_amplitude_deg)} `+
     `esc_left_pct=${terminalNumber(act.left_esc,0)} esc_right_pct=${terminalNumber(act.right_esc,0)} tail1_deg=${terminalNumber(act.tail1)} tail2_deg=${terminalNumber(act.tail2)} `+
     `fin_left_deg=${terminalNumber(act.left_fin)} fin_right_deg=${terminalNumber(act.right_fin)} route=${view.control?.route||'—'} `+
     `wifi_seq=${raw.wifi?.sequence??'—'} heading_active=${pid.heading_target_active===true} `+

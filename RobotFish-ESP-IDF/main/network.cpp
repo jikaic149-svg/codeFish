@@ -83,6 +83,7 @@ esp_err_t identity(httpd_req_t *req) {
   cJSON_AddBoolToObject(body, "yaw_pid_supported", true);
   cJSON_AddBoolToObject(body, "heading_target_supported", true);
   cJSON_AddBoolToObject(body, "heading_tail_guidance_supported", true);
+  cJSON_AddBoolToObject(body, "heading_bias_priority_supported", true);
   cJSON_AddStringToObject(body, "heading_allocation_profile", robofish::config::control::kHeadingAllocationProfile);
   cJSON_AddBoolToObject(body, "dynamics_calibration_supported", true);
   const auto calibration = robofish::attitude::evaluate(attitudeSettings, {}, 0, false, false, false);
@@ -154,6 +155,7 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddBoolToObject(body, "dynamics_calibration_supported", true);
   cJSON *calibration = cJSON_AddObjectToObject(body, "dynamics_calibration");
   cJSON_AddBoolToObject(body, "heading_tail_guidance_supported", true);
+  cJSON_AddBoolToObject(body, "heading_bias_priority_supported", true);
   cJSON_AddStringToObject(body, "heading_allocation_profile", robofish::config::control::kHeadingAllocationProfile);
   cJSON_AddBoolToObject(calibration, "active", s.control.calibrationActive);
   cJSON_AddBoolToObject(calibration, "baseline", s.control.calibration.baseline);
@@ -178,8 +180,12 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddNumberToObject(allocation, "tail_bias_pct", s.allocation.tailBiasPercent);
   cJSON_AddNumberToObject(allocation, "tail_frequency_hz", s.allocation.tailFrequencyHz);
   cJSON_AddNumberToObject(allocation, "tail_amplitude_deg", s.allocation.tailAmplitudeDegrees);
+  // Nominal joint commands after travel limiting and before output slew; no servo sensor is present.
+  cJSON_AddNumberToObject(allocation, "effective_tail_bias_deg", s.allocation.effectiveTailBiasDegrees);
+  cJSON_AddNumberToObject(allocation, "effective_tail_amplitude_deg", s.allocation.effectiveTailAmplitudeDegrees);
   cJSON_AddNumberToObject(allocation, "tail_load", s.allocation.tailLoad);
   cJSON_AddNumberToObject(allocation, "written_common_pct", (s.written.leftPropulsionPercent + s.written.rightPropulsionPercent) * .5f);
+  cJSON_AddNumberToObject(allocation, "tail_amplitude_gain", s.control.tailAmplitudeGain());
   cJSON_AddNumberToObject(allocation, "written_differential_pct", (s.written.leftPropulsionPercent - s.written.rightPropulsionPercent) * .5f);
   cJSON_AddNumberToObject(allocation, "written_tail_front_offset_deg", s.written.tailFrontDegrees - robofish::config::lora::kTailFrontCenter);
   cJSON_AddNumberToObject(allocation, "written_tail_rear_offset_deg", s.written.tailRearDegrees - robofish::config::lora::kTailRearCenter);
@@ -259,6 +265,7 @@ esp_err_t telemetry(httpd_req_t *req) {
   cJSON_AddBoolToObject(attitude, "heading_target_active", s.control.headingTargetActive);
   cJSON_AddStringToObject(attitude, "heading_allocation_profile", robofish::config::control::kHeadingAllocationProfile);
   cJSON_AddNumberToObject(attitude, "heading_tail_drive_ratio", robofish::config::control::kHeadingTailDriveRatio);
+  cJSON_AddNumberToObject(attitude, "heading_tail_amplitude_gain", robofish::config::control::kHybridTailAmplitudeGain);
   cJSON_AddNumberToObject(attitude, "heading_prop_diff_gain", robofish::config::control::kHeadingPropDiffGain);
   cJSON_AddNumberToObject(attitude, "heading_prop_diff_limit_pct", robofish::config::control::kHeadingPropDiffLimitPercent);
   if (s.control.headingTargetActive) cJSON_AddNumberToObject(attitude,"requested_heading_cw_deg",s.control.headingTargetCwDegrees);

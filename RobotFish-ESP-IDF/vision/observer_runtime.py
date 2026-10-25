@@ -84,6 +84,8 @@ class ObserverSession:
         settings=CONTROL['guidance']
         self.guide=PathGuidance(lookahead_m=settings['lookahead_m'],min_lookahead_m=settings['min_lookahead_m'],
             full_attraction_error_m=settings['full_attraction_error_m'],curve_preview_m=settings['curve_preview_m'],
+            **{key:settings[key] for key in ('curve_heading_gain','max_curve_heading_deg','cross_track_filter_s',
+                'heading_reference_rate_deg_s','desired_turn_radius_m','path_smoothing_offset_m','curve_speed_ratio')},
             k_f=settings['cross_track_gain'],cruise_speed_mps=settings['cruise_speed_mps'],min_speed_target_mps=settings['min_speed_mps'],curve_speed_planner=self.curve_speed_planner)
         self.guidance={};self.tracking=False
         self.comm=None;self.automatic=False
@@ -117,7 +119,8 @@ class ObserverSession:
             if self.automatic:
                 heading,source=self.control_heading()
                 if heading is not None:
-                    self.guidance=self.guide.update(position,self.track_time,speed_mps=self.speed_mps,body_heading=heading)
+                    self.guidance=self.guide.update(position,self.track_time,speed_mps=self.speed_mps,
+                        velocity=self.velocity.velocity,body_heading=heading)
                     self.guidance['heading_source']=source
                     if source!='IMU_YAW':
                         confirmed=self.stop_auto('imu_unavailable');self.status='IMU 方向不可用，'+('已全停' if confirmed else '全停未确认')
@@ -125,14 +128,23 @@ class ObserverSession:
                         confirmed=self.stop_auto('arrived');self.status='自动循迹到达终点，已全停' if confirmed else '已到终点，全停未确认'
                     else:
                         target=wrap_degrees(self.head['imu_zero_cw_deg']-(math.degrees(self.guidance['psi_ref_rad'])-self.head['visual_zero_world_deg']))
-                        yaw=self.bridge.get_yaw_sample()
+                        was_paused=bool(getattr(self.comm,'command_status',{}).get('paused'))
                         self.comm.process_tracking_error(0.,self.guidance['along_m'],self.guidance['dist_m'],
                             speed_mps=self.speed_mps,speed_target_mps=self.guidance['speed_target_mps'],
-                            observed_at=self.sample_time,feedback_valid=self.speed_mps is not None,
-                            target_heading_cw_deg=target,yaw_observed_at=yaw.get('sample_time') if yaw.get('valid') else None)
+                            observed_at=self.sample_time,received_at=self.received_at,feedback_valid=self.speed_mps is not None,
+                            target_heading_cw_deg=target,yaw_observed_at=getattr(self,'control_yaw_time',None))
+                        if getattr(self.comm,'command_status',{}).get('paused'):
+                            self.status='反馈短暂缺样，暂停输出并保留当前路径进度'
+                        elif was_paused:self.status='新鲜反馈已恢复，继续原路径循迹'
                 else:
-                    confirmed=self.stop_auto('imu_unavailable');self.status='方向观测不可用，'+('已全停' if confirmed else '全停未确认')
-                    self.guidance={}
+                    reason=getattr(self,'heading_failure_reason','imu_unavailable')
+                    if reason in ('imu_epoch_changed','heading_reference_invalid'):
+                        confirmed=self.stop_auto(reason);self.status='鱼头零位已失效，'+('已全停，请重新标定' if confirmed else '全停未确认')
+                    elif self.comm.pause_tracking(reason):
+                        self.status='IMU 反馈短暂缺样，暂停输出并保留路径；等待新鲜反馈'
+                    else:
+                        self.automatic=False;self.tracking=False;self.bridge.control_enabled=False
+                        self.status='IMU 反馈持续不可用，已退出自动循迹：'+reason
         elif self.automatic:
             confirmed=self.stop_auto('position_lost');self.status='鱼体位置丢失，'+('已全停' if confirmed else '全停未确认')
             self.guidance={}
@@ -160,12 +172,17 @@ class ObserverSession:
         # Control uses current IMU feedback. Historical image/IMU interpolation
         # remains in the optical comparison and calibration paths only.
         sample=self.bridge.get_yaw_sample();stamp=sample.get('sample_time');yaw=sample.get('yaw_cw_deg')
+        self.control_yaw_time=None;self.heading_failure_reason=''
         old_id,new_id=self.head.get('source_id'),sample.get('source_id')
-        if (not sample.get('valid') or self.head.get('imu_zero_cw_deg') is None or
-                any(type(v) not in (int,float) or not math.isfinite(v) for v in (stamp,yaw)) or
-                not 0<=time.time()-stamp<=CONTROL['feedback_max_age_s'] or
-                type(old_id) is int and type(new_id) is int and ((new_id-old_id)&0xffffffff)>=0x80000000):
+        if type(old_id) is int and type(new_id) is int and ((new_id-old_id)&0xffffffff)>=0x80000000:
+            self.heading_failure_reason='imu_epoch_changed'
+        elif self.head.get('imu_zero_cw_deg') is None:self.heading_failure_reason='heading_reference_invalid'
+        elif not sample.get('valid'):self.heading_failure_reason='imu_unavailable'
+        elif (any(type(v) not in (int,float) or not math.isfinite(v) for v in (stamp,yaw)) or
+                not 0<=time.time()-stamp<=CONTROL['feedback_max_age_s']):self.heading_failure_reason='imu_stale'
+        if self.heading_failure_reason:
             return None,'UNAVAILABLE'
+        self.control_yaw_time=stamp
         angle=math.radians(self.head['visual_zero_world_deg']+wrap_degrees(self.head['imu_zero_cw_deg']-yaw))
         return [math.cos(angle),-math.sin(angle)],'IMU_YAW'
 
@@ -265,7 +282,9 @@ class ObserverSession:
                         self.bridge.control_enabled=False
                         raise RuntimeError(self.comm.last_error or 'Wi-Fi 循迹控制尚未准备，请检查连接')
                     self.automatic=True;self.tracking=True
-                    self.status='自动循迹运行中：实测推进前馈，双桨推进、鱼尾攻角转向'
+                    self.status='自动循迹运行中：摆尾＋双桨共同推进，尾偏置导向'
+                    if self.guide.path_geometry.get('status')=='unachievable':
+                        self.status+='；期望圆角未满足空间约束，保持原绘线'
                 elif task=='AUTO_STOP':
                     was_auto=self.automatic;confirmed=self.stop_auto();self.guidance={}
                     self.status=('自动循迹已停止并全停' if confirmed else '自动循迹已停止，全停未确认') if was_auto else '自动循迹未运行'
@@ -297,7 +316,7 @@ class ObserverSession:
                     if self.eof:raise ValueError('录像已结束，请重新开始回放后采样')
                     digest=hashlib.sha256(Path(self.model).read_bytes()).hexdigest() if Path(self.model).is_file() else None
                     self.samples.start({'source':self.source,'replay':self.replay,'model':self.model,'model_sha256':digest,
-                        'observer_only':True,'camera_latency_s':self.camera_latency_s,
+                        'observer_only':True,'camera_latency_s':self.camera_latency_s,'control_config':CONTROL,
                         'timing_source':'camera receipt time minus configured latency; not a hardware exposure timestamp',
                         'note':'Optical body-axis and trajectory are independent observations. Actuator columns are commands, not measured positions.'})
                     self.samples.calibration('pool',{**self.field.describe(self.source),'calibration_id':self.pool_id} if self.field.matrix is not None else {})
@@ -363,7 +382,7 @@ class ObserverSession:
             image=cv2.cvtColor(lab,cv2.COLOR_LAB2BGR)
         if self.field.points is not None:cv2.polylines(image,[self.field.points.astype(np.int32)],True,(0,220,255),1)
         displayed_path=self.path_px
-        if self.curve_speed_planner.budget is not None and self.guide.prepared and self.field.matrix is not None:
+        if self.guide.prepared and self.field.matrix is not None:
             displayed_path=transform_points(np.linalg.inv(self.field.matrix),self.guide.path)
         if len(displayed_path)>1:cv2.polylines(image,[np.int32(displayed_path)],False,(255,0,255),2)
         if self.field.matrix is not None and len(self.history)>1:
@@ -485,7 +504,8 @@ class ObserverSession:
             'interaction':self.interaction,'eof':self.eof,'samples':dict(self.samples.status),
             'velocity':{'speed_mps':self.speed_mps},'path_pixels':self.path_px,'tracking':{'active':self.tracking,'automatic':self.automatic,'transport':'wifi' if self.automatic else None,
                 'command_rtt_ms':self.comm.last_round_trip_ms if self.comm else None,'sent_targets':self.comm.sent_targets if self.comm else 0,
-                'last_target_at':self.comm.last_target_at if self.comm else None,'stop_reason':self.comm.last_stop_reason if self.comm else ''},
+                'last_target_at':self.comm.last_target_at if self.comm else None,'stop_reason':self.comm.last_stop_reason if self.comm else '',
+                **(getattr(self.comm,'command_status',{}) if self.comm else {})},
             'speed_control':self.comm.speed_status if self.comm else {},
             'guidance':self.guidance,'turn_calibration':{'active':self.turn.active,'samples':self.turn.sample_count,'result':self.turn_result},
             'debug':{'enabled':self.debug,'binary':self.binary,'clahe':self.clahe,'threshold':self.threshold,'exposure':self.exposure},
@@ -498,13 +518,14 @@ class ObserverSession:
                 common_pct=allocation.get('written_common_pct'),differential_pct=allocation.get('written_differential_pct'),
                 tail_drive_pct=allocation.get('tail_drive_pct'),tail_bias_pct=allocation.get('tail_bias_pct'),
                 tail_frequency_hz=allocation.get('tail_frequency_hz'),tail_amplitude_deg=allocation.get('tail_amplitude_deg'),
+                effective_tail_bias_deg=allocation.get('effective_tail_bias_deg'),effective_tail_amplitude_deg=allocation.get('effective_tail_amplitude_deg'),
                 output_sample_time=aligned.get('native_telemetry_time'),curve_speed_limit_mps=curve.get('speed_limit_mps'),
                 curve_distance_m=curve.get('distance_to_curve_m'),curve_radius_m=curve.get('curve_radius_m'),
                 curve_speed_status=curve.get('status','disabled'),curve_profile_id=curve.get('profile_id'))
         result['validation']=validation
         result['curve_speed']={'enabled':self.curve_speed_planner.requested,'status':self.curve_speed_planner.status,
             'active':self.curve_speed_planner.budget is not None,'error':self.curve_speed_planner.error or None}
-        result['planned_path_m']=self.guide.path.tolist() if self.curve_speed_planner.budget is not None and self.guide.prepared else None
+        result['planned_path_m']=self.guide.path.tolist() if self.guide.prepared else None
         if write_sample and (self.samples.file or self.recorder is not None) and self.sampled_frame!=self.index:
             control=aligned.get('control') or {}
             row={'utc':datetime.fromtimestamp(self.received_at,timezone.utc).isoformat(timespec='milliseconds'),
@@ -536,11 +557,15 @@ class ObserverSession:
                 'lora_sequence':control.get('lora_sequence'),'detect_ms':self.detect_ms,'optical_ms':self.optical_ms,
                 'preview_ms':self.preview_ms,'processing_ms':self.processing_ms,
                 **{'yolo_'+key+'_ms':speed.get(key) for key in ('preprocess','inference','postprocess')}}
+            row.update({key:self.guidance.get(key) for key in ('v_along_mps','v_cross_mps','course_error_deg','sideslip_deg',
+                'path_curvature_per_m','curve_heading_feedforward_deg','reference_rate_limited','along_m','seg_index')})
+            row.update({key:result['tracking'].get(key) for key in ('paused','pause_reason','pause_count','target_ack_age_ms','stop_reason')})
             if self.trace_validation_enabled:
                 row.update({key:validation.get(key) for key in
                     ('speed_1s_mps','output_sample_time','curve_speed_limit_mps','curve_distance_m','curve_radius_m','curve_speed_status','curve_profile_id')})
                 row.update({'output_'+key:validation.get(key) for key in
-                    ('common_pct','differential_pct','tail_drive_pct','tail_bias_pct','tail_frequency_hz','tail_amplitude_deg')})
+                    ('common_pct','differential_pct','tail_drive_pct','tail_bias_pct','tail_frequency_hz','tail_amplitude_deg',
+                     'effective_tail_bias_deg','effective_tail_amplitude_deg')})
             self.samples.write(row)
             if self.recorder is not None:self.recorder.submit(self.raw_overlay(),[row.get(key) for key in SAMPLE_FIELDS])
             self.sampled_frame=self.index;result['samples']=dict(self.samples.status)

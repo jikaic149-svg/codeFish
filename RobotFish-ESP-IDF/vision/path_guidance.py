@@ -80,6 +80,79 @@ def resample_polyline(points, spacing_m=0.03):
     return output
 
 
+def round_polyline(points, spacing_m, desired_radius_m, max_offset_m):
+    """Round only when the requested radius fits; never tighten a constrained U."""
+    from curve_speed import _simplify
+
+    original = resample_polyline(points, spacing_m)
+
+    def curvature_metrics(path):
+        segments = np.diff(path, axis=0)
+        a, b = segments[:-1], segments[1:]
+        denominator = np.linalg.norm(a, axis=1)*np.linalg.norm(b, axis=1)*np.linalg.norm(a+b, axis=1)
+        if np.any(denominator < 1e-12):
+            return None, 0.
+        curvature = 2*np.abs(a[:, 0]*b[:, 1]-a[:, 1]*b[:, 0])/denominator
+        maximum = float(np.max(curvature)) if len(curvature) else 0.
+        return maximum, 1/maximum if maximum > 1e-6 else None
+
+    source_curvature, source_radius = curvature_metrics(original)
+    detail = dict(source="GEOMETRIC", desired_radius_m=desired_radius_m,
+                  max_offset_m=max_offset_m, rounded=False, limited_corners=0,
+                  status="unchanged", reason="already_smooth",
+                  original_min_radius_m=source_radius, achieved_min_radius_m=source_radius,
+                  max_curvature_per_m=source_curvature)
+    if desired_radius_m <= 0 or max_offset_m <= 0:
+        detail['reason'] = 'disabled'
+        return original, detail
+    if source_curvature is None:
+        detail.update(status='unachievable', reason='degenerate_reversal_kept_original')
+        return original, detail
+    if len(original) < 3 or source_curvature <= 1 / desired_radius_m:
+        return original, detail
+    simplify_offset = min(.02, max_offset_m / 4)
+    path = _simplify(original, simplify_offset)
+    delta = np.diff(path, axis=0)
+    lengths = np.linalg.norm(delta, axis=1)
+    units = delta / lengths[:, None]
+    result = [path[0]]
+    for i in range(1, len(path) - 1):
+        u, v = units[i - 1], units[i]
+        angle = math.atan2(float(u[0]*v[1] - u[1]*v[0]), float(u @ v))
+        if abs(angle) < 1e-4 or abs(angle) > math.pi - .01:
+            result.append(path[i])
+            detail['limited_corners'] += int(abs(angle) > math.pi - .01)
+            continue
+        tangent = math.tan(abs(angle) / 2)
+        available = min(.49 * min(lengths[i-1], lengths[i]) / tangent,
+                        (max_offset_m-simplify_offset) / (1 / math.cos(angle / 2) - 1))
+        if available < desired_radius_m - 1e-6:
+            detail['limited_corners'] += 1
+            continue
+        radius = desired_radius_m
+        entry = path[i] - radius * tangent * u
+        centre = entry + math.copysign(radius, angle) * np.array([-u[1], u[0]])
+        start = math.atan2(entry[1] - centre[1], entry[0] - centre[0])
+        angles = np.linspace(start, start + angle, max(3, math.ceil(abs(angle)*radius/spacing_m)+1))
+        result.extend(centre + radius * np.column_stack((np.cos(angles), np.sin(angles))))
+        detail['rounded'] = True
+    if detail['limited_corners']:
+        detail.update(rounded=False, status='unachievable',
+                      reason='radius_exceeds_local_space_or_offset_kept_original')
+        return original, detail
+    result.append(path[-1])
+    result = np.asarray(result)
+    achieved_curvature, achieved_radius = curvature_metrics(resample_polyline(result, spacing_m))
+    if achieved_curvature is None or achieved_curvature > 1.05 / desired_radius_m:
+        detail.update(rounded=False, status='unachievable',
+                      reason='discrete_curve_constraint_kept_original')
+        return original, detail
+    detail.update(status='rounded' if detail['rounded'] else 'unchanged',
+                  reason='requested_radius_fits' if detail['rounded'] else 'already_smooth',
+                  achieved_min_radius_m=achieved_radius, max_curvature_per_m=achieved_curvature)
+    return result, detail
+
+
 class VelocityEstimator:
     """用短窗口直线拟合估计平移速度，抑制鱼尾逐帧摆动和单帧尖峰。"""
 
@@ -178,6 +251,13 @@ class PathGuidance:
         cruise_speed_mps=0.30,
         min_speed_target_mps=0.12,
         curve_speed_planner=None,
+        curve_heading_gain=1.1,
+        max_curve_heading_deg=22.0,
+        cross_track_filter_s=0.35,
+        heading_reference_rate_deg_s=35.0,
+        desired_turn_radius_m=0.0,
+        path_smoothing_offset_m=0.15,
+        curve_speed_ratio=0.68,
     ):
         self.spacing_m = float(spacing_m)
         self.lookahead_m = float(lookahead_m)
@@ -188,8 +268,7 @@ class PathGuidance:
             1e-6, float(full_attraction_error_m)
         )
         self.curve_preview_m = max(self.spacing_m, float(curve_preview_m))
-        # 网页 HYBRID 满转实测直径约 0.40 m。它只作为第一版曲率映射
-        # 的可替换参考，不伪装成精确水动力标定值。
+        # Nominal curvature scale only; this is not a measured turning envelope.
         self.estimated_min_turn_radius_m = max(
             0.01, float(estimated_min_turn_radius_m)
         )
@@ -220,6 +299,13 @@ class PathGuidance:
         self.body_heading = None
         self.body_yaw_rate_rps = 0.0
         self.curve_speed_planner = curve_speed_planner
+        self.curve_heading_gain = max(0., float(curve_heading_gain))
+        self.max_curve_heading_rad = math.radians(max(0., float(max_curve_heading_deg)))
+        self.cross_track_filter_s = max(0., float(cross_track_filter_s))
+        self.heading_reference_rate_rps = math.radians(max(0., float(heading_reference_rate_deg_s)))
+        self.desired_turn_radius_m = max(0., float(desired_turn_radius_m))
+        self.path_smoothing_offset_m = max(0., float(path_smoothing_offset_m))
+        self.curve_speed_ratio = float(np.clip(curve_speed_ratio, 0., 1.))
         self.clear()
 
     @staticmethod
@@ -259,12 +345,22 @@ class PathGuidance:
         self.last_result = None
         self.body_heading = None
         self.body_yaw_rate_rps = 0.0
+        self._filtered_cross_track = None
+        self._reference_timestamp = None
+        self._heading_reference = None
+        self.path_geometry = dict(source="GEOMETRIC", rounded=False)
 
     @property
     def prepared(self):
         return self.path is not None
 
     def start(self, path_points, position, timestamp, initial_heading):
+        previous_path, previous_progress = self.path, self.progress_m
+        self.path_geometry = dict(source="GEOMETRIC", rounded=False)
+        if self.curve_speed_planner is None or self.curve_speed_planner.profile is None:
+            path_points, self.path_geometry = round_polyline(
+                path_points, self.spacing_m, self.desired_turn_radius_m,
+                self.path_smoothing_offset_m)
         if self.curve_speed_planner is not None:
             path_points=self.curve_speed_planner.round_path(path_points,self.spacing_m,self.cruise_speed_mps)
         self.path = resample_polyline(path_points, self.spacing_m)
@@ -278,6 +374,15 @@ class PathGuidance:
         self.last_result = None
         self.body_heading = _unit(initial_heading)
         self.body_yaw_rate_rps = 0.0
+        self._initial_progress(position, self.body_heading)
+        if (previous_path is not None and previous_path.shape == self.path.shape
+                and np.allclose(previous_path, self.path) and previous_progress > self.progress_m
+                and np.linalg.norm(np.asarray(position) - self._point_at(previous_progress))
+                    <= np.linalg.norm(np.asarray(position) - self._point_at(self.progress_m)) + self.spacing_m):
+            self.progress_m = previous_progress
+        self._filtered_cross_track = None
+        self._reference_timestamp = float(timestamp)
+        self._heading_reference = math.atan2(-float(self.body_heading[1]), float(self.body_heading[0]))
         return self.update(position,timestamp,body_heading=self.body_heading)
 
     def update(
@@ -295,6 +400,10 @@ class PathGuidance:
         current = np.asarray(position, dtype=np.float64).reshape(2)
         if not np.isfinite(current).all():
             raise ValueError("当前位置无效")
+        now = float(timestamp)
+        if not math.isfinite(now):
+            raise ValueError("采样时间无效")
+        dt = max(0., now - self._reference_timestamp) if self._reference_timestamp is not None else 0.
 
         self._advance_progress(current)
         closest = self._point_at(self.progress_m)
@@ -335,7 +444,7 @@ class PathGuidance:
             path_curvature_per_m
         )
         curve_feedforward = float(np.clip(
-            path_curvature_per_m * turn_radius_m,
+            path_curvature_per_m * max(turn_radius_m, self.desired_turn_radius_m),
             -1.0,
             1.0,
         ))
@@ -361,11 +470,36 @@ class PathGuidance:
         body_left_m=float(heading[1]*target[0]-heading[0]*target[1])
         psi_path=math.atan2(-float(near_tangent[1]),float(near_tangent[0]))
         psi_body=math.atan2(-float(heading[1]),float(heading[0]))
+        v_along_mps = v_cross_mps = course_error_deg = sideslip_deg = None
+        if velocity is not None:
+            motion = np.asarray(velocity, dtype=float)
+            if motion.shape == (2,) and np.isfinite(motion).all():
+                # Same normal as signed_cross_track_error_m; positive means its error grows.
+                v_along_mps = float(motion @ near_tangent)
+                v_cross_mps = float(near_tangent[0]*motion[1] - near_tangent[1]*motion[0])
+                if np.linalg.norm(motion) >= .02:
+                    course = math.atan2(-float(motion[1]), float(motion[0]))
+                    course_error_deg = math.degrees(wrap_to_pi(course-psi_path))
+                    sideslip_deg = math.degrees(wrap_to_pi(course-psi_body))
         offset=current-closest
         signed_cross_track_error_m=float(near_tangent[0]*offset[1]-near_tangent[1]*offset[0])
-        # Fossen, Guidance Systems (10.72)-(10.74): tangent plus bounded LOS correction.
-        cross_track_feedback=math.atan2(self.k_f*signed_cross_track_error_m,active_lookahead_m)
-        psi_ref=wrap_to_pi(psi_path+cross_track_feedback)
+        if self._filtered_cross_track is None:
+            self._filtered_cross_track = signed_cross_track_error_m
+        previous_cross = self._filtered_cross_track
+        alpha = 1. if self.cross_track_filter_s <= 0 else -math.expm1(-dt/self.cross_track_filter_s)
+        self._filtered_cross_track += alpha * (signed_cross_track_error_m - self._filtered_cross_track)
+        cross_track_rate_mps = (self._filtered_cross_track - previous_cross) / dt if dt > 1e-6 else 0.
+        cross_track_feedback=math.atan2(self.k_f*self._filtered_cross_track,active_lookahead_m)
+        # Advance the actual heading target, not only an unused diagnostic yaw-rate demand.
+        curve_heading = float(np.clip(self.curve_heading_gain*path_curve_angle_rad,
+                                      -self.max_curve_heading_rad, self.max_curve_heading_rad))
+        raw_psi_ref=wrap_to_pi(psi_path+curve_heading+cross_track_feedback)
+        change=wrap_to_pi(raw_psi_ref-self._heading_reference)
+        allowed_change=self.heading_reference_rate_rps*dt
+        psi_ref=wrap_to_pi(self._heading_reference+float(np.clip(change,-allowed_change,allowed_change)))
+        reference_rate_limited=abs(change)>allowed_change+1e-9
+        self._heading_reference=psi_ref
+        self._reference_timestamp=max(now,self._reference_timestamp)
         heading_error_rad=wrap_to_pi(psi_ref-psi_body)
         heading_feedback=self.k_psi*heading_error_rad
         measured_speed_mps=max(0.,float(speed_mps)) if speed_mps is not None and math.isfinite(float(speed_mps)) else 0.
@@ -377,8 +511,7 @@ class PathGuidance:
         alignment=max(0.,math.cos(heading_error_rad))
         speed_target_mps=min(self.cruise_speed_mps,max(
             self.min_speed_target_mps,
-            self.cruise_speed_mps*(1.-.65*path_curve_severity)*(.25+.75*alignment*alignment)))
-        cross_track_rate_mps=0.
+            self.cruise_speed_mps*(1.-(1.-self.curve_speed_ratio)*path_curve_severity)*(.25+.75*alignment*alignment)))
         x_error_m = steering_demand * self.max_x_error_m
         control_severity = abs(steering_demand)
         endpoint_distance = float(np.linalg.norm(current - self.path[-1]))
@@ -399,22 +532,32 @@ class PathGuidance:
         brake_request=arrived
         result = {
             "curve_speed": curve_speed,
+            "path_geometry": self.path_geometry,
             "cross_m": x_error_m,
             "x_error_m": x_error_m,
             "body_left_m": body_left_m,
             "body_forward_m": body_forward_m,
             "heading_error_deg": math.degrees(heading_error_rad),
+            "v_along_mps": v_along_mps,
+            "v_cross_mps": v_cross_mps,
+            "course_error_deg": course_error_deg,
+            "sideslip_deg": sideslip_deg,
             "steering_error_deg": math.degrees(heading_error_rad),
             # 固件用这一无量纲量连续混合直线/满转动力；它与本次真正
             # 下发的总转向需求一致，不再单独用曲率把推进削到 20%。
             "curve_severity": control_severity,
             "path_curve_severity": path_curve_severity,
+            "curve_speed_radius_scale_m": max(turn_radius_m, self.desired_turn_radius_m),
             "path_curve_angle_deg": math.degrees(path_curve_angle_rad),
             "path_curvature_per_m": path_curvature_per_m,
             "curve_measure_span_m": curve_measure_span_m,
             "curve_feedforward": curve_feedforward,
             "heading_feedback": heading_feedback,
             "cross_track_feedback": cross_track_feedback,
+            "filtered_cross_track_error_m": self._filtered_cross_track,
+            "curve_heading_feedforward_deg": math.degrees(curve_heading),
+            "raw_psi_ref_rad": raw_psi_ref,
+            "reference_rate_limited": reference_rate_limited,
             "psi_path_rad": psi_path,
             "psi_body_rad": psi_body,
             "psi_ref_rad": psi_ref,
@@ -454,6 +597,23 @@ class PathGuidance:
         }
         self.last_result = result
         return result
+
+    def _initial_progress(self, position, heading):
+        """Acquire the nearby path branch when starting/resuming in mid-route."""
+        current = np.asarray(position, dtype=float).reshape(2)
+        if not np.isfinite(current).all():
+            raise ValueError("当前位置无效")
+        segments = np.diff(self.path, axis=0)
+        lengths = np.linalg.norm(segments, axis=1)
+        ratios = np.clip(np.sum((current-self.path[:-1])*segments, axis=1)/lengths**2, 0., 1.)
+        projections = self.path[:-1]+ratios[:, None]*segments
+        distances = np.linalg.norm(projections-current, axis=1)
+        nearby = np.flatnonzero(distances <= float(np.min(distances))+self.spacing_m)
+        alignment = (segments[nearby]/lengths[nearby, None]) @ heading
+        scores = distances[nearby]**2+(self.spacing_m*(1.-alignment))**2
+        index = int(nearby[int(np.argmin(scores))])
+        self.progress_m = float(self.cumulative[index]+ratios[index]*lengths[index])
+        self.segment_index = index
 
     def _advance_progress(self, position):
         total = float(self.cumulative[-1])

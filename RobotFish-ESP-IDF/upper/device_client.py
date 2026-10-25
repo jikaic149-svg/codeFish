@@ -806,7 +806,7 @@ class DeviceClient:
                     event('telemetry_sample',host=host,rtt_ms=round(latency,2),device_uptime_ms=raw.get('uptime_ms'),
                           imu=view['imu'],actuators=view['actuators'],motion=view['motion'],
                           body_imu={axis:view.get('attitude_control',{}).get('body_'+axis+'_deg') for axis in ('roll','pitch','yaw')},
-                          attitude=view.get('attitude_control'),
+                          attitude=view.get('attitude_control'),allocation=view.get('allocation'),
                           axes=view['control']['axes'],route=view['control']['route'],owner=view['owner'],
                           lora={key:raw.get('lora',{}).get(key) for key in ('healthy','accepted','rejected','last_source','last_sequence','last_code','age_ms')},
                           command_result=raw.get('command_result'),safety=view['safety_mode'])

@@ -101,7 +101,10 @@ SAMPLE_FIELDS=('utc','source','replay','frame','video_s','camera_receipt_time','
     'vision_threshold','speed_mps','detect_ms','optical_ms','preview_ms','processing_ms','yolo_preprocess_ms','yolo_inference_ms','yolo_postprocess_ms',
     'speed_1s_mps','output_sample_time','output_common_pct','output_differential_pct','output_tail_drive_pct',
     'output_tail_bias_pct','output_tail_frequency_hz','output_tail_amplitude_deg',
-    'curve_speed_limit_mps','curve_distance_m','curve_radius_m','curve_speed_status','curve_profile_id')
+    'curve_speed_limit_mps','curve_distance_m','curve_radius_m','curve_speed_status','curve_profile_id',
+    'v_along_mps','v_cross_mps','course_error_deg','sideslip_deg','path_curvature_per_m',
+    'curve_heading_feedforward_deg','reference_rate_limited','paused','pause_reason','pause_count','target_ack_age_ms','stop_reason',
+    'along_m','seg_index','output_effective_tail_bias_deg','output_effective_tail_amplitude_deg')
 
 
 class AngleSamples:

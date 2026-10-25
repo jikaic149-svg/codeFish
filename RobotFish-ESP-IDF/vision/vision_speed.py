@@ -70,6 +70,7 @@ class VisualSpeedLoop:
                        'target_mps': None, 'measured_mps': None,
                        'error_mps': None, 'integral_percent': 0.,
                        'feedforward_percent': 0., 'feedforward_range': None,
+                       'observation_age_ms': None, 'receipt_age_ms': None,
                        'feedforward_profile_id': self.profile_id}
         return 0.
 
@@ -77,7 +78,7 @@ class VisualSpeedLoop:
     def _finite(value):
         return type(value) in (int, float) and math.isfinite(value)
 
-    def update(self, target_mps, measured_mps, observed_at, *, now=None, brake=False):
+    def update(self, target_mps, measured_mps, observed_at, *, now=None, brake=False, received_at=None):
         now = time.time() if now is None else now
         if brake:
             return self.reset('braking')
@@ -87,8 +88,13 @@ class VisualSpeedLoop:
             return self.reset()
         if not self._finite(measured_mps) or not 0 <= measured_mps <= self.max_speed_mps:
             return self.reset('waiting_feedback')
-        if (not self._finite(observed_at) or not self._finite(now)
-                or observed_at <= 0 or not 0 <= now - observed_at <= self.max_age_s):
+        # Capture time drives integration/derivatives; arrival time, when given,
+        # gates processing freshness without charging the fixed camera latency
+        # against the same budget. Neither timestamp is rewritten to "now".
+        fresh_at = observed_at if received_at is None else received_at
+        if (not self._finite(observed_at) or not self._finite(now) or not self._finite(fresh_at)
+                or observed_at <= 0 or fresh_at <= 0 or observed_at > fresh_at
+                or not 0 <= now - fresh_at <= self.max_age_s):
             return self.reset('stale_feedback')
         if self.last_time is not None and observed_at < self.last_time:
             return self.reset('out_of_order_feedback')
@@ -120,5 +126,6 @@ class VisualSpeedLoop:
                        'feedforward_range': feedforward_range,
                        'feedforward_profile_id': self.profile_id,
                        'integral_percent': self.integral, 'derivative_percent': derivative,
-                       'observation_age_ms': round((now - observed_at) * 1000)}
+                       'observation_age_ms': round((now - observed_at) * 1000),
+                       'receipt_age_ms': round((now - received_at) * 1000) if received_at is not None else None}
         return power

@@ -19,7 +19,7 @@ PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
 URL = f'http://127.0.0.1:{PORT}'
 LOG = ROOT / 'server.log'
 SERVICE_ID = 'robotfish-local'
-REVISION = 'workstation-32-measured-tracking'
+REVISION = 'workstation-36-steering-priority'
 BOOT_TIMEOUT_SECONDS = 20.0
 
 

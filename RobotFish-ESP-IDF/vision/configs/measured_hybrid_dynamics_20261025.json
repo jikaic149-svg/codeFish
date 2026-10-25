@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "profile_id": "robotfish-20261025-hybrid-gait-tail-bias",
+  "source_directory": "Desktop/RobotFish-Dynamics",
+  "source_segments": [
+    "20261025-143739-337-hybrid-straight-10p0-0-10p0-0-9d84",
+    "20261025-143830-909-hybrid-straight-15p0-0-15p0-0-7d7d",
+    "20261025-143905-862-hybrid-straight-20p0-0-20p0-0-9067"
+  ],
+  "drive_mode": "HYBRID",
+  "allocation": {
+    "native_profile": "hybrid_gait_tail_bias",
+    "forward_command": "tail drive = left propeller = right propeller = PC forward percentage",
+    "tail_drive_ratio": 1.0,
+    "runtime_tail_amplitude_gain": 1.5,
+    "source_tail_amplitude_gain": 1.0,
+    "prop_diff_pct": 0,
+    "steering": "native yaw PID offsets the tail oscillation centre; does not add amplitude or frequency",
+    "zero_forward": "common propulsion and tail oscillation both zero; static tail bias remains controlled"
+  },
+  "propulsion": {
+    "measured_mode": "HYBRID",
+    "speed_measurement": "median speed_1s_mps in final two camera-sample seconds before release; valid positions, unique timestamps",
+    "quality": "initial reference from the earlier 1:1 gait; runtime amplitude is now 1.5x, so this is not a newly measured strong-tail map; visual speed feedback remains active",
+    "measured_speed_range_mps": [0.05734369, 0.23487840],
+    "measured_command_range_pct": [10, 20],
+    "below_measured_range": "zero-to-first-point estimate; visual speed feedback remains active",
+    "above_measured_range": "feedforward capped at highest recorded command; visual PID remains active",
+    "samples": [
+      {"speed_mps":0.05734369,"command_pct":10,"segment_id":"9d8460992078","observed_tail_drive_pct":10,"observed_prop_left_pct":10,"observed_prop_right_pct":10,"sample_count":19,"drive_duration_s":27.93,"quality":"relatively settled late window"},
+      {"speed_mps":0.14829029,"command_pct":15,"segment_id":"7d7d9fe74596","observed_tail_drive_pct":15,"observed_prop_left_pct":15,"observed_prop_right_pct":15,"sample_count":19,"drive_duration_s":11.91,"quality":"original summary did not confirm steady state"},
+      {"speed_mps":0.23487840,"command_pct":20,"segment_id":"90673349a059","observed_tail_drive_pct":20,"observed_prop_left_pct":20,"observed_prop_right_pct":20,"sample_count":18,"drive_duration_s":6.66,"quality":"still accelerating; last-four-second trend about 0.0201 m/s^2"}
+    ]
+  },
+  "steering_reference": {
+    "new_static_segments": 9,
+    "used_as_oscillating_tail_model": false,
+    "reason": "new angle-radius runs have tail drive zero; left prop common 10% and right 20%, so they are static references, not a matched symmetric oscillating-tail map"
+  },
+  "curve_envelope": {"available":false,"reason":"No matching complete low-speed yaw dynamics and coast envelope for this oscillating-tail recipe"}
+}

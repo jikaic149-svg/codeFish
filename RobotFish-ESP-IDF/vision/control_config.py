@@ -16,7 +16,11 @@ def load_control_config():
                 raise ValueError(f'Invalid control setting: {group}.{key}')
     if (not 0<data['feedback_max_age_s']<=1 or not 0<=data.get('camera_latency_s',.3)<=2 or data['speed']['reference_mps']<=0
             or not 0<data['model']['confidence']<1 or data['model']['imgsz']<32
-            or not 0<data['guidance']['min_lookahead_m']<=data['guidance']['lookahead_m']):
+            or not 0<data['guidance']['min_lookahead_m']<=data['guidance']['lookahead_m']
+            or not 0<data['guidance'].get('heading_reference_rate_deg_s',35)<=180
+            or not 0<=data['guidance'].get('max_curve_heading_deg',22)<=45
+            or not 0<data['guidance'].get('curve_speed_ratio',.68)<=1
+            or data['guidance']['min_speed_mps']>data['guidance']['cruise_speed_mps']):
         raise ValueError('Invalid model or control ranges')
     curve=data.get('curve_speed',{})
     validation=data.get('trace_validation',{})

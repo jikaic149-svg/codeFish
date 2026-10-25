@@ -102,12 +102,12 @@ class WorkstationTests(unittest.TestCase):
         client=SimpleNamespace(is_robotfish=lambda host:True,
             control_binding=lambda host,radio_session=None:'connected-session',
             motion_control=lambda *args,**kwargs:dict(accepted=True),
-            robot=lambda host:dict(motion={'mode':3},attitude_control={'enabled':False,'heading_target_supported':True,'heading_tail_guidance_supported':True}))
+            robot=lambda host:dict(motion={'mode':3},attitude_control={'enabled':False,'heading_target_supported':True,'heading_tail_guidance_supported':True,'heading_allocation_profile':'hybrid_gait_tail_bias','heading_tail_amplitude_gain':1.5,'heading_bias_priority_supported':True}))
         return station,client
 
     def test_prepare_uses_existing_session_and_manual_takeover_revokes_vision(self):
         station,client=self.setup_client();calls=[]
-        view=dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True,'heading_tail_guidance_supported':True})
+        view=dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True,'heading_tail_guidance_supported':True,'heading_allocation_profile':'hybrid_gait_tail_bias','heading_tail_amplitude_gain':1.5,'heading_bias_priority_supported':True})
         client.robot=lambda host:view
         def command(*args,**kwargs):
             calls.append((args,kwargs))
@@ -128,7 +128,7 @@ class WorkstationTests(unittest.TestCase):
 
     def test_prepare_waits_for_mode_readback_and_preserves_onboard_angle_loop(self):
         station,client=self.setup_client();calls=[]
-        client.robot=lambda host:dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True,'heading_tail_guidance_supported':True})
+        client.robot=lambda host:dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True,'heading_tail_guidance_supported':True,'heading_allocation_profile':'hybrid_gait_tail_bias','heading_tail_amplitude_gain':1.5,'heading_bias_priority_supported':True})
         client.motion_control=lambda *args,**kwargs:calls.append(args[1]) or dict(queued=True)
         with patch('station.device_client.CLIENT',client):
             self.assertFalse(station.prepare_vision('vision-test',1)['ready'])
@@ -165,7 +165,8 @@ class WorkstationTests(unittest.TestCase):
 
     def test_measured_speed_cannot_start_with_old_heading_allocation(self):
         station,client=self.setup_client();calls=[]
-        client.robot=lambda host:dict(motion={'mode':3},attitude_control={'heading_target_supported':True})
+        client.robot=lambda host:dict(motion={'mode':3},attitude_control={'heading_target_supported':True,
+            'heading_tail_guidance_supported':True,'heading_allocation_profile':'prop_surge_tail_bias'})
         client.motion_control=lambda *args,**kwargs:calls.append(args)
         with patch('station.device_client.CLIENT',client),self.assertRaises(device_client.DeviceError):
             station.prepare_vision('vision-test',1)

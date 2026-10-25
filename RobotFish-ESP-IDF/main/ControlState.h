@@ -81,8 +81,13 @@ struct ControlState {
     target.tailDrivePercent=surge*robofish::config::control::kHeadingTailDriveRatio;
     target.propulsionDrivePercent=surge;
     target.tailFrequencyFromDrive=true;
+    target.preserveTailBias=true;
     target.outputScale=1; target.allowFlowAssist=false;
     target.enabled=leaseActive=true; softStopping=expired=false; lastMotionMs=now;
+  }
+  float tailAmplitudeGain() const {
+    return headingTargetActive || (calibrationActive && !calibration.baseline && target.mode == DriveMode::Hybrid)
+        ? robofish::config::control::kHybridTailAmplitudeGain : 1.0f;
   }
   void applyHeadingAllocation(robofish::motion::Request &request,
                               robofish::motion::Recipe &recipe) const {
@@ -134,6 +139,7 @@ struct ControlState {
     target.tailEnabled = command.mode != DriveMode::Prop;
     target.propulsionEnabled = command.mode != DriveMode::Bionic;
     target.tailFrequencyFromDrive = target.fixedCalibration = !calibration.baseline;
+    target.preserveTailBias = !calibration.baseline && command.mode == DriveMode::Hybrid;
     target.enabled = leaseActive = true;
     softStopping = expired = false;
     lastMotionMs = command.receivedMs;

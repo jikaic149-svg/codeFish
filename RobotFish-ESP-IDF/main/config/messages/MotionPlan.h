@@ -28,6 +28,7 @@ struct Request {
   bool independentTailYaw = false;
   float tailYawPercent = 0;
   bool tailFrequencyFromDrive = false; // Explicit drive/heading commands keep yaw out of tail propulsion.
+  bool preserveTailBias = false; // Reserve steering travel first; use the remainder for periodic gait.
   bool fixedCalibration = false; // Independently commanded outputs; preserve mixed forward/reverse trials.
   float brakePercent = 0;  // Independent [0,100], never an authorization or STOP.
 };
@@ -53,6 +54,9 @@ struct Result {
   float tailBiasPercent = 0;
   float tailFrequencyHz = 0;
   float tailAmplitudeDegrees = 0;
+  // Joint commands after travel limiting, before final output slew; not servo feedback.
+  float effectiveTailBiasDegrees = 0;
+  float effectiveTailAmplitudeDegrees = 0;
   float tailLoad = 0;
   float pectoralCorrectionScale = 1;
   uint32_t limitedReasons = 0;

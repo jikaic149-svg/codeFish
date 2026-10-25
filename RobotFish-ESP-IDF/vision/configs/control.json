@@ -1,5 +1,6 @@
 {
   "units": "World x right/y down; heading CCW positive; raw body IMU yaw CW positive. Speed m/s; PID outputs percent.",
+  "guidance_basis": "Experimental initial settings, not an identified hydrodynamic model. Straight 0.12 m/s; full curve-severity base speed 0.05 m/s. Hybrid tail gait and common propeller command are 1:1; yaw shifts tail bias only. New static-tail angle-radius trials are references, not a matched oscillating-tail model. Desired radius is a geometric request, not verified fish capability.",
   "model": {
     "imgsz": 960,
     "confidence": 0.25
@@ -7,7 +8,7 @@
   "feedback_max_age_s": 0.35,
   "camera_latency_s": 0.3,
   "speed": {
-    "profile_file": "measured_dynamics_20261025.json",
+    "profile_file": "measured_hybrid_dynamics_20261025.json",
     "reference_mps": 0.5,
     "kp": 60.0,
     "ki": 10.0,
@@ -21,7 +22,14 @@
     "cross_track_gain": 0.6,
     "full_attraction_error_m": 0.4,
     "curve_preview_m": 0.5,
-    "cruise_speed_mps": 0.1,
+    "curve_heading_gain": 1.1,
+    "max_curve_heading_deg": 22.0,
+    "cross_track_filter_s": 0.35,
+    "heading_reference_rate_deg_s": 35.0,
+    "desired_turn_radius_m": 0.6,
+    "path_smoothing_offset_m": 0.15,
+    "curve_speed_ratio": 0.4166666666666667,
+    "cruise_speed_mps": 0.12,
     "min_speed_mps": 0.04
   },
   "curve_speed": {
