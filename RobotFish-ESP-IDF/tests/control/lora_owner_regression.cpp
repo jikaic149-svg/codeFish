@@ -94,21 +94,24 @@ static std::vector<uint8_t> packet(uint8_t type,int x,int y,int z) {
   uint8_t sum=0; for(auto b:p) sum+=b; p.push_back(sum); return p;
 }
 static bool fullRangeScenario() { return scenario=="yaw_full" || scenario=="wifi_yaw_full"; }
-static bool idleScenario() { return scenario=="yaw_idle" || scenario=="wifi_yaw_idle" || fullRangeScenario(); }
-static bool wifiIdleScenario() { return scenario=="wifi_yaw_idle" || scenario=="wifi_yaw_full"; }
-static void idleCommand(unsigned sequence,unsigned code,float surge=0,float yaw=0) {
+static bool headingScenario() { return scenario=="heading_target" || scenario=="wifi_heading_target"; }
+static bool idleScenario() { return scenario=="yaw_idle" || scenario=="wifi_yaw_idle" || fullRangeScenario() || headingScenario(); }
+static bool wifiIdleScenario() { return scenario=="wifi_yaw_idle" || scenario=="wifi_yaw_full" || scenario=="wifi_heading_target"; }
+static void idleCommand(unsigned sequence,unsigned code,float surge=0,float yaw=0,float heading=0) {
   if(wifiIdleScenario()) {
     robofish::wifi::Command c;
     using robofish::wifi::Action;
-    c.action=code==robofish::lora::kTarget?Action::Target:code==17?Action::Stop:
+    c.action=code==robofish::lora::kHeadingTarget?Action::HeadingTarget:code==robofish::lora::kTarget?Action::Target:code==17?Action::Stop:
         code==robofish::lora::kAttitudeOn?Action::AttitudeOn:Action::AttitudeOff;
     c.sequence=sequence; c.receivedMs=now; c.axes={surge,yaw,0};
+    c.headingCwDegrees=heading;
     std::strcpy(c.session,"hold-fixture");
     check(xQueueSend(commands,&c,0)==pdTRUE,"idle command fits bounded Wi-Fi FIFO");
   } else {
     char body[80],line[96];
     std::snprintf(body,sizeof(body),"101,1,0,%u,%u,3,%d,%d,0,1000",sequence,code,
-        static_cast<int>(surge*10),static_cast<int>(yaw*10));
+        static_cast<int>(code==robofish::lora::kHeadingTarget?heading*100:surge*10),
+        static_cast<int>(code==robofish::lora::kHeadingTarget?surge*10:yaw*10));
     uint16_t crc=0xffff;
     for(const char *p=body;*p;++p) {
       crc^=static_cast<uint16_t>(static_cast<uint8_t>(*p))<<8;
@@ -119,6 +122,11 @@ static void idleCommand(unsigned sequence,unsigned code,float surge=0,float yaw=
   }
 }
 static void idleImu() {
+  if(headingScenario()) {
+    for(auto b:packet(0x53,-32768,0,0)) rx[2].push_back(b);
+    for(auto b:packet(0x52,0,0,0)) rx[2].push_back(b);
+    return;
+  }
   if(fullRangeScenario()) {
     const float yaw=now<200?0:now<400?10:now<1100?21:-21;
     for(auto b:packet(0x53,-32768,0,static_cast<int>(std::lround(yaw*32768/180)))) rx[2].push_back(b);
@@ -146,7 +154,7 @@ bool networkBegin(QueueHandle_t snapshots,QueueHandle_t requests,QueueHandle_t,Q
   check(queueCount==5 && uartReady[1] && uartReady[2],"both UARTs initialized, bounded fallback, telemetry and OTA queues");
   if(idleScenario()) {
     if(wifiIdleScenario()) postWifi(robofish::wifi::Action::Acquire,0);
-    else idleCommand(1,robofish::lora::kAttitudeOn);
+    else if(!headingScenario()) idleCommand(1,robofish::lora::kAttitudeOn);
     idleImu(); return true;
   }
   if(scenario=="wifi_hold" || scenario=="clock_race") {
@@ -164,6 +172,22 @@ bool networkBegin(QueueHandle_t snapshots,QueueHandle_t requests,QueueHandle_t,Q
 void networkConfirmStartup(bool ready) { check(ready,"startup confirms LoRa and successful neutral output"); }
 TickType_t xTaskGetTickCount() { return now; }
 struct Finished {};
+static void headingStep(const MotionSnapshot &s) {
+  if(now==100) check(s.control.headingTargetActive && s.attitude.yawActive &&
+      std::abs(s.attitude.headingTargetDegrees-30)<.01f && s.control.target.surgePercent==25 &&
+      s.written.leftPropulsionPercent>s.written.rightPropulsionPercent,"actual owner executes absolute yaw and surge target on S3");
+  if(now==700) check(s.control.headingTargetActive && s.attitude.yawActive &&
+      std::abs(s.attitude.headingTargetDegrees+20)<.01f && s.attitude.yawD==0,
+      "moving reference changes native target without setpoint derivative kick");
+  if(now==900) check(s.control.lastMotionMs==600 && s.attitude.yawActive && s.attitude.yawCorrectionPercent<0,
+      "local angle PID keeps running between PC updates");
+  if(now==1100) check(!s.control.headingTargetActive && s.attitude.manualYaw && !s.attitude.yawActive,
+      "manual yaw overrides the streamed reference through the actual owner");
+  if(now>=1420) check(!s.control.attitudeEnabled && !s.control.headingTargetActive && !s.attitude.yawActive &&
+      s.written.leftPropulsionPercent==0 && s.written.rightPropulsionPercent==0,
+      "STOP disarms explicit reference and neutralizes native outputs");
+  if(now==1480) throw Finished{};
+}
 static void fullRangeStep(const MotionSnapshot &s) {
   check(s.control.target.surgePercent==0 && !s.control.leaseActive,"full-authority yaw uses no translational target");
   if(now==1000 || now==2400) {
@@ -249,9 +273,17 @@ void vTaskDelayUntil(TickType_t *wake,TickType_t period) {
   check(s.loraReady && s.imu.uartReady && !s.lora.txEnabled,"LoRa receive-only, IMU UART ready");
   if(idleScenario()) {
     check(period==10 && writes.back().at==now/20*20,"idle hold preserves the original 10/20 ms owner cadence");
-    if(fullRangeScenario()) fullRangeStep(s); else idleStep(s);
+    if(headingScenario()) headingStep(s); else if(fullRangeScenario()) fullRangeStep(s); else idleStep(s);
     *wake+=period; now=*wake;
     if(now%20==0) idleImu();
+    if(headingScenario()) {
+      if(now==30) idleCommand(1,robofish::lora::kHeadingTarget,25,0,30);
+      if(now==600) idleCommand(2,robofish::lora::kHeadingTarget,25,0,-20);
+      if(now==1000) idleCommand(3,robofish::lora::kTarget,0,40);
+      if(now==1200) idleCommand(4,robofish::lora::kHeadingTarget,0,0,179);
+      if(now==1400) idleCommand(5,17);
+      return;
+    }
     if(now==30 && wifiIdleScenario()) idleCommand(1,robofish::lora::kAttitudeOn);
     if(fullRangeScenario()) {
       if(now==2500) idleCommand(2,17);
@@ -345,6 +377,10 @@ void vTaskDelayUntil(TickType_t *wake,TickType_t period) {
   }
 }
 static void protocolChecks() {
+  robofish::lora::Command headingWire;
+  check(robofish::lora::parseLine("101,1,23120,42,26,3,-17955,350,0,1000,6570",headingWire) &&
+      headingWire.code==robofish::lora::kHeadingTarget && std::abs(headingWire.headingCwDegrees+179.55f)<.001f &&
+      headingWire.axes.surge==35,"PC golden angle frame decodes with hundredth-degree and tenth-percent units");
   using namespace robofish::lora;
   Command c;
   check(parseLine("100,1,0,65535,2,1000",c) && c.sequence==65535,"wire protocol retained");

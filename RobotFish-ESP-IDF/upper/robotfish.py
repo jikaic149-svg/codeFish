@@ -65,6 +65,9 @@ def normalize(raw, host, elapsed_ms=0):
     feedback_valid = feedback.get('body_valid') is True and feedback_age is not None and maximum_age is not None and 0 <= feedback_age <= maximum_age
     stabilizer = dict(supported=raw.get('attitude_control_supported') is True,
         yaw_pid_supported=feedback.get('yaw_pid_supported') is True,
+        heading_target_supported=feedback.get('heading_target_supported') is True,
+        heading_target_active=feedback.get('heading_target_active') is True,
+        requested_heading_cw_deg=number(feedback.get('requested_heading_cw_deg')),
         tilt_preview_valid=preview.get('valid') is True and feedback.get('body_valid') is True,
         tilt_outputs_connected=preview.get('outputs_connected') is True,
         pitch_preview_pct=number(preview.get('pitch_body_pct')),

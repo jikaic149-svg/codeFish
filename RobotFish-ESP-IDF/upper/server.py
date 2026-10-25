@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
-REVISION = 'workstation-20-yolo-imu-cascade'
+REVISION = 'workstation-23-heading-observer'
 FEATURES = {'attitude_control': True, 'shutdown': True}
 # Simulator controls proxy only when explicitly requested, so a normal run
 # exposes no extra surface at all.
@@ -381,7 +381,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():return self.reply(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True,'vision_control_mode':1,'vision_client_revision':'yolo-imu-cascade-1'})
+        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True,'vision_observation_only':True,'vision_control_mode':None,'vision_client_revision':'heading-observer-1'})
         if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':REVISION,'features':FEATURES})
         if path=='/api/tooling':return self.reply(200,tooling.info())
         if path=='/api/station/lora':return self.reply(200,device_client.CLIENT.lora_status())
@@ -456,6 +456,20 @@ class Handler(BaseHTTPRequestHandler):
             except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/vision/state':return self.reply(200,VISION.state())
         if path=='/api/vision/config':return self.reply(200,VISION.configuration())
+        if path=='/api/vision/samples':
+            kind=parse_qs(urlsplit(self.path).query).get('format',['csv'])[0]
+            try:data,content_type,name=VISION.export_samples(kind)
+            except (ValueError,OSError,RuntimeError) as exc:return self.reply(400,{'error':str(exc)})
+            self.send_response(200);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(data)))
+            self.send_header('Content-Disposition',f'attachment; filename="{name}"')
+            self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data);return
+        if path=='/api/vision/perspective-test':
+            kind=parse_qs(urlsplit(self.path).query).get('kind',['json'])[0]
+            try:data,content_type,name=VISION.test_file(kind)
+            except (ValueError,OSError,RuntimeError) as exc:return self.reply(400,{'error':str(exc)})
+            self.send_response(200);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(data)))
+            self.send_header('Content-Disposition',f'attachment; filename="{name}"')
+            self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data);return
         if path=='/api/vision/stream':
             kind=parse_qs(urlsplit(self.path).query).get('kind',['raw'])[0]
             try:connection,response=VISION.stream(kind)
@@ -558,12 +572,17 @@ class Handler(BaseHTTPRequestHandler):
             if action=='vision/open-output':return self.reply(200,VISION.open_output())
             if action=='vision/stop':return self.reply(200,VISION.stop())
             if action=='vision/action':return self.reply(200,VISION.action(body.get('event')))
+            if action=='vision/transform':return self.reply(200,VISION.transform(body))
             if action=='vision/control':
-                if body.get('task')=='prepare':
-                    if body.get('client_revision')!='yolo-imu-cascade-1':raise ValueError('请更新并重启视觉客户端')
-                    return self.reply(200,STATION.prepare_vision(body.get('session'),body.get('sequence')))
-                if body.get('task')!='target':raise ValueError('无效视觉控制任务')
-                return self.reply(200,STATION.target(body.get('axes'),body.get('session'),body.get('sequence'),'vision'))
+                raise ValueError('视觉仅用于观测、采样和标定；请在操控页手动发送航向目标')
+            if action=='station/heading-reference':
+                visual=VISION.state();initial=visual.get('result',{}).get('initial_heading') or {}
+                if (not visual.get('running') or not str(visual.get('source','')).isdigit() or initial.get('calibrated') is not True or
+                        initial.get('imu_aligned') is not True or
+                        not body.get('calibration_id') or body['calibration_id']!=initial.get('calibration_id')):
+                    raise ValueError('请在实时相机中重新标定鱼头；录像不能绑定当前实鱼 IMU')
+                return self.reply(200,{'reference':STATION.capture_heading_reference(initial),
+                                      'message':'鱼头零位已同步，未发送运动命令'})
             if action=='station/mode':
                 if body.get('mode')=='simulation' and DEBUG.process:
                     raise ValueError('请先结束实物调试会话，再进入测试模式')

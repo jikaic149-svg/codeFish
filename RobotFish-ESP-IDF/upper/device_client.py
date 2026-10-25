@@ -385,7 +385,7 @@ class DeviceClient:
             raise DeviceError('控制会话未连接或已被接管，请重新连接控制', code='control_session_changed')
         if saved.get('recovery_required') and action != 'stop':
             raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
-        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid','heading_target') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         body = dict(payload, action=action, session=session, sequence=sequence)
         status, result = None, {}
@@ -394,7 +394,7 @@ class DeviceClient:
             if status != 200 or result.get('accepted') is not True:
                 code = result.get('error')
                 transient = status in (408, 429, 500, 502, 503, 504) or code in (
-                    'lora_primary_active', 'neutral_pending', 'control_busy', 'control_timeout', 'stale_sequence', 'command_expired')
+                    'lora_primary_active', 'neutral_pending','heading_unavailable', 'control_busy', 'control_timeout', 'stale_sequence', 'command_expired')
                 raise DeviceError('控制密码错误，请重新连接' if status == 401 else
                     result.get('error') if status == 409 else
                     result.get('error') or f'控制失败（HTTP {status}）',
@@ -403,11 +403,11 @@ class DeviceClient:
             with self._guard:
                 if self._sessions.get(host, {}).get('control_session') == session:
                     if exc.retryable:
-                        if exc.code not in ('lora_primary_active', 'neutral_pending'):
+                        if exc.code not in ('lora_primary_active', 'neutral_pending','heading_unavailable'):
                             self._sessions[host]['recovery_required'] = True
                     else:
                         self._sessions.pop(host, None)
-            if exc.code not in ('lora_primary_active', 'neutral_pending'):
+            if exc.code not in ('lora_primary_active', 'neutral_pending','heading_unavailable'):
                 self.lora.clear_target()
             event('control_interrupted', host=host, action=action, status=status,
                   code=exc.code, retryable=exc.retryable)
@@ -480,7 +480,7 @@ class DeviceClient:
 
     def motion_control(self, host, action, session, sequence, *, client_id=None, **payload):
         host = display_host(host) if host else ''
-        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid','heading_target') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         if not isinstance(session,str) or not 1<=len(session)<=64 or any(not 32<=ord(c)<=126 for c in session):
             raise DeviceError('无效控制会话')
@@ -497,6 +497,13 @@ class DeviceClient:
                 raise DeviceError('推进比例超出范围')
         if action == 'mode' and (type(payload.get('mode')) is not int or payload['mode'] not in (1, 2, 3)):
             raise DeviceError('无效运动模式')
+        if action=='heading_target':
+            if not {'heading_cw_deg','surge_pct'}<=set(payload) or set(payload)-{'heading_cw_deg','surge_pct','propulsion_scale'}:
+                raise DeviceError('航向目标只接受 heading_cw_deg、surge_pct 和可选推进比例')
+            for key,lo,hi in [('heading_cw_deg',-180,180),('surge_pct',0,100),('propulsion_scale',0,100)]:
+                value=payload.get(key,100)
+                if type(value) not in (int,float) or not math.isfinite(value) or not lo<=value<=hi:
+                    raise DeviceError('航向或推进目标超出范围')
         if action == 'yaw_pid':
             pid=payload.get('pid')
             if set(payload)!={'pid'} or not isinstance(pid,dict) or set(pid)!={'kp','ki','kd'} or any(
@@ -505,6 +512,8 @@ class DeviceClient:
             payload={'pid':{key:round(value,3) for key,value in pid.items()}}
         with self._guard:
             dual = self._capabilities.get(host, {}).get('lora_protocol') == 2
+            if action=='heading_target' and self._capabilities.get(host,{}).get('heading_target_supported') is not True:
+                raise DeviceError('当前固件不支持 S3 航向目标，请烧录 2.7.0 或更新固件',code='unsupported_control')
             if action == 'yaw_pid' and self._capabilities.get(host, {}).get('yaw_pid_supported') is not True:
                 raise DeviceError('当前固件未提供 yaw PID 调参，请先烧录新固件',code='unsupported_control')
             if action in ('attitude_on', 'attitude_off') and self._capabilities.get(host, {}).get('attitude_control_supported') is not True:
@@ -527,8 +536,8 @@ class DeviceClient:
                     forced or not authorized or not fresh or saved.get('recovery_required'))
                 if radio_only:
                     self._order_request(saved if authorized else None,session,sequence,client_id)
-                    if action in ('mode','attitude_on'):
-                        self._radio_mode=3 if action=='attitude_on' else payload['mode']
+                    if action in ('mode','attitude_on','heading_target'):
+                        self._radio_mode=payload['mode'] if action=='mode' else 3
                         if authorized:saved['desired_mode']=self._radio_mode
                     mode=self._radio_mode
             if radio_only:
@@ -555,8 +564,8 @@ class DeviceClient:
                     raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
                 self._order_request(saved, session, sequence, client_id)
                 raw, received = self._motion_latest.get(host, ({}, 0))
-                if action in ('mode','attitude_on'):
-                    saved['desired_mode'] = 3 if action=='attitude_on' else payload['mode']
+                if action in ('mode','attitude_on','heading_target'):
+                    saved['desired_mode'] = payload['mode'] if action=='mode' else 3
                     self._radio_mode=saved['desired_mode']
                 mode = saved.get('desired_mode', raw.get('mode', 2))
                 wire = max(saved.get('sequence', 0), raw.get('wifi', {}).get('sequence', 0))

@@ -72,10 +72,13 @@ void tick(uint32_t now, uint32_t elapsed) {
   attitudeSettings.yawKd=control.yawPid.kd;
   snapshot.attitude = robofish::attitude::evaluate(attitudeSettings,
       sample, now, control.attitudeEnabled, control.attitudeMotionAllowed(), control.target.pitchPercent != 0);
+  control.headingFeedbackValid=snapshot.attitude.bodyValid && snapshot.attitude.headingValid;
+  control.headingSampleMs=snapshot.attitude.sampleMs;
   robofish::attitude::updateTiltPid(attitudeSettings,snapshot.attitude,tiltPid,
       control.target.pitchPercent!=0,control.attitudeGeneration,now);
   robofish::attitude::holdHeading(attitudeSettings, snapshot.attitude,
-      heading, control.target.yawPercent != 0, control.attitudeGeneration, now);
+      heading, control.target.yawPercent != 0, control.attitudeGeneration, now,
+      control.headingTargetActive,control.headingTargetCwDegrees);
   auto frame = snapshot.written;
   // Lease expiry stops thrust immediately; the existing disabled-target
   // allocator still slews all four servos from their last successful angles.

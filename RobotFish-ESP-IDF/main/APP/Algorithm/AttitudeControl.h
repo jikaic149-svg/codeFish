@@ -260,21 +260,31 @@ inline void updateTiltPid(const Settings &s, Result &result, TiltState &state,
 // Manual steering, stale/invalid data and STOP drop the old reference. Re-enabling
 // assistance also relatches, even if OFF/ON were consumed within one control tick.
 inline void holdHeading(const Settings &s, Result &result, HeadingState &state,
-                        bool manualYaw, uint32_t generation, uint32_t nowMs) {
+                        bool manualYaw, uint32_t generation, uint32_t nowMs,
+                        bool explicitTarget=false, float targetCwDegrees=0) {
   if (state.generation != generation) state={0,generation,false};
   result.yawActive=result.headingLocked=false;
   result.yawCorrectionPercent=result.headingTargetDegrees=0;
   result.yawErrorDegrees=result.yawP=result.yawI=result.yawD=0;
   result.manualYaw=manualYaw;
   const bool eligible=result.reason==Reason::Active || result.reason==Reason::ManualPitch;
-  if (!eligible || !result.yawCalibrated || !result.headingValid || manualYaw) {
+  if (!eligible || !result.yawCalibrated || !result.headingValid || manualYaw ||
+      (explicitTarget && !std::isfinite(targetCwDegrees))) {
     state={0,generation,false};
     if (eligible && !result.pitchActive && !result.rollActive && result.yawCalibrated)
       result.reason=manualYaw?Reason::ManualYaw:Reason::HeadingUnavailable;
     return;
   }
   const bool first=!state.locked;
-  if (first) { state.targetDegrees=result.yawDegrees; state.locked=true; }
+  const float target=explicitTarget?wrapDegrees(targetCwDegrees):state.targetDegrees;
+  if (first) { state.targetDegrees=explicitTarget?target:result.yawDegrees; state.locked=true; }
+  else if (explicitTarget) {
+    // Moving path references retain I and the 100 ms clock. Cancel only the
+    // setpoint contribution to D, leaving the measured yaw derivative intact.
+    state.pid.previousErrorDegrees=wrapDegrees(state.pid.previousErrorDegrees+
+        wrapDegrees(target-state.targetDegrees));
+    state.targetDegrees=target;
+  }
   result.headingLocked=result.yawActive=true;
   result.headingTargetDegrees=state.targetDegrees;
   const float error=wrapDegrees(state.targetDegrees-result.yawDegrees);

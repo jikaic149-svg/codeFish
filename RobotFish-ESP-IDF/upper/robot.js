@@ -184,6 +184,7 @@ function renderRobot(){
   robotText('robot-pitch',robotNumber(act.pitch,'°'));
   renderImu();
   renderAttitudeControl(view);
+  renderHeadingExperiment(view);
   const route=view?.control?.route==='lora'?'LoRa 主控':'Wi-Fi 备用';
   robotText('robot-age',valid?Math.max(0,Math.floor((Date.now()-robotSeen)/1000))+'秒前':'—');
   if(simulated)robotText('lora-state',view?.links?.lora?'可用 · 仿真':'断开 · 仿真');
@@ -245,6 +246,17 @@ function renderAttitudeControl(view){
   if(feedback?.tilt_preview_valid&&!feedback.tilt_outputs_connected)message+=` · pitch / roll 仅预览 ${robotNumber(feedback.pitch_preview_pct,'%',1)} / ${robotNumber(feedback.roll_preview_pct,'%',1)}，未接入输出`;
   if(!serviceAttitudeControl)message='本地后台尚未提供姿态辅助接口，需要更新后台后才能切换';
   robotText('robot-attitude-state',message);
+}
+
+function renderHeadingExperiment(view){
+  const supported=view?.attitude_control?.heading_target_supported===true||robotIdentity?.heading_target_supported===true;
+  const reference=view?.heading_reference||{};
+  $('heading-send').disabled=headingRequestPending||!supported||!manualControlReady()||controlConfigPending||!reference.valid||!reference.imu_valid;
+  $('heading-zero').disabled=headingRequestPending||!view?.attitude_control?.heading_valid||controlConfigPending;
+  const number=value=>typeof value==='number'?value.toFixed(1)+'°':'—';
+  robotText('heading-experiment-state',!supported?'指定角度需要 S3 2.7.0 固件':!reference.valid?
+    '先在视觉页标定鱼头，或用当前 IMU 建立 0°。':
+    `当前 ${number(reference.current_deg)} · 鱼端目标 ${number(reference.target_deg)} · ${reference.target_confirmed?'目标已回读确认':'等待目标回读'} · ${reference.source==='VISUAL_HEAD_CALIBRATION'?'鱼头标定零位':'手动 IMU 零位'}`);
 }
 function renderRobotSession(){
   const host=robotHost();robotText('robot-device-host',host||'—');robotText('robot-session-host',stationMode==='simulation'?'SIMULATION / PC模型':host||'未选择管理设备');
@@ -358,7 +370,7 @@ function queueControl(callback){const result=controlQueue.then(callback);control
 async function configureControl(action,value){
  controlConfigPending=true;renderRobot();
  try{const result=await queueControl(()=>service('station/control',{action,value,session:controlSession,sequence:++controlSequence,client_id:controlClientId}));if(action==='mode'&&(result.queued||result.accepted))localRadio.mode=value;if(action==='yaw_pid'&&(result.queued||result.accepted))yawPidSubmitted={...value};if(action==='source')localRadio.control_transport=result.control_transport;const message=result.queued?'已排队经 LoRa 发送，鱼端执行未确认':result.waiting?'等待通道或参数发送，请稍后重试':result.message;robotText('control-configuration-state',message);log(message,'ok');await pollRobot();}
- catch(error){if(isRobotFish()&&!['unsupported_control','attitude_not_calibrated','invalid_pid'].includes(error.code)){if(error.retryable)suspendControl(error);else loseControl(error);}robotText('control-configuration-state',error.message);toast(error.message);$('robot-control-mode').value=String(loraControlReady()?localRadio.mode:currentRobot()?.control?.mode||3);$('control-source').value=loraControlReady()?'auto':isRobotFish()?(dualLink()?'auto':'wifi'):currentRobot()?.control?.source||'lora';}
+ catch(error){if(isRobotFish()&&!['unsupported_control','attitude_not_calibrated','invalid_pid'].includes(error.code)&&!['heading_zero','heading_target'].includes(action)){if(error.retryable)suspendControl(error);else loseControl(error);}robotText('control-configuration-state',error.message);toast(error.message);$('robot-control-mode').value=String(loraControlReady()?localRadio.mode:currentRobot()?.control?.mode||3);$('control-source').value=loraControlReady()?'auto':isRobotFish()?(dualLink()?'auto':'wifi'):currentRobot()?.control?.source||'lora';}
  finally{controlConfigPending=false;renderRobot();}
 }
 function updateAxes(sourceOverride){
@@ -380,7 +392,7 @@ async function pumpTarget(){
  targetPending=true;const version=inputVersion,axes={...desiredAxes},source=desiredSource,epoch=stationEpoch;
  try{const result=await queueControl(()=>version!==inputVersion||controlSuspended&&!loraControlReady()?{skipped:true}:service('station/target',{axes,source,session:controlSession,sequence:++controlSequence,client_id:controlClientId}));
    if(result.skipped)return;
-   if(epoch===stationEpoch){sentVersion=version;lastRenewal=Date.now();robotText('robot-command-result',result.queued?`目标已排队（LoRa），等待鱼端遥测确认 #${result.id}`:result.waiting?'等待通道切换，下次新目标继续发送':`目标已接受（${result.simulated?'仿真':'Wi-Fi 备用'}） #${result.id}`);}
+   if(epoch===stationEpoch&&version===inputVersion){sentVersion=version;lastRenewal=Date.now();robotText('robot-command-result',result.queued?`目标已排队（LoRa），等待鱼端遥测确认 #${result.id}`:result.waiting?'等待通道切换，下次新目标继续发送':`目标已接受（${result.simulated?'仿真':'Wi-Fi 备用'}） #${result.id}`);}
  }catch(error){if(epoch===stationEpoch){if(error.retryable)suspendControl(error);else loseControl(error);robotText('robot-command-result',error.message);log(error.message,'warn');renderControl();renderRobot();}}
  finally{targetPending=false;if(inputVersion!==sentVersion)pumpTarget();}
 }
@@ -403,6 +415,26 @@ $('forget-key').onclick=async()=>{try{autoConnectAttempted=true;identityEpoch++;
 let hostTimer;$('robot-host').addEventListener('input',()=>{identityEpoch++;autoConnectAttempted=true;stopControl().finally(()=>{wifiArmed=false;robotIdentity=null;clearTimeout(hostTimer);hostTimer=setTimeout(pollIdentity,400);renderRobotSession();});});
 $('robot-control-mode').onchange=e=>configureControl('mode',Number(e.target.value));
 $('robot-attitude-enabled').onchange=e=>configureControl('attitude',e.target.checked);
+let headingRequestPending=false;
+$('heading-zero').onclick=()=>configureControl('heading_zero',null);
+$('heading-send').onclick=async()=>{
+  if(headingRequestPending)return;
+  const angle=$('heading-angle'),surge=$('heading-surge');if(!angle.reportValidity()||!surge.reportValidity())return;
+  const target={angle_deg:Number(angle.value),surge_pct:Number(surge.value)};
+  headingRequestPending=true;renderRobot();
+  clearControlInputs();const version=inputVersion,epoch=stationEpoch;
+  try{
+    await controlQueue;
+    if(version!==inputVersion||epoch!==stationEpoch)return;
+    const sequence=controlSequence;
+    if($('heading-auto-sample').checked&&typeof beginVisionSamples==='function'){
+      await beginVisionSamples();
+    }
+    if(version!==inputVersion||epoch!==stationEpoch||sequence!==controlSequence)return;
+    await configureControl('heading_target',target);
+  }catch(error){toast(error.message);}
+  finally{headingRequestPending=false;renderRobot();}
+};
 for(const key of ['kp','ki','kd'])$('robot-yaw-'+key).oninput=()=>{yawPidDirty=true;};
 $('robot-yaw-apply').onclick=()=>{
  const pid={};for(const key of ['kp','ki','kd']){const input=$('robot-yaw-'+key);if(input.value===''||!input.checkValidity()){input.reportValidity();return;}pid[key]=Number(input.value);}

@@ -504,6 +504,24 @@ static void tiltPreviewChecks() {
   check(!config::attitude::kPitchOutputEnabled && !config::attitude::kRollOutputEnabled &&
         config::attitude::kRollCommandSign==0,"production gates and uncalibrated roll stay off");
 }
+static void explicitHeadingChecks() {
+  auto settings=config::attitude::makeSettings();attitude::HeadingState state;
+  const auto step=[&](float target,float measured,uint32_t time) {
+    auto input=sample(time);input.anglesDegrees={-180,0,-measured};input.ratesDps={0,0,0};
+    auto result=attitude::evaluate(settings,input,time,true,true,false);
+    attitude::holdHeading(settings,result,state,false,10,time,true,target);return result;
+  };
+  auto value=step(5,0,0);
+  check(near(value.headingTargetDegrees,5) && near(value.yawCorrectionPercent,25),"external heading setpoint is executed on S3");
+  step(6,0,20);step(7,0,40);step(8,0,60);value=step(10,0,100);
+  check(near(value.yawD,0) && state.pid.integralPercent>0,"streamed reference preserves I and avoids derivative kick at constant yaw");
+  value=step(10,5,200);
+  check(near(value.yawD,-5),"external reference D still damps actual measured motion");
+  state={};value=step(179,-179,300);
+  check(near(value.yawErrorDegrees,-2) && value.yawCorrectionPercent<0,"explicit targets use the shortest arc across 180 degrees");
+  value=step(std::numeric_limits<float>::quiet_NaN(),0,400);
+  check(!value.yawActive && !state.locked,"nonfinite heading cannot reach native yaw outputs");
+}
 int main() {
   mountingChecks(); inputChecks(); confirmedDirectionsAndWrapChecks(); actuatorChecks(); syntheticResponse(); authorizationChecks(); headingChecks();
   pidChecks();
@@ -511,5 +529,6 @@ int main() {
   yawPolarityChecks();
   filterChecks();
   tiltPreviewChecks();
+  explicitHeadingChecks();
   std::printf("PASS: %u attitude checks; 24 mounts, 100ms PID, two-pole filter, hybrid yaw, tilt preview, wrap/reanchor, stale/STOP/manual priority; Result=%zu, HeadingState=%zu bytes\n",checks,sizeof(attitude::Result),sizeof(attitude::HeadingState));
 }

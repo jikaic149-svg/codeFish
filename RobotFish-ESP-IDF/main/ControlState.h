@@ -32,6 +32,9 @@ struct ControlState {
   bool softStopping = false;
   bool attitudeEnabled = false; // Explicit yaw-hold authorization, including zero surge.
   uint32_t attitudeGeneration = 0;
+  bool headingTargetActive = false, headingFeedbackValid = false;
+  float headingTargetCwDegrees = 0;
+  uint32_t headingSampleMs = 0;
   robofish::wifi::YawPid yawPid{robofish::config::attitude::kYawKp,
       robofish::config::attitude::kYawKi,robofish::config::attitude::kYawKd};
   static bool validPid(const robofish::wifi::YawPid &pid) {
@@ -51,7 +54,27 @@ struct ControlState {
         !expired && !maintenance && !stopPending && !outputRecovery && !outputFault;
   }
   void setMode(DriveMode mode) { target.mode=attitudeEnabled?DriveMode::Hybrid:mode; }
+  void cancelHeadingTarget() {
+    if (headingTargetActive) { headingTargetActive=false; ++attitudeGeneration; }
+  }
+  bool headingFresh(uint32_t now) const {
+    return headingFeedbackValid && uint32_t(now-headingSampleMs)<=robofish::config::attitude::kMaximumSampleAgeMs;
+  }
+  static bool validHeading(float degrees,float surge,float scale) {
+    return std::isfinite(degrees) && degrees>=-180 && degrees<=180 &&
+        std::isfinite(surge) && surge>=0 && surge<=100 &&
+        std::isfinite(scale) && scale>=0 && scale<=100;
+  }
+  void startHeading(float degrees,float surge,float scale,uint32_t now) {
+    if (!headingTargetActive) { setAttitude(true); headingTargetActive=true; }
+    headingTargetCwDegrees=degrees;
+    target={}; target.mode=DriveMode::Hybrid;
+    target.surgePercent=surge; target.propulsionScale=scale*.01f;
+    target.outputScale=1; target.allowFlowAssist=false;
+    target.enabled=leaseActive=true; softStopping=expired=false; lastMotionMs=now;
+  }
   void setAttitude(bool enabled) {
+    cancelHeadingTarget();
     // Reuse the neutral barrier to center a tail previously driven by idle hold.
     if (attitudeEnabled && !enabled && !leaseActive) stopPending = true;
     attitudeEnabled=enabled; ++attitudeGeneration;
@@ -88,6 +111,7 @@ struct ControlState {
   }
 
   void clearTarget() {
+    cancelHeadingTarget();
     const auto mode = target.mode;
     target = {};
     target.mode = mode;
@@ -111,9 +135,11 @@ struct ControlState {
   bool accept(const robofish::lora::Command &command, uint32_t now) {
     using robofish::lora::ControlCode;
     using namespace robofish::lora;
-    if (command.code < 1 || command.code > kYawPid ||
+    if (command.code < 1 || command.code > kHeadingTarget ||
         (command.hasKnob && command.knob > 1000)) return false;
     if (command.code == kYawPid && !validPid(command.yawPid)) return false;
+    if (command.code == kHeadingTarget && !validHeading(command.headingCwDegrees,
+        command.axes.surge,command.propulsionScalePercent)) return false;
     if (command.code == kTarget && (!validAxis(command.axes.surge) || !validAxis(command.axes.yaw) ||
         !validAxis(command.axes.heave) || !std::isfinite(command.propulsionScalePercent) ||
         command.propulsionScalePercent < 0 || command.propulsionScalePercent > 100)) return false;
@@ -142,6 +168,11 @@ struct ControlState {
       return finish(ControlCode::Accepted);
     }
     expire(now);
+    if (command.code == kHeadingTarget) {
+      if (!headingFresh(now)) return finish(ControlCode::HeadingUnavailable);
+      startHeading(command.headingCwDegrees,command.axes.surge,command.propulsionScalePercent,now);
+      return finish(ControlCode::Accepted);
+    }
     if (command.code == kYawPid) { yawPid=command.yawPid; return finish(ControlCode::Accepted); }
     if (command.code == kAttitudeOn || command.code == kAttitudeOff) {
       setAttitude(command.code == kAttitudeOn);
@@ -149,6 +180,7 @@ struct ControlState {
     }
     if (command.code == kMode) { setMode(command.mode); return finish(ControlCode::Accepted); }
     if (command.code == kTarget) {
+      cancelHeadingTarget();
       target = {};
       setMode(command.mode);
       target.surgePercent = command.axes.surge;
@@ -173,6 +205,7 @@ struct ControlState {
           target.mode == DriveMode::Bionic ? DriveMode::Hybrid : DriveMode::Prop);
       return finish(ControlCode::Accepted);
     }
+    cancelHeadingTarget();
     switch (command.code) {
       case 1: target.surgePercent = target.yawPercent = 0; break;
       case 2: target.surgePercent = 100; target.yawPercent = 0; break;
@@ -249,7 +282,8 @@ struct ControlState {
     }
     if (command.action != Action::Target && command.action != Action::Mode &&
         command.action != Action::Stop && command.action != Action::AttitudeOn &&
-        command.action != Action::AttitudeOff && command.action != Action::YawPid) return result(command, Code::Invalid);
+        command.action != Action::AttitudeOff && command.action != Action::YawPid &&
+        command.action != Action::HeadingTarget) return result(command, Code::Invalid);
     if (command.action == Action::YawPid && !validPid(command.yawPid)) return result(command, Code::Invalid);
     if (std::strcmp(command.session, wifi.session) != 0)
       return result(command, Code::SessionConflict);
@@ -257,7 +291,7 @@ struct ControlState {
       return result(command, Code::StaleSequence);
     if (command.action != Action::Stop && loraHealthy(now))
       return result(command, Code::LoRaActive);
-    if (command.action == Action::Target && stopPending && loRaSeen)
+    if ((command.action == Action::Target || command.action == Action::HeadingTarget) && stopPending && loRaSeen)
       return result(command, Code::NeutralPending);
     if (command.action == Action::Target) {
       if (!validAxis(command.axes.surge) || !validAxis(command.axes.yaw) ||
@@ -268,6 +302,11 @@ struct ControlState {
     if (command.action == Action::Mode && command.mode != DriveMode::Bionic &&
         command.mode != DriveMode::Prop && command.mode != DriveMode::Hybrid)
       return result(command, Code::Invalid);
+    if (command.action == Action::HeadingTarget) {
+      if (!validHeading(command.headingCwDegrees,command.axes.surge,command.propulsionScalePercent))
+        return result(command,Code::Invalid);
+      if (!headingFresh(now)) return result(command,Code::HeadingUnavailable);
+    }
 
     expire(now);
     if (command.action != Action::Stop && !wifiOwner && leaseActive) {
@@ -278,6 +317,8 @@ struct ControlState {
     wifi.sequence = command.sequence;
     if (command.action == Action::Stop) {
       stop();
+    } else if (command.action == Action::HeadingTarget) {
+      startHeading(command.headingCwDegrees,command.axes.surge,command.propulsionScalePercent,command.receivedMs);
     } else if (command.action == Action::Target && command.axes.surge == 0 &&
         command.axes.yaw == 0 && command.axes.heave == 0) {
       // Ordinary key/button release ramps the current successful ESC outputs
@@ -294,6 +335,7 @@ struct ControlState {
     } else if (command.action == Action::Mode) {
       setMode(command.mode); // Configuration alone never starts or renews motion.
     } else {
+      cancelHeadingTarget();
       const auto mode = target.mode;
       target = {};
       target.mode = mode;

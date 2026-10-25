@@ -16,12 +16,13 @@ struct Command {
   wifi::Axes axes{};
   float propulsionScalePercent = 100;
   wifi::YawPid yawPid{};
+  float headingCwDegrees = 0;
 };
 
-inline constexpr uint8_t kTarget = 20, kHeartbeat = 21, kMode = 22, kAttitudeOn = 23, kAttitudeOff = 24, kYawPid = 25;
+inline constexpr uint8_t kTarget = 20, kHeartbeat = 21, kMode = 22, kAttitudeOn = 23, kAttitudeOff = 24, kYawPid = 25, kHeadingTarget = 26;
 
 enum class ControlCode : uint8_t { Accepted, Invalid, Unsupported, Busy, Maintenance,
-                                 OutputRecovery, OutputFault };
+                                 OutputRecovery, OutputFault, HeadingUnavailable };
 struct ControlResult {
   Command command;
   ControlCode code = ControlCode::Invalid;
@@ -37,6 +38,7 @@ inline const char *controlCodeName(ControlCode code) {
     case ControlCode::Maintenance: return "ota_locked";
     case ControlCode::OutputRecovery: return "output_recovery";
     case ControlCode::OutputFault: return "output_fault";
+    case ControlCode::HeadingUnavailable: return "heading_unavailable";
     default: return "invalid_command";
   }
 }

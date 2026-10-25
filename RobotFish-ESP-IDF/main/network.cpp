@@ -81,6 +81,7 @@ esp_err_t identity(httpd_req_t *req) {
   const auto attitudeSettings = robofish::config::attitude::makeSettings();
   cJSON_AddBoolToObject(body, "attitude_control_supported", true);
   cJSON_AddBoolToObject(body, "yaw_pid_supported", true);
+  cJSON_AddBoolToObject(body, "heading_target_supported", true);
   const auto calibration = robofish::attitude::evaluate(attitudeSettings, {}, 0, false, false, false);
   cJSON_AddBoolToObject(body, "attitude_control_calibrated", calibration.pitchCalibrated || calibration.rollCalibrated || calibration.yawCalibrated);
   return json(req, body);
@@ -230,6 +231,9 @@ esp_err_t telemetry(httpd_req_t *req) {
   const auto &feedback = s.attitude;
   cJSON_AddBoolToObject(attitude, "enabled", s.control.attitudeEnabled);
   cJSON_AddBoolToObject(attitude, "yaw_pid_supported", true);
+  cJSON_AddBoolToObject(attitude, "heading_target_supported", true);
+  cJSON_AddBoolToObject(attitude, "heading_target_active", s.control.headingTargetActive);
+  if (s.control.headingTargetActive) cJSON_AddNumberToObject(attitude,"requested_heading_cw_deg",s.control.headingTargetCwDegrees);
   cJSON_AddNumberToObject(attitude,"pid_period_ms",robofish::config::attitude::kYawPidPeriodMs);
   cJSON_AddNumberToObject(attitude,"yaw_max_correction_pct",robofish::config::attitude::kMaximumYawCorrectionPercent);
   cJSON_AddNumberToObject(attitude,"yaw_command_sign",robofish::config::attitude::kYawCommandSign);
@@ -355,7 +359,8 @@ esp_err_t controlRequest(httpd_req_t *req) {
         result.code == Code::OutputRecovery ? "output_recovery" :
         result.code == Code::OutputFault ? "output_fault" :
           result.code == Code::LoRaActive ? "lora_primary_active" :
-          result.code == Code::NeutralPending ? "neutral_pending" : "ota_locked";
+          result.code == Code::NeutralPending ? "neutral_pending" :
+          result.code == Code::HeadingUnavailable ? "heading_unavailable" : "ota_locked";
     return controlError(req, result.code == Code::Invalid ? "400 Bad Request" : "409 Conflict", reason);
   }
   cJSON *body = cJSON_CreateObject();
