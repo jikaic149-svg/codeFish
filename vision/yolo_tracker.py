@@ -28,6 +28,7 @@ class YoloBodyTracker(WhiteBlackTracker):
         self.load_seconds=time.perf_counter()-started
         self.confidence=CONTROL['model']['confidence']
         self.imgsz=int(CONTROL['model']['imgsz'])
+        self.last_speed={};self.last_predict_ms=0.
 
     def select(self,frame,roi,timestamp):
         roi=_clip_roi(roi,frame.shape[1],frame.shape[0])
@@ -52,7 +53,10 @@ class YoloBodyTracker(WhiteBlackTracker):
         flowing=False
         if self._last_detection is not None and now-self._last_detection>self.search_hold_s:
             self._lock_id=None;self._lock_position=None;self._lock_bbox=None;flowing=False
+        predict_started=time.perf_counter()
         result=self.model.predict(frame,imgsz=self.imgsz,conf=self.confidence,device=self.device,verbose=False)[0]
+        self.last_speed=dict(getattr(result,'speed',{}) or {})
+        self.last_predict_ms=(time.perf_counter()-predict_started)*1000.
         self._detection_count+=1
         choices=[]
         for box,confidence in zip(result.boxes.xyxy.cpu().tolist(),result.boxes.conf.cpu().tolist()):

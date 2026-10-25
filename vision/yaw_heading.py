@@ -38,8 +38,13 @@ class CalibratedYaw:
     def update(self,sample,now):
         initialized=self.zero_cw is not None
         valid=initialized and self.valid_sample(sample,now)
+        source_id=sample.get('source_id') if isinstance(sample,dict) else None
+        restarted=(valid and type(source_id) is int and type(self.last_source_id) is int
+                   and ((source_id-self.last_source_id)&0xffffffff)>=0x80000000)
+        if restarted:
+            self.reset();initialized=False;valid=False
         result={'initialized':initialized,'usable':bool(valid),'measurement_valid':bool(valid),
-                'source':'IMU_YAW' if valid else 'IMU_WAIT' if initialized else 'NEEDS_HEAD_CALIBRATION',
+                'source':'IMU_RESTARTED' if restarted else 'IMU_YAW' if valid else 'IMU_WAIT' if initialized else 'NEEDS_HEAD_CALIBRATION',
                 'yaw_deg':None,'world_yaw_rad':None,'unit_vector':None,'yaw_rate_rps':0.,
                 'age_s':None,'raw_yaw_deg':sample.get('yaw_cw_deg') if isinstance(sample,dict) else None,
                 'sample_time':sample.get('sample_time') if isinstance(sample,dict) else None}
@@ -71,3 +76,10 @@ class CalibratedYaw:
         if self.zero_world is None:
             raise ValueError('先标定鱼头与 yaw 零位')
         return math.degrees(wrap_radians(world_heading_rad-self.zero_world))
+
+    def target_cw_deg(self,world_heading_rad):
+        """Convert a world reference once into the S3 mapped IMU's CW frame."""
+        if self.zero_cw is None or not math.isfinite(world_heading_rad):
+            raise ValueError('先标定鱼头与 yaw 零位')
+        return math.degrees(wrap_radians(math.radians(self.zero_cw)-
+                            wrap_radians(world_heading_rad-self.zero_world)))

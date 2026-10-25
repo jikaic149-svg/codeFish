@@ -70,6 +70,7 @@ int main() {
   fixture.imu.angles=fixture.imu.angularVelocity=fixture.imu.acceleration={13.123456f,-17.123456f,19.123456f};
   fixture.filteredAngles=fixture.imu.angles; fixture.filteredAnglesValid=true;
   fixture.control.yawPid={13.123456f,13.123456f,13.123456f};
+  fixture.control.headingTargetActive=true;fixture.control.headingTargetCwDegrees=13.123456f;
   fixture.attempted.tailFrontDegrees=fixture.attempted.tailRearDegrees=13.123456f;
   fixture.attempted.pectoralLeftDegrees=fixture.attempted.pectoralRightDegrees=13.123456f;
   fixture.written=fixture.attempted;
@@ -83,6 +84,8 @@ int main() {
   if(telemetry(nullptr)!=0 || !captured) return 2;
   if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"attitude_control"),"yaw_max_correction_pct")->valuedouble!=100) return 8;
   if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"attitude_control"),"yaw_command_sign")->valuedouble!=1) return 9;
+  if(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"attitude_control"),"heading_target_supported")) ||
+      !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"attitude_control"),"heading_target_active"))) return 10;
   if(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(captured,"imu"),"baud")->valuedouble!=9600) return 4;
   if(cJSON_GetObjectItemCaseSensitive(captured,"motion_timeout_ms")->valuedouble!=0 ||
       std::strcmp(cJSON_GetObjectItemCaseSensitive(captured,"lease_servo_action")->valuestring,"hold")) return 5;

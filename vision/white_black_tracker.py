@@ -126,12 +126,19 @@ class WhiteBlackTracker:
 
     def _seed_flow(self, gray, body_bbox):
         x1,y1,x2,y2=map(int,body_bbox)
-        mask=self._feature_mask
-        if mask is None or mask.shape!=gray.shape:
-            mask=np.zeros(gray.shape,np.uint8)
-            mask[max(0,y1):min(gray.shape[0],y2),max(0,x1):min(gray.shape[1],x2)]=255
-        self._flow_points=cv2.goodFeaturesToTrack(gray,maxCorners=45,qualityLevel=.02,
+        # The full image costs ~13 ms even with a sparse mask. Keep enough
+        # border for the 5x5 feature filter, then restore global coordinates.
+        roi=_clip_roi((x1-6,y1-6,x2+6,y2+6),gray.shape[1],gray.shape[0])
+        if roi is None:self._flow_points=None;return
+        left,top,right,bottom=roi;patch=gray[top:bottom,left:right]
+        if self._feature_mask is not None and self._feature_mask.shape==gray.shape:
+            mask=self._feature_mask[top:bottom,left:right]
+        else:
+            mask=np.zeros_like(patch)
+            mask[max(0,y1-top):min(bottom-top,y2-top),max(0,x1-left):min(right-left,x2-left)]=255
+        self._flow_points=cv2.goodFeaturesToTrack(patch,maxCorners=45,qualityLevel=.02,
                                                  minDistance=4,mask=mask,blockSize=5)
+        if self._flow_points is not None:self._flow_points+=np.float32([left,top])
 
     def _track_flow(self, gray, now):
         if (self._flow_gray is None or self._flow_points is None or len(self._flow_points)<4

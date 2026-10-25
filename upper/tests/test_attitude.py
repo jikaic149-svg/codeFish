@@ -12,11 +12,55 @@ import device_client
 import robotfish
 from lora_link import frame
 from test_realtime import RAW
+from station import Workstation
 
 HOST, SESSION = '192.168.4.1', 'attitude-fixture'
 
 
 class AttitudeTests(unittest.TestCase):
+    def test_manual_heading_is_sent_once_with_left_positive_and_no_visual_feedback(self):
+        station=Workstation();station.host=HOST
+        view={'online':True,'checked_at':10.,'diagnostics':{'uptime_ms':1000},
+              'attitude_control':{'heading_valid':True,'body_valid':True,'body_yaw_deg':40.,'age_ms':20.}}
+        calls=[]
+        client=SimpleNamespace(is_robotfish=lambda host:True,
+            motion_control=lambda *args,**kwargs:calls.append((args,kwargs)) or {'accepted':True})
+        def read():return dict(view,heading_reference=station.heading_reference_state(view))
+        with patch('station.device_client.CLIENT',client),patch.object(station,'read',side_effect=read):
+            reference=station.configure_control('heading_zero',None,'page',1)['reference']
+            self.assertTrue(reference['valid']);self.assertEqual(calls,[])
+            station.configure_control('heading_target',{'angle_deg':30.,'surge_pct':0.},'page',2)
+            self.assertEqual(len(calls),1)
+            self.assertEqual(calls[0][0][1],'heading_target')
+            self.assertEqual(calls[0][1]['heading_cw_deg'],10.)
+            self.assertEqual(calls[0][1]['surge_pct'],0.)
+            view['attitude_control'].update(body_yaw_deg=10.,heading_target_active=True,requested_heading_cw_deg=10.)
+            confirmed=read()['heading_reference']
+            self.assertAlmostEqual(confirmed['current_deg'],30.)
+            self.assertTrue(confirmed['target_confirmed'])
+            self.assertEqual(len(calls),1)
+            view['diagnostics']['uptime_ms']=10
+            self.assertFalse(read()['heading_reference']['valid'])
+            with self.assertRaises(device_client.DeviceError):
+                station.configure_control('heading_target',{'angle_deg':30.,'surge_pct':35.},'page',3)
+            self.assertEqual(len(calls),1)
+
+    def test_visual_reference_only_sets_coordinates_and_survives_normal_uptime_wrap(self):
+        station=Workstation();station.host=HOST
+        view={'online':True,'checked_at':10.,'diagnostics':{'uptime_ms':0xfffffff0},
+              'attitude_control':{'heading_valid':True,'body_valid':True,'body_yaw_deg':40.,'age_ms':20.}}
+        calibration={'imu_zero_cw_deg':55.,'image_sample_time':9.7,'source_id':0xffffffe0,
+                     'calibration_id':'optical-zero','visual_zero_world_deg':90.}
+        with patch.object(station,'read',return_value=view),patch.object(device_client.CLIENT,'motion_control') as motion:
+            reference=station.capture_heading_reference(calibration)
+            self.assertEqual(reference['current_deg'],15.)
+            view['diagnostics']['uptime_ms']=10
+            self.assertTrue(station.heading_reference_state(view)['valid'])
+            view['attitude_control']['body_valid']=False
+            self.assertFalse(station.heading_reference_state(view)['imu_valid'])
+            self.assertTrue(station.heading_reference_state(view)['valid'])
+            motion.assert_not_called()
+
     def test_pid_gains_use_wifi_fallback_and_reject_invalid_payloads_without_losing_session(self):
         client=self.client();client._capabilities[HOST]['yaw_pid_supported']=True
         pid=dict(kp=1.25,ki=.02,kd=.1)
@@ -35,6 +79,26 @@ class AttitudeTests(unittest.TestCase):
     def test_pid_lora_packet_encodes_gains_without_motion(self):
         wire=frame(42,'yaw_pid',dict(mode=3,pid=dict(kp=1,ki=.02,kd=.1)))
         self.assertEqual(wire,b'101,1,23120,42,25,3,1000,20,100,1000,37623\n')
+
+    def test_heading_target_packet_has_native_angle_units(self):
+        wire=frame(42,'heading_target',dict(mode=3,heading_cw_deg=-179.55,surge_pct=35))
+        self.assertEqual(wire,b'101,1,23120,42,26,3,-17955,350,0,1000,6570\n')
+
+    def test_heading_target_validates_capability_and_uses_wifi_without_pc_yaw(self):
+        client=self.client();client._capabilities[HOST]['heading_target_supported']=True
+        with patch.object(client,'_request',return_value=(200,dict(accepted=True,session=SESSION,sequence=1),None)) as http:
+            self.assertTrue(client.motion_control(HOST,'heading_target',SESSION,1,heading_cw_deg=-90,surge_pct=35)['accepted'])
+            body=http.call_args.args[3]
+            self.assertEqual(body['heading_cw_deg'],-90);self.assertEqual(body['surge_pct'],35)
+            self.assertNotIn('axes',body)
+            for payload in [dict(heading_cw_deg=181,surge_pct=0),dict(heading_cw_deg=0,surge_pct=-1),
+                            dict(heading_cw_deg=float('nan'),surge_pct=0),dict(heading_cw_deg=0,surge_pct=True)]:
+                with self.assertRaises(device_client.DeviceError):client.motion_control(HOST,'heading_target',SESSION,2,**payload)
+            self.assertEqual(http.call_count,1)
+        client._capabilities[HOST].pop('heading_target_supported')
+        with self.assertRaises(device_client.DeviceError) as error:
+            client.motion_control(HOST,'heading_target',SESSION,2,heading_cw_deg=0,surge_pct=0)
+        self.assertEqual(error.exception.code,'unsupported_control')
 
     def client(self, dual=True):
         client = device_client.DeviceClient()

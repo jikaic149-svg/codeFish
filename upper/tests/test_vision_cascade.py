@@ -20,7 +20,6 @@ from path_guidance import PathGuidance
 from station import Workstation
 from vision_speed import VisualSpeedLoop
 from yaw_heading import CalibratedYaw,wrap_radians
-from yaw_control import YawLoop
 from yolo_tracker import YoloBodyTracker
 
 
@@ -29,6 +28,20 @@ def sample(degrees,timestamp=10.):
 
 
 class HeadingTests(unittest.TestCase):
+    def test_world_targets_convert_once_to_native_clockwise_yaw(self):
+        heading=CalibratedYaw();heading.calibrate(math.pi/2,sample(40),10.)
+        self.assertAlmostEqual(heading.target_cw_deg(math.radians(120)),10.)
+        self.assertAlmostEqual(heading.target_cw_deg(math.pi/2),40.)
+        heading.calibrate(math.radians(179),sample(-179),10.)
+        self.assertAlmostEqual(heading.target_cw_deg(math.radians(-179)),179.)
+
+    def test_imu_reboot_invalidates_the_old_zero_but_uptime_wrap_does_not(self):
+        heading=CalibratedYaw();heading.calibrate(0,dict(sample(40),source_id=10000),10.)
+        result=heading.update(dict(sample(0,10.1),source_id=100),10.1)
+        self.assertFalse(result['usable'] or result['initialized'])
+        self.assertEqual(result['source'],'IMU_RESTARTED')
+        heading.calibrate(0,dict(sample(40),source_id=0xfffffff0),10.)
+        self.assertTrue(heading.update(dict(sample(30,10.1),source_id=10),10.1)['usable'])
     def test_head_calibration_zeros_yaw_and_preserves_world_direction(self):
         heading=CalibratedYaw()
         result=heading.calibrate(math.pi/2,sample(40),10.)
@@ -60,18 +73,6 @@ class HeadingTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
-    def test_angle_sign_shortest_turn_deduplication_and_saturation(self):
-        pid=YawLoop(kp=50,ki=5,kd=8)
-        self.assertGreater(pid.update(math.radians(10),0,10.,now=10.),0)
-        a=pid.update(math.radians(10),0,10.1,now=10.1);integral=pid.integral
-        self.assertEqual(a,pid.update(math.radians(10),0,10.1,now=10.1))
-        self.assertEqual(pid.integral,integral)
-        pid.reset()
-        self.assertGreater(pid.update(math.radians(-179),math.radians(179),10.,now=10.),0)
-        self.assertEqual(pid.update(3,0,10.1,now=10.1),100)
-        self.assertEqual(pid.update(0,None,10.2,now=10.2),0)
-        self.assertFalse(pid.status['feedback_valid'])
-
     def test_los_uses_imu_while_stationary_and_removes_course_fallback(self):
         guide=PathGuidance(min_speed_target_mps=.05)
         guide.start([[0,0],[2,0]],[0,.15],10.,[1,0])
@@ -93,28 +94,6 @@ class ControlTests(unittest.TestCase):
         self.assertGreater(result['speed_target_mps'],0)
         self.assertLess(result['speed_target_mps'],guide.cruise_speed_mps)
 
-    def test_closed_loop_straight_and_curve_with_parallel_inner_loops(self):
-        paths=[np.array([[0,0],[2,0]],float),
-               np.column_stack((.65*np.sin(np.linspace(0,2.4,100)),.65*(np.cos(np.linspace(0,2.4,100))-1)))]
-        for path in paths:
-            guide=PathGuidance(min_speed_target_mps=.05,arrival_radius_m=.12)
-            position=path[0]+[0,.08];yaw=0.;speed=0.;rate=0.;dt=.05
-            speed_loop=VisualSpeedLoop();angle_loop=YawLoop()
-            guide.start(path,position,100.,[1,0])
-            errors=[]
-            for tick in range(1,1600):
-                now=100.+tick*dt
-                result=guide.update(position,now,body_heading=[math.cos(yaw),-math.sin(yaw)],speed_mps=speed)
-                if result['arrived']:break
-                power=speed_loop.update(result['speed_target_mps'],speed,now,now=now)
-                steering=angle_loop.update(result['psi_ref_rad'],yaw,now,now=now,feedforward=result['curve_feedforward']*100)
-                speed+=dt/.35*(power/100*.36-speed)
-                rate+=dt/.25*(steering/100*1.8-rate)
-                yaw=wrap_radians(yaw+rate*dt)
-                position+=speed*dt*np.array([math.cos(yaw),-math.sin(yaw)])
-                errors.append(result['cross_track_m'])
-            self.assertTrue(result['arrived'],(position,guide.progress_m))
-            self.assertLess(max(errors),.30)
 
 
 class WorkstationTests(unittest.TestCase):
@@ -123,12 +102,12 @@ class WorkstationTests(unittest.TestCase):
         client=SimpleNamespace(is_robotfish=lambda host:True,
             control_binding=lambda host,radio_session=None:'connected-session',
             motion_control=lambda *args,**kwargs:dict(accepted=True),
-            robot=lambda host:dict(motion={'mode':1},attitude_control={'enabled':False}))
+            robot=lambda host:dict(motion={'mode':3},attitude_control={'enabled':False,'heading_target_supported':True}))
         return station,client
 
     def test_prepare_uses_existing_session_and_manual_takeover_revokes_vision(self):
         station,client=self.setup_client();calls=[]
-        view=dict(motion={'mode':3},attitude_control={'enabled':True})
+        view=dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True})
         client.robot=lambda host:view
         def command(*args,**kwargs):
             calls.append((args,kwargs))
@@ -139,22 +118,42 @@ class WorkstationTests(unittest.TestCase):
         with patch('station.device_client.CLIENT',client):
             result=station.prepare_vision('vision-test',1)
             self.assertTrue(result['ready'])
-            self.assertEqual([args[1] for args,_ in calls],['attitude_off','mode'])
+            self.assertEqual([args[1] for args,_ in calls],['mode'])
             self.assertTrue(all(args[2]=='connected-session' for args,_ in calls))
-            self.assertEqual(calls[1][1]['mode'],1)
-            station.target(dict(surge=10,yaw=-5,heave=0),'vision-test',2,'vision')
+            self.assertEqual(calls[0][1]['mode'],3)
+            station.vision_command('heading_target',dict(heading_cw_deg=-5,surge_pct=10),'vision-test',2)
             station.target(dict(surge=0,yaw=0,heave=0),'manual-page',1,'auto')
             with self.assertRaises(device_client.DeviceError):
-                station.target(dict(surge=10,yaw=0,heave=0),'vision-test',3,'vision')
+                station.vision_command('heading_target',dict(heading_cw_deg=-5,surge_pct=10),'vision-test',3)
 
-    def test_queued_yaw_setting_is_not_overwritten_by_mode(self):
+    def test_prepare_waits_for_mode_readback_and_preserves_onboard_angle_loop(self):
         station,client=self.setup_client();calls=[]
-        client.robot=lambda host:dict(motion={'mode':3},attitude_control={'enabled':True})
+        client.robot=lambda host:dict(motion={'mode':2},attitude_control={'enabled':True,'heading_target_supported':True})
         client.motion_control=lambda *args,**kwargs:calls.append(args[1]) or dict(queued=True)
         with patch('station.device_client.CLIENT',client):
             self.assertFalse(station.prepare_vision('vision-test',1)['ready'])
-        self.assertEqual(calls,['attitude_off'])
+        self.assertEqual(calls,['mode'])
         self.assertFalse(station.vision_sessions)
+
+    def test_pid_tuning_preserves_mission_and_manual_mode_stops_the_native_goal(self):
+        station,client=self.setup_client();calls=[]
+        client.motion_control=lambda *args,**kwargs:calls.append(args[1]) or dict(accepted=True)
+        with patch('station.device_client.CLIENT',client):
+            station.prepare_vision('vision-test',1)
+            station.configure_control('yaw_pid',dict(kp=5,ki=.02,kd=.1),'manual',1)
+            self.assertIn('vision-test',station.vision_sessions)
+            station.vision_command('heading_target',dict(heading_cw_deg=20,surge_pct=30),'vision-test',2)
+            station.configure_control('mode',2,'manual',2)
+            self.assertEqual(calls,['yaw_pid','heading_target','stop','mode'])
+            self.assertFalse(station.vision_sessions)
+
+    def test_old_firmware_cannot_be_prepared_or_switched_to_a_new_mode(self):
+        station,client=self.setup_client();calls=[]
+        client.robot=lambda host:dict(motion={'mode':2},attitude_control={'enabled':True})
+        client.motion_control=lambda *a,**kw:calls.append(a)
+        with patch('station.device_client.CLIENT',client),self.assertRaises(device_client.DeviceError):
+            station.prepare_vision('vision-test',1)
+        self.assertFalse(calls or station.vision_sessions)
 
     def test_yaw_feedback_exposes_mapped_imu_with_sample_age(self):
         station=Workstation()
@@ -164,8 +163,32 @@ class WorkstationTests(unittest.TestCase):
         self.assertTrue(result['valid']);self.assertAlmostEqual(result['sample_time'],9.9)
         self.assertEqual(result['yaw_cw_deg'],25.)
 
+    def test_yaw_alignment_uses_angle_timestamp_rather_than_older_rate_timestamp(self):
+        station=Workstation()
+        with patch.object(station,'read',return_value=dict(online=True,checked_at=10.,imu={'age_ms':40.},
+                attitude_control=dict(body_yaw_deg=25.,age_ms=100.,heading_valid=True,body_valid=True))):
+            result=station.vision_telemetry()
+        self.assertTrue(result['valid']);self.assertAlmostEqual(result['sample_time'],9.96)
+
 
 class DetectorTests(unittest.TestCase):
+    def test_local_flow_features_still_measure_motion_in_global_image_coordinates(self):
+        import cv2
+        from white_black_tracker import WhiteBlackTracker
+        tracker=WhiteBlackTracker();gray=np.zeros((776,1384),np.uint8)
+        gray[300:350,600:700]=np.random.default_rng(42).integers(0,255,(50,100),dtype=np.uint8)
+        with patch('white_black_tracker.cv2.goodFeaturesToTrack',wraps=cv2.goodFeaturesToTrack) as features:
+            tracker._seed_flow(gray,(600,300,700,350))
+            self.assertLess(features.call_args.args[0].size,150*80)
+        self.assertGreater(len(tracker._flow_points),4)
+        self.assertTrue(np.all(tracker._flow_points[:,:,0]>=600))
+        self.assertTrue(np.all(tracker._flow_points[:,:,1]>=300))
+        tracker._flow_gray=gray;tracker._flow_time=10.;tracker._lock_position=np.array([650.,325.])
+        tracker._lock_bbox=(600,300,700,350)
+        following=cv2.warpAffine(gray,np.float32([[1,0,3],[0,1,-2]]),(1384,776))
+        self.assertTrue(tracker._track_flow(following,10.1))
+        np.testing.assert_allclose(tracker._lock_position,[653.,323.],atol=.3)
+
     def test_yolo_identity_measured_gap_and_duplicate_frame(self):
         class Array:
             def __init__(self,value):self.value=value
@@ -192,7 +215,7 @@ class DetectorTests(unittest.TestCase):
 
 
 class RuntimeBridgeTests(unittest.TestCase):
-    def test_real_parallel_pids_reach_existing_sender_with_one_turn_sign_conversion(self):
+    def test_sender_keeps_speed_on_pc_and_sends_angle_to_s3_without_pc_yaw_pid(self):
         import cv2
         import vision_app
         import web_runtime
@@ -200,7 +223,7 @@ class RuntimeBridgeTests(unittest.TestCase):
         bridge=SimpleNamespace(start=lambda:None,server=SimpleNamespace(shutdown=lambda:None))
         def parent(body):
             calls.append(body.copy())
-            return {'ready':True,'mode':1,'accepted':True}
+            return {'ready':True,'mode':3,'yaw_owner':'S3','accepted':True}
         bridge.parent=parent
         def exercise():
             comm=vision_app.RoboFishComm()
@@ -208,15 +231,16 @@ class RuntimeBridgeTests(unittest.TestCase):
                 self.assertTrue(comm.ensure_bionic_mode())
                 now=time.time()
                 command=comm.process_tracking_error(0.,0.,1.,speed_mps=.1,speed_target_mps=.2,
-                    observed_at=now,feedback_valid=True,target_yaw_rad=math.pi/8,body_yaw_rad=0.,yaw_observed_at=now)
+                    observed_at=now,feedback_valid=True,target_heading_cw_deg=-22.5,yaw_observed_at=now)
                 self.assertGreater(command['power_percent'],0)
-                self.assertGreater(command['steering_percent'],0) # PID left positive
+                self.assertNotIn('steering_percent',command)
                 deadline=time.monotonic()+.3
-                while not any(c.get('task')=='target' for c in calls) and time.monotonic()<deadline:time.sleep(.005)
-                axes=next(c['axes'] for c in calls if c.get('task')=='target')
-                self.assertGreater(axes['surge'],0)
-                self.assertLess(axes['yaw'],0) # hardware interface right positive
-                self.assertEqual(axes['heave'],0)
+                while not any(c.get('task')=='heading' for c in calls) and time.monotonic()<deadline:time.sleep(.005)
+                goal=next(c for c in calls if c.get('task')=='heading')
+                self.assertGreater(goal['surge_pct'],0)
+                self.assertEqual(goal['heading_cw_deg'],-22.5)
+                self.assertNotIn('axes',goal)
+                self.assertFalse(hasattr(comm,'yaw_loop'))
             finally:comm.close()
         cv_names=['namedWindow','resizeWindow','moveWindow','setMouseCallback','imshow','destroyAllWindows','getWindowProperty','waitKey']
         with patch.object(web_runtime,'WebBridge',return_value=bridge),patch.object(vision_app,'main',exercise), \

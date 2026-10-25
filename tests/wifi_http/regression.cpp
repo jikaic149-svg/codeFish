@@ -34,6 +34,15 @@ static void reject(const std::string &json) {
 
 int main() {
   Command out;
+  check(parse("{\"action\":\"heading_target\",\"session\":\"vision\",\"sequence\":1,\"heading_cw_deg\":-90,\"surge_pct\":35}",out) &&
+      out.action==Action::HeadingTarget && out.headingCwDegrees==-90 && out.axes.surge==35 && out.axes.yaw==0,
+      "heading target carries angle and surge rather than a PC steering output");
+  for(const char *extras : {",\"axes\":{}",",\"mode\":3",",\"heading_cw_deg\":0"})
+    reject(std::string("{\"action\":\"heading_target\",\"session\":\"vision\",\"sequence\":1,\"heading_cw_deg\":-90,\"surge_pct\":35")+extras+"}");
+  for(const char *degrees : {"181","-181","true","null","1e400"})
+    reject(std::string("{\"action\":\"heading_target\",\"session\":\"vision\",\"sequence\":1,\"heading_cw_deg\":")+degrees+",\"surge_pct\":0}");
+  reject("{\"action\":\"heading_target\",\"session\":\"vision\",\"sequence\":1,\"heading_cw_deg\":0,\"surge_pct\":-1}");
+  reject("{\"action\":\"stop\",\"session\":\"vision\",\"sequence\":1,\"heading_cw_deg\":0,\"surge_pct\":0}");
   check(parse("{\"action\":\"yaw_pid\",\"session\":\"pid\",\"sequence\":1,\"pid\":{\"kp\":1,\"ki\":0.02,\"kd\":0.1}}",out) &&
         out.action==Action::YawPid && out.yawPid.kp==1 && out.yawPid.ki==.02f && out.axes.surge==0,
         "PID settings carry gains with no movement target");

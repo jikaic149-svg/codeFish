@@ -17,6 +17,7 @@ from collections import deque
 from yolo_tracker import YoloBodyTracker
 from yaw_heading import CalibratedYaw
 from control_config import CONTROL
+from pool_perspective import PoolPerspective,heading_arrow,image_heading
 from fixed_reference_tracker import ReferenceSource
 from path_guidance import (
     PathGuidance,
@@ -99,11 +100,13 @@ SHOW_DETECTION_BBOX_OVERLAY_DEFAULT = True
 # ==============================================================================
 # World-frame dimensions used by the homography below.  The camera image is
 # calibrated in the order TL -> TR -> BR -> BL, so the top image edge is the
-# long edge (x = 0 .. 4.2 m) and the left image edge is the short edge
-# (y = 0 .. 2.1 m).
-PHYSICAL_WIDTH = 4.2     # 画面上边：水池长边（米）
-PHYSICAL_HEIGHT = 2.1    # 画面左边：水池短边（米）
-POOL_SIZE_CONFIRMED = False  # No metric control until measured dimensions are supplied.
+# long edge (x = 0 .. 4 m) and the left image edge is the short edge (y = 0 .. 2 m).
+# The user explicitly selected assumed 4 x 2 m dimensions for this experiment.
+PHYSICAL_WIDTH = 4.0
+PHYSICAL_HEIGHT = 2.0
+POOL_SIZE_CONFIRMED = True
+POOL_PERSPECTIVE_METADATA = {}
+POOL_PERSPECTIVE_TEST = {}
 
 
 def configure_pool_size(width_m, height_m):
@@ -240,41 +243,17 @@ def apply_calibration_overlay(image, overlay, mask):
 def build_calibration_homography(points, frame_width, frame_height):
     """验证 TL→TR→BR→BL 四点并生成像素到物理坐标的单应矩阵。"""
     if not POOL_SIZE_CONFIRMED:
-        return None, '请先在视觉参数中填写并应用实测场地长宽'
-    if len(points) != 4:
-        return None, "需要四个标定点"
-
-    src = np.asarray(points, dtype=np.float32)
-    if not np.isfinite(src).all():
-        return None, "标定点包含无效数值"
-    if not cv2.isContourConvex(src.reshape((-1, 1, 2))):
-        return None, "四点顺序错误或区域不为凸四边形"
-
-    top_mid = (src[0] + src[1]) * 0.5
-    bottom_mid = (src[2] + src[3]) * 0.5
-    left_mid = (src[0] + src[3]) * 0.5
-    right_mid = (src[1] + src[2]) * 0.5
-    if top_mid[1] >= bottom_mid[1] or left_mid[0] >= right_mid[0]:
-        return None, "请严格按左上→右上→右下→左下点击"
-
-    area = abs(float(cv2.contourArea(src.reshape((-1, 1, 2)))))
-    if area < frame_width * frame_height * 0.05:
-        return None, "标定区域过小"
-
-    dst = np.float32([
-        [0, 0], [PHYSICAL_WIDTH, 0],
-        [PHYSICAL_WIDTH, PHYSICAL_HEIGHT], [0, PHYSICAL_HEIGHT]
-    ])
-    homography, _ = cv2.findHomography(src, dst, method=0)
-    if homography is None or not np.isfinite(homography).all():
-        return None, "无法计算有效标定矩阵"
-    if abs(float(np.linalg.det(homography))) < 1e-12:
-        return None, "标定矩阵退化"
-    return homography, None
+        return None, '请先在视觉参数中应用场地长宽'
+    try:
+        pool=PoolPerspective(PHYSICAL_WIDTH,PHYSICAL_HEIGHT).calibrate(points,(frame_height,frame_width))
+        return pool.matrix,None
+    except (TypeError,ValueError,cv2.error) as error:
+        return None,str(error)
 
 
-def save_pool_calibration(path, points, frame_width, frame_height):
+def save_pool_calibration(path, points, frame_width, frame_height, frame=None):
     """Persist one stationary-pool calibration for reuse on later runs."""
+    global POOL_PERSPECTIVE_METADATA
     src = np.asarray(points, dtype=np.float32).reshape((4, 2))
     homography, error = build_calibration_homography(
         src, frame_width, frame_height
@@ -283,7 +262,8 @@ def save_pool_calibration(path, points, frame_width, frame_height):
         raise ValueError(error)
     payload = {
         "version": 1,
-        "measured_dimensions": True,
+        "measured_dimensions": False,
+        "dimension_source": "configured",
         "camera_source": str(CAMERA_INDEX),
         "frame_width": int(frame_width),
         "frame_height": int(frame_height),
@@ -292,16 +272,36 @@ def save_pool_calibration(path, points, frame_width, frame_height):
         "points_tl_tr_br_bl": src.tolist(),
         "homography": np.asarray(homography, dtype=np.float64).tolist(),
     }
+    pool=PoolPerspective(PHYSICAL_WIDTH,PHYSICAL_HEIGHT).calibrate(src,(frame_height,frame_width))
+    POOL_PERSPECTIVE_METADATA=pool.describe(CAMERA_INDEX)
+    payload.update(POOL_PERSPECTIVE_METADATA)
     temporary_path = f"{path}.tmp"
     with open(temporary_path, "w", encoding="utf-8") as calibration_file:
         json.dump(payload, calibration_file, ensure_ascii=False, indent=2)
         calibration_file.write("\n")
     os.replace(temporary_path, path)
+    POOL_PERSPECTIVE_TEST.clear()
+    if frame is not None:
+        try:
+            # One review image per calibration, outside the realtime image path.
+            image=pool.rectify(frame)
+            stamp=time.strftime('%Y%m%d-%H%M%S')+'-'+str(time.time_ns()%1000000000)
+            image_path=os.path.join(RECORD_DIR,f'pool-perspective-{stamp}.png')
+            if not cv2.imwrite(image_path,image):raise OSError('透视测试图保存失败')
+            data_path=os.path.splitext(image_path)[0]+'.json'
+            with open(data_path,'w',encoding='utf-8') as data_file:
+                json.dump(POOL_PERSPECTIVE_METADATA,data_file,ensure_ascii=False,indent=2)
+            POOL_PERSPECTIVE_TEST.update(image_file=image_path,data_file=data_path,
+                                         width=image.shape[1],height=image.shape[0])
+            print('ROBOFISH_PERSPECTIVE_TEST '+json.dumps(POOL_PERSPECTIVE_TEST,ensure_ascii=False),flush=True)
+        except (OSError,ValueError,cv2.error) as error:
+            print(f'场地矩阵已生效，透视测试图保存失败：{error}',flush=True)
     return homography
 
 
 def load_pool_calibration(path, frame_width, frame_height):
     """Load a saved calibration only when it matches this camera/config."""
+    global POOL_PERSPECTIVE_METADATA
     if not os.path.isfile(path):
         return None, None, None
     try:
@@ -312,20 +312,18 @@ def load_pool_calibration(path, frame_width, frame_height):
         if int(payload.get("frame_width", -1)) != int(frame_width) or \
                 int(payload.get("frame_height", -1)) != int(frame_height):
             return None, None, "camera resolution changed"
-        if payload.get('measured_dimensions') is not True:
+        if payload.get('measured_dimensions') is not True and payload.get('dimension_source')!='configured':
             return None, None, '旧场地尺寸未经现场确认，请输入实测长宽后重新标定'
         if payload.get('camera_source') != str(CAMERA_INDEX):
             return None, None, '摄像头编号已改变或旧标定未绑定相机，请重新标定四角'
-        configure_pool_size(payload.get('physical_width_m'), payload.get('physical_height_m'))
         points = np.asarray(
             payload.get("points_tl_tr_br_bl"), dtype=np.float32
         ).reshape((4, 2))
-        homography, error = build_calibration_homography(
-            points, frame_width, frame_height
-        )
-        if error:
-            return None, None, error
-        return homography, points.tolist(), None
+        pool=PoolPerspective(payload.get('physical_width_m'),payload.get('physical_height_m')).calibrate(
+            points,(frame_height,frame_width))
+        configure_pool_size(pool.width_m,pool.height_m)
+        POOL_PERSPECTIVE_METADATA=pool.describe(CAMERA_INDEX)
+        return pool.matrix, points.tolist(), None
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
         return None, None, str(error)
 
@@ -976,9 +974,9 @@ class RoboFishComm:
 
 
     def ensure_bionic_mode(self):
-        """The authenticated workstation adapter must confirm mode 1 first."""
+        """The authenticated workstation adapter must confirm S3 heading control."""
         self.stop_tracking()
-        print('请通过上位机启动纯仿生视觉循迹，禁止使用旧混合模式入口。')
+        print('请通过上位机启动 S3 航向目标循迹，旧控制接口不可用。')
         return False
 
     def send_command(self, cmd_str):
@@ -1223,6 +1221,7 @@ def main():
     pending_ui_actions = deque()
     frame_state = {
         'latest': None,
+        'heading_frame':None,'heading_imu':None,
         'reference_position': None,
         'reference_source': ReferenceSource.INVALID,
         'tail_marker_position': None,
@@ -1444,6 +1443,7 @@ def main():
                 pending_ui_actions.append(('APPLY_HEAD_DIRECTION', (rx, ry)))
             elif event == cv2.EVENT_RBUTTONDOWN:
                 heading_state['selecting'] = False
+                frame_state['heading_frame']=frame_state['heading_imu']=None
                 print("已取消鱼头方向标定，原有初始方向保持不变。")
             return
 
@@ -1476,6 +1476,7 @@ def main():
                             calib_state['pts_raw'],
                             cam.real_width,
                             cam.real_height,
+                            frame=frame_state['latest'],
                         )
                     except (OSError, ValueError) as save_error:
                         print(f"场地标定已生效，但保存失败：{save_error}")
@@ -1526,6 +1527,8 @@ def main():
                 print("窗口已关闭。")
                 break
             ret, frame, frame_time = cam.read()
+            if heading_state['selecting'] and frame_state['heading_frame'] is not None:
+                frame,frame_time=frame_state['heading_frame'];ret=True
             if ret and frame is not None:
                 web_bridge.raw(frame, frame_time)
             if not ret or frame is None:
@@ -1987,6 +1990,7 @@ def main():
                                 src_pts,
                                 cam.real_width,
                                 cam.real_height,
+                                frame=frame,
                             )
                         except (OSError, ValueError) as save_error:
                             print(f"自动场地标定已生效，但保存失败：{save_error}")
@@ -2153,18 +2157,14 @@ def main():
                     local_path_error = path_guidance.update(
                         (control_x, control_y),
                         frame_time,
-                        # 初版循迹：人工尾→头方向作为启动航向，黑体中心
-                        # 稳定移动后由短窗位移 course 平滑跟随真实转弯。
-                        # 白色区域/OpenCV 仍负责端点验证和显示，不会因一帧
-                        # yaw 丢失而把已经启动的路径追踪强制停掉。
+                        # Positions and paths are metric after H. The calibrated
+                        # IMU supplies heading; position differences supply speed.
                         speed_mps=(speed if speed is not None else 0.0),
                         velocity=velocity,
                         body_heading=body_heading,
                         body_yaw_rate_rps=body_yaw_rate,
                     )
-                    # PathGuidance reports VISUAL_YAW for both a fresh visual
-                    # heading and the short hold window.  Preserve the actual
-                    # source in the runtime record for diagnostics.
+                    # Preserve the actual IMU source in the runtime record.
                     local_path_error['control_heading_source'] = (
                         body_heading_source
                     )
@@ -2199,10 +2199,13 @@ def main():
                             (math.cos(psi_ref_rad), -math.sin(psi_ref_rad)),
                             dtype=np.float32,
                         )
-                        target_heading_tip = (
-                            np.asarray((control_x, control_y), dtype=np.float32)
-                            + target_heading_world * 0.22
-                        )
+                        # Draw the reference from the observed fish, using one
+                        # origin for both endpoints. control_x/y include latency
+                        # compensation and cannot be mixed with a raw pixel tail.
+                        display_origin=cv2.perspectiveTransform(
+                            np.float32([[reference_observation.position]]),calib_state['H'])[0,0]
+                        target_arrow=heading_arrow(inv_h,display_origin,psi_ref_rad)
+                        target_heading_tip=display_origin+target_heading_world*.22
                         guide_world = np.float32([[
                             local_path_error['lookahead_point'],
                             local_path_error['closest_point'],
@@ -2217,9 +2220,7 @@ def main():
                         closest_pixel = tuple(
                             int(round(value)) for value in guide_pixels[1]
                         )
-                        target_heading_pixel = tuple(
-                            int(round(value)) for value in guide_pixels[2]
-                        )
+                        target_heading_pixel=tuple(int(round(value)) for value in target_arrow[1])
                         tail_pixel = tuple(
                             int(round(value)) for value in reference_observation.position
                         )
@@ -2233,7 +2234,7 @@ def main():
                         # cross-track correction).  The actual body yaw is
                         # drawn separately in green by the endpoint overlay.
                         cv2.arrowedLine(
-                            img_show, tail_pixel, target_heading_pixel,
+                            img_show, tuple(int(round(value)) for value in target_arrow[0]), target_heading_pixel,
                             UiPalette.PRIMARY, 3, cv2.LINE_AA, tipLength=0.20
                         )
                         draw_unicode_text(
@@ -2271,6 +2272,7 @@ def main():
                             ),
                             steering_demand=local_path_error['steering_demand'],
                             target_yaw_rad=local_path_error['psi_ref_rad'],
+                            target_heading_cw_deg=imu_yaw.target_cw_deg(local_path_error['psi_ref_rad']),
                             body_yaw_rad=local_path_error['psi_body_rad'],
                             yaw_observed_at=body_yaw_state.get('sample_time'),
                             curve_feedforward=local_path_error['curve_feedforward'],
@@ -2283,9 +2285,9 @@ def main():
                         drawn_path_state['last_control_t'] = now
                         is_tracing_active = True
                         current_status_text = (
-                            "BIONIC BRAKING"
+                            "HEADING BRAKING"
                             if local_path_error['brake_request']
-                            else "BIONIC TRACKING"
+                            else "HEADING TRACKING"
                         )
 
             # Wi-Fi authorization may be revoked by the sender between frames.
@@ -2474,7 +2476,12 @@ def main():
                 "timestamp": frame_time,
                 "pool": {"dimensions_confirmed": POOL_SIZE_CONFIRMED,
                          "width_m": PHYSICAL_WIDTH if POOL_SIZE_CONFIRMED else None,
-                         "height_m": PHYSICAL_HEIGHT if POOL_SIZE_CONFIRMED else None},
+                         "height_m": PHYSICAL_HEIGHT if POOL_SIZE_CONFIRMED else None,
+                         "dimension_source":"configured",
+                         "calibrating":bool(calib_state['is_calibrating']),
+                         "selected_points":len(calib_state['pts_raw']),
+                         "perspective":POOL_PERSPECTIVE_METADATA if calib_state['H'] is not None else None,
+                         "test":dict(POOL_PERSPECTIVE_TEST) if calib_state['H'] is not None else {}},
                 "tracking": {
                     "active": bool(drawn_path_state['active']),
                     "status": current_status_text,
@@ -2490,11 +2497,13 @@ def main():
                 },
                 "reference": reference_observation.to_dict(),
                 "initial_heading": {
-                    "calibrated": heading_state['angle_deg'] is not None,
+                    "calibrated": heading_state['angle_deg'] is not None and imu_yaw.zero_cw is not None,
                     "tail_pixel": heading_state['tail_point'],
                     "head_pixel": heading_state['head_point'],
                     "angle_deg": heading_state['angle_deg'],
                     "world_unit": heading_state['world_unit_vector'],
+                    "imu_zero_cw_deg":imu_yaw.zero_cw,
+                    "image_sample_time":heading_state.get('image_sample_time'),
                 },
                 "body_yaw": {
                     "yaw_deg": body_yaw_state['yaw_deg'],
@@ -2831,13 +2840,13 @@ def main():
                                 drawn_path_state['segment'] = initial_guidance['seg_index']
                                 drawn_path_state['last_control_t'] = 0.0
                                 is_tracing_active = True
-                                current_status_text = "BIONIC TRACKING"
+                                current_status_text = "HEADING TRACKING"
                                 print(
-                                    "纯仿生前视轨迹引导已启动，双桨关闭："
+                                    "S3 航向目标循迹已启动，使用混合驱动："
                                     f"{len(path_guidance.path)} 个等距点，"
-                                    "LOS 视觉外环 + 速度/yaw 并联 PID 内环，"
+                                    "PC 视觉/速度环 + S3 yaw PID，"
                                     "前视 0.10~0.24 m，"
-                                    "UDP 固定 20 Hz。"
+                                    "PC 发布20 Hz，LoRa沿用500 ms间隔，S3角度环100 ms。"
                                 )
                                 first_error = float(
                                     initial_guidance['steering_error_deg']
@@ -2857,7 +2866,7 @@ def main():
                             else:
                                 path_guidance.clear()
                                 current_status_text = "CONTROL LOST"
-                                print("无法确认机器鱼进入纯仿生模式，未启动追踪。")
+                                print("无法确认 S3 航向目标接口与混合模式，未启动追踪。")
 
                 elif action == 'TURN_CALIB':
                     if turn_calibration_session.active:
@@ -2992,20 +3001,34 @@ def main():
                     marker_roi_state['selecting'] = False
                     heading_state['selecting'] = not heading_state['selecting']
                     if heading_state['selecting']:
+                        frame_state['heading_frame']=(frame.copy(),float(frame_time))
+                        frame_state['heading_imu']=web_bridge.get_yaw_sample_at(float(frame_time)-CAMERA_LATENCY_S)
                         current_status_text = "SELECT HEAD DIRECTION"
-                        print("黑体中心将自动获取，请直接点击鱼头中心；右键或再次点击【鱼头方向】取消。")
+                        print("标定画面已冻结，请点击鱼头中心；使用对应画面时刻的 IMU 建立零位。右键取消。")
                     else:
+                        frame_state['heading_frame']=frame_state['heading_imu']=None
                         current_status_text = "READY"
                         print("已取消鱼头方向标定，原有初始方向保持不变。")
 
                 elif action == 'APPLY_HEAD_DIRECTION':
                     tail_point = frame_state['tail_marker_position']
+                    zero_sample=frame_state['heading_imu'] or {'valid':False}
+                    zero_time=zero_sample.get('sample_time')
+                    old_id,new_id=zero_sample.get('source_id'),yaw_sample.get('source_id')
+                    same_epoch=not (type(old_id) is int and type(new_id) is int and
+                        ((new_id-old_id)&0xffffffff)>=0x80000000)
                     if calib_state['H'] is None:
                         current_status_text = "SELECT HEAD DIRECTION"
                         print("请先完成场地标定，再标定鱼头方向。")
                     elif not imu_yaw.valid_sample(yaw_sample,time.time()):
                         current_status_text='IMU YAW REQUIRED'
                         print('鱼头标定需要新鲜 IMU yaw，请先连接机器鱼并确认遥测有效。')
+                    elif globals().get('REPLAY_ONLY',False) and yaw_sample.get('source')!='SYNTHETIC_TEST_IMU':
+                        current_status_text='REPLAY NOT SYNCHRONIZED'
+                        print('录像不能与当前实鱼 IMU 建立控制零位；请使用实时相机。')
+                    elif not same_epoch or not imu_yaw.valid_sample(zero_sample,zero_time):
+                        current_status_text='ALIGNED IMU REQUIRED'
+                        print('标定画面没有对应的 IMU 或设备已重启，请取消后重新标定。')
                     elif (
                         tail_point is None
                     ):
@@ -3045,12 +3068,14 @@ def main():
                                 heading_state['control_heading_source'] = 'CALIBRATED'
                                 heading_state['angle_deg'] = float(
                                     (
-                                        np.degrees(np.arctan2(-world_unit[1], world_unit[0]))
+                                        np.degrees(image_heading(calib_state['H'],tail_point,head_point))
                                         + 360.0
                                     ) % 360.0
                                 )
-                                zero=imu_yaw.calibrate(math.radians(heading_state['angle_deg']),yaw_sample,time.time())
-                                body_yaw_state.update(yaw_deg=0.,yaw_rate_rps=0.,
+                                imu_yaw.calibrate(math.radians(heading_state['angle_deg']),zero_sample,zero_time)
+                                heading_state['image_sample_time']=zero_time
+                                zero=imu_yaw.update(yaw_sample,time.time())
+                                body_yaw_state.update(yaw_deg=zero['yaw_deg'],yaw_rate_rps=zero['yaw_rate_rps'],
                                     unit_vector=zero['unit_vector'],world_yaw_rad=zero['world_yaw_rad'],
                                     sample_time=zero['sample_time'],source='IMU_YAW',prediction_age_s=zero['age_s'],
                                     usable=True,measurement_valid=True,initialized=True,polarity_calibrated=True,
@@ -3058,12 +3083,13 @@ def main():
                                     raw_yaw_deg=zero['raw_yaw_deg'])
                                 heading_state['confirmed_until'] = time.time() + 5.0
                                 heading_state['selecting'] = False
+                                frame_state['heading_frame']=frame_state['heading_imu']=None
                                 current_status_text = "HEAD DIRECTION READY"
                                 print(
                                     "初始鱼头方向标定完成："
                                     f"尾点=({tail_point[0]:.1f},{tail_point[1]:.1f})，"
                                     f"头点=({head_point[0]:.1f},{head_point[1]:.1f})，"
-                                    f"世界方向={heading_state['angle_deg']:.1f}°，当前 IMU 相对 yaw=0°；左转为正。"
+                                    f"世界方向={heading_state['angle_deg']:.1f}°，标定画面为0 yaw，当前 yaw={zero['yaw_deg']:+.1f}°；左转为正。"
                                 )
 
                 elif action == 'POOL_SIZE':
@@ -3078,6 +3104,8 @@ def main():
                         current_status_text = "POOL SIZE REQUIRED"
                         print('请先在视觉参数中填写并应用实测场地长宽；未确认时仅识别预览。')
                         continue
+                    if drawn_path_state['active'] or getattr(fish_comm,'authorized',False):
+                        fish_comm.stop_now()
                     if turn_calibration_session.active:
                         turn_calibration_session.cancel()
                         print("已取消未完成的转圈测量。")
@@ -3095,7 +3123,9 @@ def main():
                         heading_state['unit_vector'] = None
                         heading_state['world_unit_vector'] = None
                         heading_state['angle_deg'] = None
+                        heading_state['image_sample_time'] = None
                         imu_yaw.reset()
+                        frame_state['heading_frame']=frame_state['heading_imu']=None
                         motion_prior_state.update({
                             'last_t': None,
                             'last_r_cmd_rps': 0.0,
@@ -3147,6 +3177,10 @@ def main():
                         calib_state['overlay_dirty'] = True
                         pos_state['smooth_x'] = None
                         pos_state['smooth_y'] = None
+                        pos_state['frame_time'] = None
+                        velocity_estimator.reset()
+                        velocity_state.update(vx_smooth=0.,vy_smooth=0.)
+                        pixel_state.update(smooth_x=None,smooth_y=None)
                         print("请按左上→右上→右下→左下依次点击四个场地角点。")
                     else:
                         calib_state['pts_raw'].clear()

@@ -6,9 +6,9 @@ namespace robofish::wifi {
 inline constexpr unsigned kSessionCapacity = 65;
 inline constexpr unsigned kQueueDepth = 8;
 
-enum class Action : uint8_t { Acquire, Target, Mode, Stop, AttitudeOn, AttitudeOff, YawPid };
+enum class Action : uint8_t { Acquire, Target, Mode, Stop, AttitudeOn, AttitudeOff, YawPid, HeadingTarget };
 enum class Code : uint8_t { Accepted, Invalid, SessionConflict, StaleSequence, Expired, Maintenance,
-                          OutputRecovery, OutputFault, LoRaActive, NeutralPending };
+                          OutputRecovery, OutputFault, LoRaActive, NeutralPending, HeadingUnavailable };
 struct Axes { float surge = 0, yaw = 0, heave = 0; };
 struct YawPid { float kp = 0, ki = 0, kd = 0; };
 
@@ -22,6 +22,7 @@ struct Command {
   Axes axes;
   float propulsionScalePercent = 100; // Optional target field; manual clients default to full range.
   YawPid yawPid{};
+  float headingCwDegrees = 0; // Absolute mapped body yaw, clockwise positive.
 };
 struct Result {
   uint32_t requestId = 0;

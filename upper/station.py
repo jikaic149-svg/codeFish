@@ -20,6 +20,10 @@ from motion_model import allocate
 
 LEASE_SECONDS = 3.0
 MAX_RECORDS = 30000
+
+
+def wrap_degrees(value):
+    return (float(value)+180.)%360.-180.
 FIELDS = ('time', 'source', 'valid', 'battery_v', 'power_pct', 'tail1_deg',
           'tail2_deg', 'left_fin_deg', 'right_fin_deg', 'left_esc_pct',
           'right_esc_pct', 'latency_ms', 'owner', 'safety', 'reason',
@@ -57,6 +61,7 @@ class Workstation:
         self.sequences = {}
         self.control_generation=0
         self.vision_sessions={}
+        self.heading_reference=None;self.heading_goal=None;self.heading_uptime=None
         self.raw_stream = self.raw_cursor = self.raw_lost = self.raw_dropped = 0
         self.raw_latest = {}
         self.raw_rows = deque(maxlen=MAX_RECORDS)
@@ -293,8 +298,41 @@ class Workstation:
                 hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
                 if hardware_radio:hardware_host=self.host
             if hardware_host or hardware_radio:
-                with self.guard:
-                    self.control_generation+=1;self.vision_sessions.clear()
+                if action=='heading_zero':
+                    self._ordered(session,sequence)
+                    reference=self.capture_heading_reference()
+                    with self.guard:self.sequences[session]=sequence
+                    return {'reference':reference,
+                            'message':'已将当前 IMU 方向设为 0°；未发送运动命令','simulated':False}
+                heading_payload=None
+                if action=='heading_target':
+                    if not isinstance(value,dict) or set(value)!={'angle_deg','surge_pct'} or any(
+                            type(v) not in (int,float) or not math.isfinite(v) for v in value.values()) or not (
+                            -180<=value['angle_deg']<=180 and 0<=value['surge_pct']<=100):
+                        raise device_client.DeviceError('目标角度需为 -180～180°，推进为 0～100%')
+                    view=self.read();reference=view.get('heading_reference') or {}
+                    if not reference.get('valid') or not reference.get('imu_valid'):
+                        raise device_client.DeviceError('请先建立 0° 零位，并确认新鲜 IMU 遥测')
+                    heading_payload={'heading_cw_deg':wrap_degrees(reference['zero_cw_deg']-value['angle_deg']),
+                                     'surge_pct':value['surge_pct']}
+                if not (action in ('stop','yaw_pid','heading_target') or
+                        action=='source' and value in ('wifi','auto','lora') or
+                        action=='mode' and type(value) is int and value in (1,2,3) or
+                        action=='attitude' and type(value) is bool):
+                    raise device_client.DeviceError('无效控制操作或参数')
+                if action!='yaw_pid':
+                    # Leaving a visual mission must also clear its held native
+                    # heading/surge. PID tuning alone keeps the mission running.
+                    with self.guard:
+                        active=[(key,value) for key,value in self.vision_sessions.items() if isinstance(value,dict)]
+                    if action in ('source','mode','attitude'):
+                        for key,authorization in active:
+                            next_sequence=self.sequences.get(key,0)+1
+                            device_client.CLIENT.motion_control(authorization['host'],'stop',authorization['binding'],
+                                next_sequence,client_id=key)
+                            with self.guard:self.sequences[key]=next_sequence
+                    with self.guard:
+                        self.control_generation+=1;self.vision_sessions.clear()
                 if action == 'source':
                     if value not in ('wifi', 'auto','lora'):
                         raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
@@ -309,6 +347,14 @@ class Workstation:
                 elif action == 'stop':
                     result = device_client.CLIENT.motion_control(hardware_host, 'stop', session, sequence, client_id=client_id)
                     result['message'] = '已全停，等待新的有效运动目标'
+                elif action=='heading_target':
+                    result=device_client.CLIENT.motion_control(hardware_host,'heading_target',session,sequence,
+                                                               client_id=client_id,**heading_payload)
+                    if result.get('accepted') or result.get('queued'):
+                        with self.guard:
+                            self.heading_goal={**heading_payload,'relative_deg_at_send':value['angle_deg'],
+                                'requested_at':time.time(),'reference_id':reference['calibration_id']}
+                    result['message']='指定航向已提交；后续闭环由 S3 本地 IMU 执行，视觉仅观测'
                 elif action == 'attitude' and type(value) is bool:
                     result = device_client.CLIENT.motion_control(hardware_host, 'attitude_on' if value else 'attitude_off',
                         session, sequence, client_id=client_id)
@@ -355,6 +401,51 @@ class Workstation:
         self.sim.power = abs(self.axes['surge'])
         self.sim.action = 1 if self.axes['surge']>0 else 2 if self.axes['surge']<0 else 3 if self.axes['yaw']<0 else 4 if self.axes['yaw']>0 else 0
 
+    def heading_reference_state(self,view):
+        feedback=view.get('attitude_control') or {};uptime=view.get('diagnostics',{}).get('uptime_ms')
+        with self.guard:
+            if type(uptime) is int:
+                if self.heading_uptime is not None and ((uptime-self.heading_uptime)&0xffffffff)>=0x80000000:
+                    self.heading_reference=self.heading_goal=None
+                self.heading_uptime=uptime
+            if self.heading_reference and self.heading_reference['host']!=self.host:
+                self.heading_reference=self.heading_goal=None
+            reference=dict(self.heading_reference or {});goal=dict(self.heading_goal or {})
+        imu_valid=(view.get('online') is True and feedback.get('heading_valid') is True and
+                   feedback.get('body_valid') is True and type(feedback.get('body_yaw_deg')) in (int,float)
+                   and math.isfinite(feedback['body_yaw_deg']))
+        result={**reference,'valid':bool(reference),'imu_valid':imu_valid,
+                'current_deg':None,'target_deg':None,'target_confirmed':False,'goal':goal}
+        if reference and imu_valid:
+            result['current_deg']=wrap_degrees(reference['zero_cw_deg']-feedback['body_yaw_deg'])
+            target=feedback.get('requested_heading_cw_deg') if feedback.get('heading_target_active') else feedback.get('heading_target_deg')
+            if type(target) in (int,float) and math.isfinite(target):
+                result['target_deg']=wrap_degrees(reference['zero_cw_deg']-target)
+                result['target_confirmed']=bool(goal and feedback.get('heading_target_active') and
+                    abs(wrap_degrees(target-goal['heading_cw_deg']))<.021)
+        return result
+
+    def capture_heading_reference(self,calibration=None):
+        """Store an explicitly requested calibration. Never send an actuator command."""
+        view=self.read();feedback=view.get('attitude_control') or {}
+        if not (view.get('online') and feedback.get('heading_valid') and feedback.get('body_valid')):
+            raise device_client.DeviceError('建立零位需要新鲜、有效的鱼体 IMU')
+        value=feedback.get('body_yaw_deg');stamp=view.get('checked_at',time.time())
+        source_id=view.get('diagnostics',{}).get('uptime_ms')
+        if calibration is not None:
+            value=calibration.get('imu_zero_cw_deg');stamp=calibration.get('image_sample_time')
+            old_id=calibration.get('source_id')
+            if type(old_id) is int and type(source_id) is int and ((source_id-old_id)&0xffffffff)>=0x80000000:
+                raise device_client.DeviceError('设备已重启，请重新标定鱼头')
+        if any(type(v) not in (int,float) or not math.isfinite(v) for v in (value,stamp)) or not -180<=value<=180:
+            raise device_client.DeviceError('零位标定数据无效')
+        with self.guard:
+            self.heading_reference={'host':self.host,'zero_cw_deg':value,'captured_at':stamp,
+                'source_id':source_id,'calibration_id':(calibration or {}).get('calibration_id') or 'imu-'+str(time.time_ns()),
+                'visual_zero_world_deg':(calibration or {}).get('visual_zero_world_deg'),
+                'source':'VISUAL_HEAD_CALIBRATION' if calibration else 'MANUAL_IMU_ZERO'}
+        return self.heading_reference_state(view)
+
     def vision_telemetry(self):
         view=self.read()
         feedback=view.get('attitude_control',{})
@@ -363,9 +454,23 @@ class Workstation:
                and feedback.get('body_valid') is True and all(type(v) in (int,float) and math.isfinite(v) for v in (yaw,age))
                and 0<=age<=350)
         source_id=view.get('diagnostics',{}).get('uptime_ms')
+        angle_age=view.get('imu',{}).get('age_ms')
+        # body_yaw uses the filtered ANGLE sample. feedback.age_ms is the older
+        # of angle/rate packets and remains the validity gate, not its timestamp.
+        sample_age=angle_age if type(angle_age) in (int,float) and math.isfinite(angle_age) and angle_age>=0 else age
         return {'valid':bool(valid),'yaw_cw_deg':yaw if valid else None,
-                'sample_time':view.get('checked_at',time.time())-age/1000 if valid else None,
+                'sample_time':view.get('checked_at',time.time())-sample_age/1000 if valid else None,
+                'telemetry_time':view.get('checked_at'),
                 'source_id':source_id,
+                'heading_reference':view.get('heading_reference') or {},
+                'actuators':dict(view.get('actuators') or {}),
+                'control':{**(view.get('control') or {}),'lora_sequence':view.get('diagnostics',{}).get('lora',{}).get('last_sequence')},
+                'onboard':{'yaw_active':feedback.get('yaw_active') is True,
+                    'heading_target_active':feedback.get('heading_target_active') is True,
+                    'heading_target_cw_deg':feedback.get('heading_target_deg'),
+                    'error_cw_deg':feedback.get('yaw_error_deg'),'output_right_pct':feedback.get('yaw_correction_pct'),
+                    'p':feedback.get('yaw_p'),'i':feedback.get('yaw_i'),'d':feedback.get('yaw_d'),
+                    'period_ms':feedback.get('pid_period_ms')},
                 'source':'MAPPED_BODY_IMU','simulated':view.get('simulated',False)}
 
     def prepare_vision(self,session,sequence):
@@ -377,32 +482,25 @@ class Workstation:
                 generation=self.control_generation
             if hardware:
                 binding=device_client.CLIENT.control_binding(host,session)
-                # The PC yaw PID owns this path; onboard heading-hold must not fight it.
                 view=device_client.CLIENT.robot(host)
-                if view.get('attitude_control',{}).get('enabled') is not False:
-                    device_client.CLIENT.motion_control(host,'attitude_off',binding,sequence*2,client_id=session)
+                if view.get('attitude_control',{}).get('heading_target_supported') is not True:
+                    raise device_client.DeviceError('循迹需要支持航向目标的 S3 固件，请烧录 2.7.0 或更新固件',code='unsupported_control')
+                if view.get('motion',{}).get('mode')!=3:
+                    device_client.CLIENT.motion_control(host,'mode',binding,sequence,client_id=session,mode=3)
                     view=device_client.CLIENT.robot(host)
-                # LoRa settings occupy a single protected queue. Wait for its readback
-                # before submitting mode, instead of overwriting or resending settings.
-                if view.get('attitude_control',{}).get('enabled') is False and view.get('motion',{}).get('mode')!=1:
-                    device_client.CLIENT.motion_control(host,'mode',binding,sequence*2+1,client_id=session,mode=1)
-                    view=device_client.CLIENT.robot(host)
-                ready=(view.get('motion',{}).get('mode')==1 and view.get('attitude_control',{}).get('enabled') is False)
+                ready=view.get('motion',{}).get('mode')==3
                 with self.guard:
                     if generation!=self.control_generation:raise device_client.DeviceError('视觉启动期间控制权已变化')
                     self.sequences[session]=sequence
                     if ready:self.vision_sessions[session]={'generation':generation,'binding':binding,'host':host}
-                return {'ready':ready,'mode':1 if ready else view.get('motion',{}).get('mode'),
-                        'simulated':False,'message':'视觉串级控制已准备' if ready else '等待鱼端确认仿生模式和 yaw 控制归属，请稍后再次启动'}
+                return {'ready':ready,'mode':3 if ready else view.get('motion',{}).get('mode'),'yaw_owner':'S3',
+                        'simulated':False,'message':'S3 角度环与 PC 视觉/速度环已准备' if ready else '等待鱼端确认混合模式，请稍后再次启动'}
             with self.guard:
-                self._advance(time.monotonic());self._control_route('vision')
-                if self.owner=='vision':self._neutral();self.safety='WAIT_COMMAND'
-                self.sim.mode=1
-                self.vision_sessions[session]=self.control_generation
-                self.sequences[session]=sequence
-                return {'ready':True,'mode':1,'simulated':True,'generation':self.control_generation}
+                return {'ready':False,'mode':None,'simulated':True,'yaw_owner':None,
+                        'message':'旧内置模型不包含 S3 角度环，请使用完整透视循迹仿真脚本'}
 
-    def vision_target(self,axes,session,sequence):
+    def vision_command(self,action,payload,session,sequence):
+        if action not in ('heading_target','stop'):raise device_client.DeviceError('视觉只发送航向目标或全停')
         with self.command_guard:
             with self.guard:
                 self._ordered(session,sequence)
@@ -413,7 +511,7 @@ class Workstation:
                 if host!=self.host:raise device_client.DeviceError('视觉设备已变化')
             if device_client.CLIENT.control_binding(host,session)!=binding:
                 raise device_client.DeviceError('控制会话已变化，请重新启动视觉循迹')
-            result=device_client.CLIENT.motion_control(host,'target',binding,sequence*2,client_id=session,axes=axes)
+            result=device_client.CLIENT.motion_control(host,action,binding,sequence,client_id=session,**payload)
             with self.guard:self.sequences[session]=sequence
             return result
 
@@ -427,7 +525,7 @@ class Workstation:
                 if hardware_radio:hardware_host=self.host
             if hardware_host or hardware_radio:
                 if source=='vision' and hardware_host:
-                    return self.vision_target(axes,session,sequence)
+                    raise device_client.DeviceError('旧版 PC 转向输出已停用，请重启视觉以使用 S3 航向目标')
                 if source not in (None, 'auto', 'wifi', 'lora'):
                     raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
                 with self.guard:
@@ -485,6 +583,7 @@ class Workstation:
             view = device_client.CLIENT.robot(host)
             if view.get('firmware') == 'robotfish':
                 view['simulated'] = False
+                view['heading_reference']=self.heading_reference_state(view)
                 return view
             view.update(simulated=False, telemetry_source='http_spi' if mode == 'bench' else 'wifi_spi',
                         owner='unknown', safety_mode='UNKNOWN',

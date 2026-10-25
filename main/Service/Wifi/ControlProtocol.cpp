@@ -36,8 +36,8 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   cJSON *root = cJSON_ParseWithLengthOpts(data, length, &end, false);
   if (!root) return false;
   bool valid = cJSON_IsObject(root);
-  const char *const fields[] = {"action", "session", "sequence", "mode", "axes", "propulsion_scale", "pid"};
-  valid = valid && uniqueFields(root, fields, 7);
+  const char *const fields[] = {"action", "session", "sequence", "mode", "axes", "propulsion_scale", "pid", "heading_cw_deg", "surge_pct"};
+  valid = valid && uniqueFields(root, fields, 9);
   for (const char *p = end; valid && p < data + length; ++p)
     if (*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') valid = false;
   Command parsed{};
@@ -48,6 +48,8 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   const cJSON *axes = cJSON_GetObjectItemCaseSensitive(root, "axes");
   const cJSON *propulsionScale = cJSON_GetObjectItemCaseSensitive(root, "propulsion_scale");
   const cJSON *pid = cJSON_GetObjectItemCaseSensitive(root, "pid");
+  const cJSON *heading = cJSON_GetObjectItemCaseSensitive(root, "heading_cw_deg");
+  const cJSON *surgeGoal = cJSON_GetObjectItemCaseSensitive(root, "surge_pct");
   valid = valid && cJSON_IsString(action) && cJSON_IsString(session);
   if (valid) {
     const size_t size = std::strlen(session->valuestring);
@@ -63,6 +65,7 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
     else if (!std::strcmp(action->valuestring, "attitude_on")) parsed.action = Action::AttitudeOn;
     else if (!std::strcmp(action->valuestring, "attitude_off")) parsed.action = Action::AttitudeOff;
     else if (!std::strcmp(action->valuestring, "yaw_pid")) parsed.action = Action::YawPid;
+    else if (!std::strcmp(action->valuestring, "heading_target")) parsed.action = Action::HeadingTarget;
     else valid = false;
   }
   if (valid && parsed.action != Action::Acquire) {
@@ -71,7 +74,7 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
   }
   if (valid && parsed.action == Action::Acquire) valid = !sequence && !mode && !axes;
   if (valid && propulsionScale) {
-    valid = parsed.action == Action::Target && cJSON_IsNumber(propulsionScale) &&
+    valid = (parsed.action == Action::Target || parsed.action == Action::HeadingTarget) && cJSON_IsNumber(propulsionScale) &&
         std::isfinite(propulsionScale->valuedouble) &&
         propulsionScale->valuedouble >= 0 && propulsionScale->valuedouble <= 100;
     if (valid) parsed.propulsionScalePercent = static_cast<float>(propulsionScale->valuedouble);
@@ -103,6 +106,14 @@ bool parseControlJson(const char *data, size_t length, Command &command) {
       if (valid) *gains[i]=static_cast<float>(gain->valuedouble);
     }
   } else if (pid) valid=false;
+  if (valid && parsed.action==Action::HeadingTarget) {
+    valid=!mode && !axes && cJSON_IsNumber(heading) && std::isfinite(heading->valuedouble) &&
+        heading->valuedouble>=-180 && heading->valuedouble<=180 && axis(surgeGoal) && surgeGoal->valuedouble>=0;
+    if (valid) {
+      parsed.headingCwDegrees=static_cast<float>(heading->valuedouble);
+      parsed.axes.surge=static_cast<float>(surgeGoal->valuedouble);
+    }
+  } else if (heading || surgeGoal) valid=false;
   cJSON_Delete(root);
   if (valid) command = parsed;
   return valid;

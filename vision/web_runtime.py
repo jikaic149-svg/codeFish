@@ -12,9 +12,9 @@ import uuid
 
 import cv2
 from vision_speed import VisualSpeedLoop
-from yaw_control import YawLoop
 from control_config import CONTROL
 from video_recorder import recording_status
+from pool_perspective import PoolPerspective
 import numpy as np
 from flask import Flask,Response,request
 from werkzeug.serving import make_server
@@ -25,12 +25,14 @@ TASKS={'START','STOP','CLEAR_PATH','MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','T
 
 
 class WebBridge:
-    def __init__(self):
+    def __init__(self,*,observer=False):
+        self.observer=observer;self.metadata={}
         self.guard=threading.Lock();self.events=queue.Queue(maxsize=128)
         self.frames={};self.frame_time=0.;self.width=self.height=0
         self.result={};self.last_task=None;self.active_tasks=[];self.closed=threading.Event()
         self.cruise_speed_mps = 0.30
         self.yaw_sample={'valid':False,'yaw_cw_deg':None,'sample_time':None}
+        self.yaw_history=deque(maxlen=128)
         self.parent_token=os.environ['ROBOFISH_PARENT_TOKEN'];self.token=os.environ['ROBOFISH_VISION_TOKEN']
         self.app=Flask(__name__)
         @self.app.before_request
@@ -42,8 +44,8 @@ class WebBridge:
             with self.guard:return {'ready':'raw' in self.frames,'result_ready':'result' in self.frames,'frame_time':self.frame_time,
                 'frame_age_ms':int((time.time()-self.frame_time)*1000) if self.frame_time else None,
                 'width':self.width,'height':self.height,'result':self.result,'last_task':self.last_task,
-                'cruise_speed_mps': self.cruise_speed_mps,'client_revision':'yolo-imu-cascade-1',
-                'heading_model':'calibrated_imu_yaw','control_mode':1,'recording':recording_status()}
+                'cruise_speed_mps': self.cruise_speed_mps,'client_revision':'yolo-s3-heading-1',
+                'heading_model':'calibrated_imu_yaw','control_mode':3,'yaw_owner':'S3','recording':recording_status(),**self.metadata}
         @self.app.get('/frame/<kind>')
         def frame(kind):
             with self.guard:raw=self.frames.get(kind)
@@ -64,7 +66,9 @@ class WebBridge:
         def action():
             body=request.get_json(silent=True)
             if not isinstance(body,dict):return {'error':'invalid action'},400
-            if body.get('task') not in TASKS | {'SPEED'} and body.get('kind') not in ('down','move','up','right'):
+            supported=({'POOL_CALIB','POOL_SIZE','HEAD_DIRECTION','MARKER_ROI','PREVIEW',
+                        'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','EXIT'} if self.observer else TASKS | {'SPEED'})
+            if body.get('task') not in supported and body.get('kind') not in ('down','move','up','right'):
                 return {'error':'unsupported action'},400
             if body.get('task') == 'SPEED' and (type(body.get('value')) not in (int, float)
                     or not math.isfinite(body['value']) or not 0 <= body['value'] <= 0.36):
@@ -80,14 +84,28 @@ class WebBridge:
             except queue.Full:return {'error':'action queue full'},409
             with self.guard:self.last_task={'id':body['id'],'task':body.get('task',body.get('kind')),'state':'queued'}
             return {'id':body['id'],'state':'queued'},202
+        @self.app.post('/transform')
+        def transform():
+            body=request.get_json(silent=True)
+            if not isinstance(body,dict) or not isinstance(body.get('points'),list) or not 1<=len(body['points'])<=256:
+                return {'error':'请输入 1～256 个原始图像坐标点'},400
+            with self.guard:calibration=dict(self.result.get('pool',{}).get('perspective') or {})
+            if not calibration:return {'error':'请先完成场地四点标定'},409
+            try:
+                pool=PoolPerspective(calibration['physical_width_m'],calibration['physical_height_m'])
+                pool.matrix=np.asarray(calibration['image_to_field'],dtype=np.float64)
+                return {'points_m':pool.transform(body['points']).tolist(),
+                        'camera_source':calibration['camera_source'],
+                        'frame_width':calibration['frame_width'],'frame_height':calibration['frame_height']}
+            except (TypeError,ValueError,cv2.error) as error:return {'error':str(error)},400
 
-    def start(self):
+    def start(self,*,poll_telemetry=True):
         if hasattr(self,'server'):return
         class QuietRequest(WSGIRequestHandler):
             def log_request(self,*args,**kwargs):pass
         self.server=make_server('127.0.0.1',0,self.app,threaded=True,request_handler=QuietRequest)
         threading.Thread(target=self.server.serve_forever,daemon=True).start()
-        threading.Thread(target=self._telemetry_loop,daemon=True,name='VisionYawTelemetry').start()
+        if poll_telemetry:threading.Thread(target=self._telemetry_loop,daemon=True,name='VisionYawTelemetry').start()
         print('ROBOFISH_VISION_READY '+json.dumps({'port':self.server.server_port}),flush=True)
 
     def raw(self,frame,timestamp):
@@ -151,13 +169,45 @@ class WebBridge:
                 if response.status!=200:value={'valid':False}
             except (OSError,ValueError,http.client.HTTPException):value={'valid':False}
             finally:connection.close()
-            with self.guard:self.yaw_sample=value
+            with self.guard:
+                self.yaw_sample=value
+                if value.get('valid') is True and (not self.yaw_history or
+                        value.get('sample_time')!=self.yaw_history[-1].get('sample_time')):
+                    self.yaw_history.append(dict(value))
             self.closed.wait(.05)
 
     def get_yaw_sample(self):
         with self.guard:return dict(self.yaw_sample)
 
+    def get_yaw_sample_at(self,timestamp):
+        """Interpolate recorded IMU yaw at a frozen image's exposure time."""
+        with self.guard:history=list(self.yaw_history)
+        before=[s for s in history if type(s.get('sample_time')) in (int,float) and s['sample_time']<=timestamp]
+        after=[s for s in history if type(s.get('sample_time')) in (int,float) and s['sample_time']>=timestamp]
+        if not before or not after:return {'valid':False,'source':'NO_ALIGNED_IMU'}
+        a=max(before,key=lambda s:s['sample_time']);b=min(after,key=lambda s:s['sample_time'])
+        gap=b['sample_time']-a['sample_time']
+        if gap>CONTROL['feedback_max_age_s']:return {'valid':False,'source':'IMU_ALIGNMENT_GAP'}
+        if (type(a.get('source_id')) is int and type(b.get('source_id')) is int and
+                ((b['source_id']-a['source_id'])&0xffffffff)>=0x80000000):
+            return {'valid':False,'source':'IMU_EPOCH_CHANGED'}
+        y0,y1=a.get('yaw_cw_deg'),b.get('yaw_cw_deg')
+        if any(type(v) not in (int,float) or not math.isfinite(v) for v in (y0,y1)):
+            return {'valid':False,'source':'INVALID_ALIGNED_IMU'}
+        fraction=(timestamp-a['sample_time'])/gap if gap else 0.
+        delta=(y1-y0+180)%360-180
+        # Yaw is interpolated at its sensor timestamp; command/reference fields
+        # are step values at telemetry capture time and must not come from the future.
+        timed=[s for s in history if type(s.get('telemetry_time')) in (int,float)]
+        past=[s for s in timed if s['telemetry_time']<=timestamp and timestamp-s['telemetry_time']<=CONTROL['feedback_max_age_s']]
+        step=max(past,key=lambda s:s['telemetry_time']) if past else ({} if timed else a)
+        return {**a,**{key:step.get(key,{}) for key in ('heading_reference','onboard','actuators','control')},
+                'native_telemetry_time':step.get('telemetry_time'),'native_source_id':step.get('source_id'),
+                'valid':True,'yaw_cw_deg':(y0+fraction*delta+180)%360-180,
+                'sample_time':timestamp,'alignment':'frame_time_interpolated','alignment_span_s':gap}
+
     def parent(self,body):
+        if self.observer:raise RuntimeError('视觉观测进程不发送控制命令')
         connection=http.client.HTTPConnection('127.0.0.1',int(os.environ.get('ROBOFISH_PARENT_PORT','8765')),timeout=.7)
         try:
             if body.get('task')=='prepare':
@@ -165,9 +215,9 @@ class WebBridge:
                 # its capability with GET before sending any prepare command.
                 connection.request('GET','/api/health')
                 response=connection.getresponse();health=json.loads(response.read(65536))
-                if response.status!=200 or health.get('vision_control_mode')!=1 or health.get('vision_client_revision')!='yolo-imu-cascade-1':
-                    raise RuntimeError('后台仍是旧版本：请运行 restart.cmd 重启上位机。未发送模式切换或循迹启动')
-                body={**body,'client_revision':'yolo-imu-cascade-1'}
+                if response.status!=200 or health.get('vision_control_mode')!=3 or health.get('vision_client_revision')!='yolo-s3-heading-1':
+                    raise RuntimeError('后台仍是旧版本：请用 start.cmd --restart 重启上位机。未发送模式切换或循迹启动')
+                body={**body,'client_revision':'yolo-s3-heading-1'}
             connection.request('POST','/api/vision/control',json.dumps(body),
                 {'Content-Type':'application/json','Origin':'http://127.0.0.1:'+os.environ.get('ROBOFISH_PARENT_PORT','8765'),
                  'X-AmphiLink-Token':self.parent_token})
@@ -177,87 +227,104 @@ class WebBridge:
         finally:connection.close()
 
 
+class WorkstationComm:
+    """PC owns visual guidance/speed; each yaw setpoint is executed on S3."""
+    def __init__(self,bridge,*,start_sender=True,**unused):
+        self.bridge=bridge;self._udp_lock=threading.Lock();self._wire_lock=threading.Lock()
+        self._udp_latest=None;self._udp_latest_t=0.;self._stop=threading.Event()
+        self.session='vision-'+uuid.uuid4().hex;self.sequence=0;self.last_error='';self.last_ack=0.
+        self.speed_loop=VisualSpeedLoop(**CONTROL['speed'],max_age_s=CONTROL['feedback_max_age_s'])
+        self.authorized=False;self.vision_seq=0;self.sender=None
+        if start_sender:
+            self.sender=threading.Thread(target=self._send,daemon=True);self.sender.start()
+
+    def _call(self,task,payload=None):
+        with self._wire_lock:
+            if task=='heading' and not self.authorized:return None
+            self.sequence+=1
+            body={'task':task,'session':self.session,'sequence':self.sequence,**(payload or {})}
+            try:
+                result=self.bridge.parent(body);self.last_error='';self.last_ack=time.monotonic();return result
+            except Exception as error:
+                if str(error)!=self.last_error:print('[视觉控制] '+str(error),flush=True)
+                self.last_error=str(error);return None
+
+    def send_latest(self):
+        with self._udp_lock:target=self._udp_latest;updated=self._udp_latest_t
+        if target is None:return
+        if time.monotonic()-updated>.25:self.stop_now();return
+        if target['brake']:
+            result=self._call('stop')
+        else:
+            result=self._call('heading',{'heading_cw_deg':target['heading_cw_deg'],'surge_pct':target['power_percent']})
+        if result is None:self.stop_tracking()
+
+    def _send(self):
+        while not self._stop.wait(.05):self.send_latest()
+
+    @property
+    def speed_status(self):return dict(self.speed_loop.status)
+
+    @property
+    def yaw_status(self):
+        sample=self.bridge.get_yaw_sample();native=sample.get('onboard') or {}
+        def left(key):
+            value=native.get(key)
+            return -value if type(value) in (int,float) and math.isfinite(value) else None
+        return {'controller':'S3','feedback_valid':sample.get('valid') is True and native.get('yaw_active') is True,
+                'steering_percent':left('output_right_pct'),'error_deg':left('error_cw_deg'),
+                'p_percent':left('p'),'i_percent':left('i'),'d_percent':left('d'),
+                'sample_time':sample.get('sample_time'),'period_ms':native.get('period_ms')}
+
+    def process_tracking_error(self,cross_m,along_m,dist_m,speed_mps=None,brake_request=False,
+            speed_target_mps=0.,observed_at=None,feedback_valid=False,target_heading_cw_deg=None,
+            yaw_observed_at=None,now=None,**unused):
+        if not self.authorized:self.speed_loop.reset('not_authorized');return None
+        now=time.time() if now is None else now
+        yaw_fresh=(type(yaw_observed_at) in (int,float) and math.isfinite(yaw_observed_at)
+                   and 0<=now-yaw_observed_at<=CONTROL['feedback_max_age_s'])
+        target_valid=(type(target_heading_cw_deg) in (int,float) and math.isfinite(target_heading_cw_deg)
+                      and -180<=target_heading_cw_deg<=180)
+        power=self.speed_loop.update(float(speed_target_mps),
+            float(speed_mps) if feedback_valid and speed_mps is not None else None,observed_at,now=now,brake=brake_request)
+        stopped=brake_request or not self.speed_loop.status['feedback_valid'] or not yaw_fresh or not target_valid
+        if stopped:self.speed_loop.reset('waiting_feedback');power=0.
+        command={'heading_cw_deg':target_heading_cw_deg,'power_percent':power,'brake':bool(stopped)}
+        with self._udp_lock:self._udp_latest=command;self._udp_latest_t=time.monotonic()
+        return command
+
+    def stop_tracking(self):
+        self.authorized=False
+        with self._udp_lock:self._udp_latest=None;self._udp_latest_t=0.
+        self.speed_loop.reset()
+
+    def ensure_bionic_mode(self):
+        # Retain the existing UI callback name; the actual mode is now HYBRID.
+        self.stop_tracking();result=self._call('prepare')
+        self.authorized=result is not None and result.get('mode')==3 and result.get('ready') is True and result.get('yaw_owner')=='S3'
+        if result is not None and not self.authorized:self.last_error=result.get('message','等待鱼端航向目标接口')
+        return self.authorized
+
+    def stop_now(self):
+        was_authorized=self.authorized;self.stop_tracking()
+        return self._call('stop') is not None if was_authorized else True
+
+    def send_command(self,command):
+        if command in ('stop','emergency_stop'):return self.stop_now()
+
+    def get_mcu_hz(self):return 0.
+
+    def close(self):
+        self._stop.set()
+        if self.sender:self.sender.join(timeout=1)
+        self.stop_now()
+
+
 def run(source,model=None):
     import vision_app as app
     bridge=WebBridge();bridge.start();app.web_bridge=bridge
     app.MJPEGServer=lambda:bridge;app.TabletTCPServer=lambda **kwargs:bridge
-    original_comm=app.RoboFishComm
-    class WorkstationComm(original_comm):
-        def __init__(self,**kwargs):
-            self.vision_seq=0;self._udp_lock=threading.Lock();self._wire_lock=threading.Lock()
-            self._udp_latest=None;self._udp_latest_t=0.;self._stop=threading.Event()
-            self.session='vision-'+uuid.uuid4().hex;self.sequence=0;self.last_error='';self.last_ack=0.
-            self.speed_loop = VisualSpeedLoop(**CONTROL['speed'],max_age_s=CONTROL['feedback_max_age_s'])
-            self.yaw_loop=YawLoop()
-            self.authorized = False
-            self.sender=threading.Thread(target=self._send,daemon=True);self.sender.start()
-        def _call(self,task,axes=None):
-            with self._wire_lock:
-                self.sequence+=1
-                body={'task':task,'session':self.session,'sequence':self.sequence}
-                if axes is not None:body['axes']=axes
-                try:
-                    result=bridge.parent(body);self.last_error='';self.last_ack=time.monotonic();return result
-                except Exception as error:
-                    if str(error)!=self.last_error:print('[视觉控制] '+str(error),flush=True)
-                    self.last_error=str(error);return None
-        def _send(self):
-            while not self._stop.wait(.05):
-                with self._udp_lock:target=self._udp_latest;updated=self._udp_latest_t
-                if target is not None and time.monotonic()-updated<=app.VISION_UDP_STALE_S:
-                    axes = {'surge': target['power_percent'], 'yaw': -target['steering_percent'], 'heave': 0}
-                    if target['brake']: axes = {'surge': 0, 'yaw': 0, 'heave': 0}
-                    if self._call('target', axes) is None:
-                        self.stop_tracking()
-                elif target is not None:
-                    self.stop_tracking()
-                    self._call('target', {'surge': 0, 'yaw': 0, 'heave': 0})
-        @property
-        def speed_status(self): return dict(self.speed_loop.status)
-        @property
-        def yaw_status(self):return dict(self.yaw_loop.status)
-        def process_tracking_error(self, cross_m, along_m, dist_m, speed_mps=None,
-                brake_request=False, steering_demand=0, speed_target_mps=0,
-                observed_at=None, feedback_valid=False, target_yaw_rad=None,body_yaw_rad=None,
-                yaw_observed_at=None,curve_feedforward=0.,**unused):
-            if not self.authorized:
-                self.speed_loop.reset('not_authorized')
-                self.yaw_loop.reset('not_authorized')
-                return None
-            power = self.speed_loop.update(float(speed_target_mps),
-                float(speed_mps) if feedback_valid and speed_mps is not None else None,
-                observed_at, brake=brake_request)
-            stopped = brake_request or not self.speed_loop.status['feedback_valid']
-            steering=self.yaw_loop.update(target_yaw_rad,body_yaw_rad,yaw_observed_at,
-                brake=stopped,feedforward=100.*curve_feedforward)
-            stopped=stopped or not self.yaw_loop.status['feedback_valid']
-            if stopped:
-                self.speed_loop.reset('waiting_feedback');power=0.
-            return self.set_tracking_command(
-                steering_demand=0 if stopped else steering/100.,
-                speed_target_mps=power * app.UDP_SPEED_REFERENCE_MPS / 100.,
-                brake_request=stopped)
-        def stop_tracking(self):
-            original_comm.stop_tracking(self)
-            self.speed_loop.reset()
-            self.yaw_loop.reset()
-            self.authorized = False
-        def ensure_bionic_mode(self):
-            self.stop_tracking()
-            result=self._call('prepare')
-            self.authorized = result is not None and result.get('mode') == 1 and result.get('ready') is True
-            if result is not None and not self.authorized:self.last_error=result.get('message','等待鱼端控制配置确认')
-            return self.authorized
-        def stop_now(self):
-            was_authorized=self.authorized
-            self.stop_tracking()
-            return self._call('target',{'surge':0,'yaw':0,'heave':0}) is not None if was_authorized else True
-        def send_command(self,command):
-            if command in ('stop','emergency_stop'):return self.stop_now()
-        def get_mcu_hz(self):return 0.  # PC model receipts are not MCU radio receipts.
-        def close(self):
-            self._stop.set();self.sender.join(timeout=1);self.stop_now()
-    app.RoboFishComm=WorkstationComm
+    app.RoboFishComm=lambda **kwargs:WorkstationComm(bridge)
     app.CAMERA_INDEX=int(source) if str(source).isdigit() else str(source)
     app.REPLAY_ONLY=not str(source).isdigit()
     app.MODEL_PATH=str(model) if model else str(Path(__file__).parent/'fish_body_yolo/best.pt')

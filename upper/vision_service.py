@@ -11,8 +11,8 @@ import time
 
 from tooling import WORKSPACE
 
-TASKS={'START','STOP','CLEAR_PATH','MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB',
-       'RECORD','SNAPSHOT','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','EXIT','SPEED','POOL_SIZE'}
+TASKS={'MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','POOL_SIZE','PREVIEW',
+       'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','EXIT'}
 
 
 class VisionService:
@@ -20,7 +20,9 @@ class VisionService:
         self.guard=threading.Lock();self.process=None;self.port=None;self.token=None
         self.logs=deque(maxlen=40);self.source='';self.ready=threading.Event()
         self.model=''
+        self.perspective_test={}
         self.recording={'active':False,'saved':False,'error':''}
+        self.samples={'active':False,'saved':False,'rows':0,'error':''}
         self.reader=None
         self.output=WORKSPACE/'build/vision'
 
@@ -44,8 +46,8 @@ class VisionService:
             if profile['key']=='head':profile.update(label='鱼头与 yaw 零位',saved=False,values={},runtime_only=True)
             if profile['key']=='tail':profile.update(label='YOLO 目标选择',saved=False,values={},runtime_only=True)
         default='vision/fish_body_yolo/best.pt' if (WORKSPACE/'vision/fish_body_yolo/best.pt').is_file() else ''
-        return {'models':models,'default_model':default,'model_required':True,'algorithm':'YOLO 鱼体识别 + IMU yaw 串级控制',
-                'calibration':profiles,'output':str(self.output)}
+        return {'models':models,'default_model':default,'model_required':True,'algorithm':'YOLO + 独立视觉角度与轨迹观测',
+                'observation_only':True,'supported_tasks':sorted(TASKS),'calibration':profiles,'output':str(self.output)}
 
     def model_path(self,value=None):
         if value in (None,''):value=self.configuration()['default_model']
@@ -79,14 +81,17 @@ class VisionService:
             python=Path(os.environ.get('ROBOFISH_VISION_PYTHON',r'D:\python\venvs\yolo\ultralytics\8.4.118\Scripts\python.exe'))
             if not python.is_file():raise RuntimeError('找不到视觉Python环境')
             output=self.output;output.mkdir(parents=True,exist_ok=True)
+            for name in ('ultralytics','matplotlib'):(output/name).mkdir(exist_ok=True)
             self.token=secrets.token_hex(24);self.port=None;self.ready.clear();self.logs.clear();self.source=argument
             self.model=str(model) if model else ''
+            self.perspective_test={}
             self.recording={'active':False,'saved':False,'error':''}
+            self.samples={'active':False,'saved':False,'rows':0,'error':''}
             environment={**os.environ,'ROBOFISH_PARENT_TOKEN':parent_token,'ROBOFISH_PARENT_PORT':str(parent_port),
                 'ROBOFISH_VISION_TOKEN':self.token,'ROBOFISH_VISION_OUTPUT':str(output),
                 'YOLO_CONFIG_DIR':str(output/'ultralytics'),'MPLCONFIGDIR':str(output/'matplotlib'),
                 'PYTHONIOENCODING':'utf-8','PYTHONDONTWRITEBYTECODE':'1'}
-            command=[str(python),'-B','-u',str(WORKSPACE/'vision/web_runtime.py'),'--source',argument]
+            command=[str(python),'-B','-u',str(WORKSPACE/'vision/observer_runtime.py'),'--source',argument]
             if model:command.extend(['--model',str(model)])
             self.process=subprocess.Popen(command,cwd=WORKSPACE/'vision',env=environment,
                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace',
@@ -102,6 +107,10 @@ class VisionService:
                 value=json.loads(line.split(' ',1)[1]);self.port=value['port'];self.ready.set()
             elif line.startswith('ROBOFISH_VISION_RECORDING '):
                 self.recording=json.loads(line.split(' ',1)[1])
+            elif line.startswith('ROBOFISH_PERSPECTIVE_TEST '):
+                self.perspective_test=json.loads(line.split(' ',1)[1])
+            elif line.startswith('ROBOFISH_VISION_SAMPLES '):
+                self.samples=json.loads(line.split(' ',1)[1])
             else:self.logs.append(line.rstrip())
 
     def call(self,path,body=None,binary=False):
@@ -113,16 +122,23 @@ class VisionService:
                 {'Authorization':'Bearer '+self.token,'Content-Type':'application/json'})
             response=connection.getresponse();data=response.read(4*1024*1024+1)
             if len(data)>4*1024*1024:raise RuntimeError('视觉响应过大')
-            if response.status not in (200,202):raise RuntimeError('视觉接口未就绪')
+            if response.status not in (200,202):
+                try:message=json.loads(data).get('error')
+                except ValueError:message=None
+                raise RuntimeError(message or '视觉接口未就绪')
             return data if binary else json.loads(data)
         finally:connection.close()
 
     def state(self):
         running=bool(self.process and self.process.poll() is None)
-        result={'running':running,'ready':False,'source':self.source,'model':self.model,'recording':dict(self.recording),
+        result={'running':running,'ready':False,'source':self.source,'model':self.model,
+                'perspective_test':dict(self.perspective_test),'recording':dict(self.recording),
+                'samples':dict(self.samples),'observation_only':True,
                 'logs':list(self.logs),'process_id':self.process.pid if running else None}
         if not running and result['recording'].get('active'):
             result['recording'].update(active=False,saved=False,error='视觉进程已退出，录像尚未确认保存')
+        if not running and result['samples'].get('active'):
+            result['samples'].update(active=False,saved=False,error='视觉进程异常退出，请从输出目录检查采样文件')
         if running and self.port:
             try:result.update(self.call('/state'))
             except (RuntimeError,OSError):pass
@@ -142,6 +158,31 @@ class VisionService:
         if not isinstance(body,dict) or (body.get('task') not in TASKS and body.get('kind') not in ('down','move','up','right')):
             raise ValueError('未映射的视觉操作')
         return self.call('/action',body)
+
+    def transform(self,body):
+        return self.call('/transform',body)
+
+    def test_file(self,kind):
+        if kind not in ('image','json'):raise ValueError('仅支持测试图和标定 JSON')
+        state=self.state();pool=state.get('result',{}).get('pool',{})
+        test=pool.get('test') or self.perspective_test
+        if kind=='json' and not test.get('data_file') and pool.get('perspective'):
+            data=json.dumps(pool['perspective'],ensure_ascii=False,indent=2)+'\n'
+            return data.encode('utf-8'),'application/json; charset=utf-8','pool-perspective-calibration.json'
+        path=Path(test.get('image_file' if kind=='image' else 'data_file','')).resolve()
+        if not path.is_relative_to(self.output.resolve()) or not path.is_file():raise ValueError('请先完成场地四点标定')
+        if path.stat().st_size>16*1024*1024:raise ValueError('测试文件过大，请从输出目录查看')
+        return path.read_bytes(),('image/png' if kind=='image' else 'application/json; charset=utf-8'),path.name
+
+    def export_samples(self,kind):
+        if kind not in ('csv','json'):raise ValueError('仅支持采样 CSV 或元数据 JSON')
+        samples=self.state().get('samples') or {}
+        if samples.get('active'):raise ValueError('请先停止采样，再导出完整文件')
+        if not samples.get('saved'):raise ValueError(samples.get('error') or '尚无已保存的采样文件')
+        path=Path(samples.get('file' if kind=='csv' else 'metadata_file','')).resolve()
+        if not path.is_relative_to(self.output.resolve()) or not path.is_file():raise ValueError('采样文件不在输出目录中')
+        if path.stat().st_size>128*1024*1024:raise ValueError('采样文件较大，请从输出目录查看')
+        return path.read_bytes(),('text/csv; charset=utf-8' if kind=='csv' else 'application/json; charset=utf-8'),path.name
 
     def stop(self):
         if self.process and self.process.poll() is None:
