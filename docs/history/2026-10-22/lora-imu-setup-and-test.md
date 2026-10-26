@@ -1,6 +1,6 @@
 # LoRa 与 IMU 配置及操作记录
 
-本文保留 2026-10-22 的 **2.3.2-lora-imu 实机记录**，不代表当前源码已烧录。当前源码为 2.5.0-attitude，新增姿态辅助代码默认关闭，安装映射待实测；本轮仅离线验证，未启动实鱼控制环路。当前能力和待测项见 [工程说明](../README.md)。
+本文保留 2026-10-22 的 **2.3.2-lora-imu 实机记录**，不代表当前源码已烧录。当前源码为 2.5.0-attitude，新增姿态辅助代码默认关闭，安装映射待实测；本轮仅离线验证，未启动实鱼控制环路。当前能力和待测项见 [工程说明](../../../README.md)。
 
 记录日期：2026-10-22。工程：`C:/Users/rlyoulo/Desktop/SAKANA/RobotFish-ESP-IDF`。
 
@@ -159,7 +159,7 @@ USB 观察任务运行在 CPU1，优先级 1，每 100ms 只读现有快照，�
 
 测试构建还支持主机显式发送单字符，仅改变 MCU 的临时 UART2 接收速率，不写 IMU 参数：`1=115200`、`9=9600`、`2=19200`、`3=38400`、`5=57600`、`4=230400`。本轮只实际发过 `1`；掉电/重启回到配置文件的 115200。
 
-本次 LoRa+IMU 串口测试脚本已保存为 [firmware_usb_bench.py](../tests/lora_pair/firmware_usb_bench.py)：
+本次 LoRa+IMU 串口测试脚本已保存为 [firmware_usb_bench.py](../../../tests/lora_pair/firmware_usb_bench.py)：
 
 ```powershell
 python -B ./tests/lora_pair/firmware_usb_bench.py
@@ -253,7 +253,7 @@ idf.py -B build -DIDF_COMPONENT_MANAGER=0 -DROBOTFISH_USB_DIAGNOSTICS=ON build
 - 目标：COM26 / MAC e8:f6:0a:8b:38:e4。
 - 原应用：robotfish 2.2.6-vision。
 - 备份范围：0x000000～0x0e7fff，共 **950272 字节**，覆盖本轮所有被改写扇区；并非整片 8MB 备份。
-- 文件：[原始 Flash](../artifacts/hardware-backups/COM26-e8f60a8b38e4-before-2.3.1-20261022.bin)。
+- 文件：[原始 Flash](../../../artifacts/hardware-backups/COM26-e8f60a8b38e4-before-2.3.1-20261022.bin)。
 - SHA256：`5e29c2c699254d3c0c874d7b8cff68b1302ed11dba07a9983962a650bfb734e3`。
 
 这是从 0x0 读取的原始扇区镜像，不能按 app BIN 写到 0x10000。只有需要回退到本轮开始状态时，才对同一目标按原范围写回；写回会恢复该范围内当时的 NVS/OTA 数据。它不覆盖范围以外后来发生的改动。
@@ -268,7 +268,7 @@ idf.py -B build -DIDF_COMPONENT_MANAGER=0 -DROBOTFISH_USB_DIAGNOSTICS=ON build
 | 2.3.1，加入显式 MCU 接收速率诊断 | RobotFish-ESP32S3-OTA-20261022-193156.bin | 882400 |
 | **2.3.2，软件适配 LoRa 接线，当前板上版本** | **RobotFish-ESP32S3-OTA-20261022-200659.bin** | **882400** |
 
-当前固件：[2.3.2 BIN](../artifacts/RobotFish-ESP32S3-OTA-20261022-200659.bin)。
+当前固件：[2.3.2 BIN](../../../artifacts/RobotFish-ESP32S3-OTA-20261022-200659.bin)。
 
 SHA256：`b26f6b56e716a1e59fba610cafff7c9d612a6f96336be0384ae4f54b4bb44b1f`。写后哈希验证及本地 BIN 头、项目、芯片、校验和和 SHA256 检查均通过。所有镜像摘要另保存在配置快照中。
 
@@ -313,20 +313,20 @@ SHA256：`b26f6b56e716a1e59fba610cafff7c9d612a6f96336be0384ae4f54b4bb44b1f`。�
 
 ## 13. 配置入口与原始证据
 
-完整配置原文、文件 SHA256、SDK 配置、分区、构建开关及镜像摘要保存在 [配置快照](../validation/lora-imu-config-snapshot-20261022.json)。普通阅读先看本文件；需要核对细节再查快照。
+完整配置原文、文件 SHA256、SDK 配置、分区、构建开关及镜像摘要保存在 [配置快照](../../../validation/lora-imu-config-snapshot-20261022.json)。普通阅读先看本文件；需要核对细节再查快照。
 
 | 文件 | 用途 |
 |---|---|
-| [BoardConfig.h](../main/config/BoardConfig.h) | GPIO、UART2 速率、PWM、脉宽和水泵复用限制 |
-| [RadioConfig.h](../main/config/RadioConfig.h) | LoRa UART 速率、逻辑节点、行长、缓存、防重和关闭的 ACK 参数 |
-| [AppConfig.h](../main/config/AppConfig.h) | 热点、认证、循环周期、租约、输出故障和 OTA 参数 |
-| [RuntimeConfig.h](../main/config/RuntimeConfig.h) | 中心角、机械限位、方向、档位和摆频 |
-| [ControlConfig.h](../main/config/ControlConfig.h) | 运动斜率与分配参数 |
-| [MotionAllocationConfig.h](../main/config/MotionAllocationConfig.h) | 将校准值组合为运动配方/几何 |
-| [主循环](../main/robotfish.cpp) | 串口轮询、唯一运动 owner 与快照发布 |
-| [USB 观察](../main/Service/Usb/UsbTelemetry.cpp) | USBSTAT 格式及显式接收速率请求 |
-| [实机报告](../validation/lora-imu-usb-20261022.json) | 最终逐包记录、原始姿态样本和各阶段结果 |
-| [process.md](../process.md) | 开发操作时间线，保留被后续方案覆盖的历史 |
-| [早期模块回读](../validation/lora-fixed-pair-config.json) | 旧配对参数，端口/模块物理归属不能直接套用到当前接线 |
+| [BoardConfig.h](../../../main/config/BoardConfig.h) | GPIO、UART2 速率、PWM、脉宽和水泵复用限制 |
+| [RadioConfig.h](../../../main/config/RadioConfig.h) | LoRa UART 速率、逻辑节点、行长、缓存、防重和关闭的 ACK 参数 |
+| [AppConfig.h](../../../main/config/AppConfig.h) | 热点、认证、循环周期、租约、输出故障和 OTA 参数 |
+| [RuntimeConfig.h](../../../main/config/RuntimeConfig.h) | 中心角、机械限位、方向、档位和摆频 |
+| [ControlConfig.h](../../../main/config/ControlConfig.h) | 运动斜率与分配参数 |
+| [MotionAllocationConfig.h](../../../main/config/MotionAllocationConfig.h) | 将校准值组合为运动配方/几何 |
+| [主循环](../../../main/robotfish.cpp) | 串口轮询、唯一运动 owner 与快照发布 |
+| [USB 观察](../../../main/Service/Usb/UsbTelemetry.cpp) | USBSTAT 格式及显式接收速率请求 |
+| [实机报告](../../../validation/lora-imu-usb-20261022.json) | 最终逐包记录、原始姿态样本和各阶段结果 |
+| [process.md](../../../process.md) | 开发操作时间线，保留被后续方案覆盖的历史 |
+| [早期模块回读](../../../validation/lora-fixed-pair-config.json) | 旧配对参数，端口/模块物理归属不能直接套用到当前接线 |
 
 参考资料：[用户提供的 A39 PDF](http://www.ashining.com.cn/datasheets/a39t400a30d1acn.pdf)、[JY61P 官方规格书](https://wit-motion.yuque.com/wumwnr/docs/agok0k)。JY61P 规格正文已读取；A39 链接在本环境获取时出现拒绝/超时，本轮 A39 参数依据既有回读与实际空口测试记录，没有假设已读取该 PDF 全文。

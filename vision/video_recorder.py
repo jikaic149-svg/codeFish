@@ -19,7 +19,7 @@ def recording_status():
 
 
 class AsyncVideoRecorder:
-    def __init__(self, path, fourcc, fps, frame_size, csv_path):
+    def __init__(self, path, fourcc, fps, frame_size, csv_path, fields=None):
         global _latest
         self.path = str(Path(path).resolve())
         self.csv_path = str(Path(csv_path).resolve())
@@ -43,7 +43,7 @@ class AsyncVideoRecorder:
                 raise RuntimeError('Video encoder could not open the output file')
             self.csv_file = open(self.csv_path, 'w', newline='', encoding='utf-8-sig')
             self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(CSV_FIELDS)
+            self.csv_writer.writerow(CSV_FIELDS if fields is None else fields)
         except Exception as error:
             self.error = str(error)
             self.stopped = self.closed = True

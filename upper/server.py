@@ -27,13 +27,15 @@ from station import STATION
 import tooling
 import development
 from vision_service import VISION
+from dynamics_control import DynamicsControl
 import diagnostics
 
 ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
-REVISION = 'workstation-23-heading-observer'
+REVISION = 'workstation-36-steering-priority'
+DYNAMICS = DynamicsControl(STATION,VISION)
 FEATURES = {'attitude_control': True, 'shutdown': True}
 # Simulator controls proxy only when explicitly requested, so a normal run
 # exposes no extra surface at all.
@@ -349,6 +351,7 @@ class Debugger:
 DEBUG=Debugger()
 atexit.register(DEBUG.close)
 atexit.register(VISION.stop)
+atexit.register(DYNAMICS.close)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
@@ -381,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():return self.reply(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True,'vision_observation_only':True,'vision_control_mode':None,'vision_client_revision':'heading-observer-1'})
+        if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True,'vision_observation_only':False,'vision_control_mode':3,'vision_client_revision':'yolo-s3-heading-1'})
         if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':REVISION,'features':FEATURES})
         if path=='/api/tooling':return self.reply(200,tooling.info())
         if path=='/api/station/lora':return self.reply(200,device_client.CLIENT.lora_status())
@@ -454,8 +457,12 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/vision/telemetry':
             try:return self.reply(200,STATION.vision_telemetry())
             except device_client.DeviceError as exc:return self.device_error(exc)
+        if path=='/api/dynamics/state':return self.reply(200,DYNAMICS.state())
         if path=='/api/vision/state':return self.reply(200,VISION.state())
         if path=='/api/vision/config':return self.reply(200,VISION.configuration())
+        if path=='/api/vision/cameras':
+            try:return self.reply(200,VISION.cameras())
+            except (OSError,ValueError,RuntimeError) as exc:return self.reply(503,{'error':str(exc)})
         if path=='/api/vision/samples':
             kind=parse_qs(urlsplit(self.path).query).get('format',['csv'])[0]
             try:data,content_type,name=VISION.export_samples(kind)
@@ -478,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Cache-Control','no-store');self.end_headers()
             try:
                 while True:
-                    chunk=response.read(8192)
+                    chunk=response.read1(64*1024)
                     if not chunk:break
                     self.wfile.write(chunk)
             except OSError:pass
@@ -513,7 +520,7 @@ class Handler(BaseHTTPRequestHandler):
             finally:LOCK.release()
             return
         name='index.html' if path=='/' else path.lstrip('/')
-        if name not in ('index.html','style.css','app.js','network.js','backend.js','links.js','upgrade.js','progress.js','robot.js','workstation.js','vision.js','development.js','ember-webview.js','ember-webview.css'):return self.reply(404,{'error':'not found'})
+        if name not in ('index.html','style.css','app.js','network.js','backend.js','links.js','upgrade.js','progress.js','robot.js','workstation.js','vision.js','development.js','ember-webview.js','ember-webview.css','dynamics.html','dynamics.js','dynamics.css'):return self.reply(404,{'error':'not found'})
         data=(ROOT/name).read_bytes()
         self.send_response(200);self.send_header('Content-Type',mimetypes.guess_type(name)[0] or 'application/octet-stream')
         self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store')
@@ -528,6 +535,7 @@ class Handler(BaseHTTPRequestHandler):
             body=json.loads(self.rfile.read(length))
             if not isinstance(body,dict):raise ValueError('请求须为JSON对象')
             action=urlsplit(self.path).path.removeprefix('/api/')
+            if action=='dynamics/action':return self.reply(200,DYNAMICS.action(body))
             if action=='shutdown':
                 if not LOCK.acquire(blocking=False):return self.reply(409,{'error':'设备操作进行中，完成后再退出'})
                 try:
@@ -537,6 +545,7 @@ class Handler(BaseHTTPRequestHandler):
                         if (saved['recording'] or saved['count'] or raw['count']) and body.get('discard_records') is not True:
                             return self.reply(409,{'error':'存在实验记录，请先导出，或明确确认放弃后退出','code':'unsaved_records'})
                         STATION.capture('stop')
+                        DYNAMICS.close()
                         confirmed=device_client.CLIENT.shutdown()
                     self.reply(200,{'exiting':True,'stop_confirmed':confirmed})
                     diagnostics.event('shutdown',stop_confirmed=confirmed)
@@ -574,7 +583,19 @@ class Handler(BaseHTTPRequestHandler):
             if action=='vision/action':return self.reply(200,VISION.action(body.get('event')))
             if action=='vision/transform':return self.reply(200,VISION.transform(body))
             if action=='vision/control':
-                raise ValueError('视觉仅用于观测、采样和标定；请在操控页手动发送航向目标')
+                task=body.get('task');session=body.get('session');sequence=body.get('sequence')
+                if task not in ('prepare','heading','stop'):raise ValueError('未映射的自动循迹操作')
+                if task!='stop':
+                    if not VISION.process or VISION.process.poll() is not None or not VISION.source.isdigit():raise ValueError('自动循迹只允许实时相机输入')
+                if task=='prepare':
+                    if body.get('client_revision')!='yolo-s3-heading-1':raise ValueError('请重新启动新版视觉服务')
+                    initial=VISION.state().get('result',{}).get('initial_heading') or {}
+                    if initial.get('calibrated') is not True or initial.get('imu_aligned') is not True:raise ValueError('请先在实时相机中标定鱼头和 IMU 零位')
+                    reference=STATION.read().get('heading_reference') or {}
+                    if not reference.get('valid') or reference.get('calibration_id')!=initial.get('calibration_id'):raise ValueError('请先同步当前鱼头零位')
+                    return self.reply(200,STATION.prepare_vision(session,sequence))
+                payload={} if task=='stop' else {'heading_cw_deg':body.get('heading_cw_deg'),'surge_pct':body.get('surge_pct')}
+                return self.reply(200,STATION.vision_command('stop' if task=='stop' else 'heading_target',payload,session,sequence))
             if action=='station/heading-reference':
                 visual=VISION.state();initial=visual.get('result',{}).get('initial_heading') or {}
                 if (not visual.get('running') or not str(visual.get('source','')).isdigit() or initial.get('calibrated') is not True or

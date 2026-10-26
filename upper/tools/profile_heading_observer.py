@@ -30,7 +30,9 @@ def main():
     output=ROOT/'build/host-vision/heading-observer/profile';output.mkdir(parents=True,exist_ok=True)
     for name,key in [('ultralytics','YOLO_CONFIG_DIR'),('matplotlib','MPLCONFIGDIR')]:
         folder=output/name;folder.mkdir(exist_ok=True);os.environ[key]=str(folder)
-    source=ROOT.parent/'屏幕录制 2026-10-18 115851.mp4';model=ROOT/'vision/fish_body_yolo/best.pt'
+    samples=os.environ.get('ROBOFISH_VISION_SAMPLES')
+    source=next(iter(sorted(Path(samples).glob('*.mp4')))) if samples else ROOT.parent/'屏幕录制 2026-10-18 115851.mp4'
+    model=ROOT/'vision/fish_body_yolo/best.pt'
     os.environ.update(ROBOFISH_PARENT_TOKEN='offline-profile',ROBOFISH_VISION_TOKEN='offline-profile')
     bridge=WebBridge(observer=True) # deliberately not started: no telemetry or HTTP threads
     session=ObserverSession(str(source),model,bridge,output=output,calibration=output/'unused-pool.json')

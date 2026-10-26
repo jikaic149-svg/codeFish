@@ -16,7 +16,7 @@ if(typeof PerformanceObserver!=='undefined'&&PerformanceObserver.supportedEntryT
 async function service(path,body) {
   if(location.protocol==='file:')throw Error('请使用 start.cmd 启动本地服务，再从 http://127.0.0.1:8766 打开上位机');
   if(body!==undefined&&!serviceToken)await service('session');
-  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),path==='station'?4000:path.startsWith('station/')?5000:path==='development/task'?180000:path==='vision/start'?30000:path==='probe-upgrade'?200000:(path==='flash'||path==='erase')?600000:path==='connect'?60000:((path==='links'||path==='state')?6000:20000));
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),path==='station'?4000:path.startsWith('station/')?5000:path==='development/task'?180000:['vision/start','vision/cameras'].includes(path)?30000:path==='probe-upgrade'?200000:(path==='flash'||path==='erase')?600000:path==='connect'?60000:((path==='links'||path==='state')?6000:20000));
   const started=performance.now();
   try{
     const response=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-AmphiLink-Token':serviceToken},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});
@@ -161,6 +161,7 @@ renderConnection();
 if(location.protocol!=='file:')service('state').then(drawLive).catch(e=>log(e.message,'error'));
 setInterval(async()=>{
   if(location.protocol==='file:'||pollPending)return;
+  if(state.page!=='debug'&&!liveBusy&&!liveState.session_active)return;
   pollPending=true;const epoch=liveEpoch;
   try{
     if(liveBusy)recordLogs((await service('logs')).logs);

@@ -66,7 +66,7 @@ def active():
 
 
 def start_host():
-    executable=Path(r'D:\Microsoft VS Code\Code.exe')
+    executable=Path(os.environ.get('ROBOFISH_CODE',r'D:\Microsoft VS Code\Code.exe'))
     if not executable.is_file():raise DevelopmentError('找不到VS Code，请配置本机调试宿主')
     environment=os.environ.copy()
     environment.pop('ELECTRON_RUN_AS_NODE',None)

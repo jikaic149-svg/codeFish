@@ -33,6 +33,8 @@ struct ControlState {
   bool attitudeEnabled = false; // Explicit yaw-hold authorization, including zero surge.
   uint32_t attitudeGeneration = 0;
   bool headingTargetActive = false, headingFeedbackValid = false;
+  bool calibrationActive = false;
+  robofish::wifi::CalibrationTarget calibration;
   float headingTargetCwDegrees = 0;
   uint32_t headingSampleMs = 0;
   robofish::wifi::YawPid yawPid{robofish::config::attitude::kYawKp,
@@ -50,10 +52,13 @@ struct ControlState {
   bool attitudeMotionAllowed() const {
     // Zero targets retain heading hold. Manual yaw yields in holdHeading();
     // reverse, explicit STOP, OTA and output faults retain their priority.
-    return attitudeEnabled && target.surgePercent >= 0 &&
+    return attitudeEnabled && !calibrationActive && target.surgePercent >= 0 &&
         !expired && !maintenance && !stopPending && !outputRecovery && !outputFault;
   }
-  void setMode(DriveMode mode) { target.mode=attitudeEnabled?DriveMode::Hybrid:mode; }
+  void setMode(DriveMode mode) {
+    if (calibrationActive) clearTarget();
+    target.mode=attitudeEnabled?DriveMode::Hybrid:mode;
+  }
   void cancelHeadingTarget() {
     if (headingTargetActive) { headingTargetActive=false; ++attitudeGeneration; }
   }
@@ -66,19 +71,78 @@ struct ControlState {
         std::isfinite(scale) && scale>=0 && scale<=100;
   }
   void startHeading(float degrees,float surge,float scale,uint32_t now) {
+    if (calibrationActive) clearTarget();
     if (!headingTargetActive) { setAttitude(true); headingTargetActive=true; }
     headingTargetCwDegrees=degrees;
     target={}; target.mode=DriveMode::Hybrid;
     target.surgePercent=surge; target.propulsionScale=scale*.01f;
+    // The speed loop owns every forward contribution; steering never adds gait.
+    target.independentDrives=true;
+    target.tailDrivePercent=surge*robofish::config::control::kHeadingTailDriveRatio;
+    target.propulsionDrivePercent=surge;
+    target.tailFrequencyFromDrive=true;
+    target.preserveTailBias=true;
     target.outputScale=1; target.allowFlowAssist=false;
     target.enabled=leaseActive=true; softStopping=expired=false; lastMotionMs=now;
   }
+  float tailAmplitudeGain() const {
+    return headingTargetActive || (calibrationActive && !calibration.baseline && target.mode == DriveMode::Hybrid)
+        ? robofish::config::control::kHybridTailAmplitudeGain : 1.0f;
+  }
+  void applyHeadingAllocation(robofish::motion::Request &request,
+                              robofish::motion::Recipe &recipe) const {
+    if (!headingTargetActive) return;
+    namespace config = robofish::config;
+    recipe.turnForwardReductionFraction = 0;
+    recipe.propulsion.commandScale = recipe.propulsion.yawGain = 1;
+    request.independentTailYaw = true;
+    request.tailYawPercent = std::clamp(request.yawPercent *
+        config::attitude::kYawActuatorGain, -100.0f, 100.0f);
+    // Reserve common propulsion first. A future measured differential may use
+    // only its remaining headroom, never steal speed-loop authority.
+    const float limit = std::min(config::control::kHeadingPropDiffLimitPercent,
+        std::max(0.0f, 100.0f - std::abs(request.propulsionDrivePercent)));
+    request.yawPercent = std::clamp(request.tailYawPercent *
+        config::control::kHeadingPropDiffGain, -limit, limit);
+  }
   void setAttitude(bool enabled) {
+    if (calibrationActive) clearTarget();
     cancelHeadingTarget();
     // Reuse the neutral barrier to center a tail previously driven by idle hold.
     if (attitudeEnabled && !enabled && !leaseActive) stopPending = true;
     attitudeEnabled=enabled; ++attitudeGeneration;
     if (enabled) setMode(DriveMode::Hybrid); // Tail and both props share the yaw demand.
+  }
+  static bool validCalibration(const robofish::wifi::Command &command) {
+    const auto &value = command.calibration;
+    if (!validAxis(value.tailDrivePercent) || value.tailDrivePercent < 0 ||
+        !validAxis(value.tailBiasPercent) || !validAxis(value.propSurgePercent) || !validAxis(value.propDiffPercent)) return false;
+    if (command.mode != DriveMode::Bionic && command.mode != DriveMode::Prop && command.mode != DriveMode::Hybrid) return false;
+    if (command.mode == DriveMode::Bionic && (value.propSurgePercent != 0 || value.propDiffPercent != 0)) return false;
+    if (command.mode == DriveMode::Prop && (value.tailDrivePercent != 0 || value.tailBiasPercent != 0)) return false;
+    return !value.baseline || (command.mode == DriveMode::Hybrid &&
+        value.tailDrivePercent == value.propSurgePercent && value.tailBiasPercent == value.propDiffPercent);
+  }
+  void startCalibration(const robofish::wifi::Command &command) {
+    clearTarget();
+    setAttitude(false); // Preserve all PID gains; fixed outputs require explicit reauthorization for feedback.
+    calibrationActive = true;
+    calibration = command.calibration;
+    target.mode = command.mode;
+    target.surgePercent = command.mode == DriveMode::Bionic ? calibration.tailDrivePercent : calibration.propSurgePercent;
+    target.yawPercent = calibration.propDiffPercent;
+    target.independentDrives = !calibration.baseline;
+    target.tailDrivePercent = calibration.tailDrivePercent;
+    target.propulsionDrivePercent = calibration.propSurgePercent;
+    target.independentTailYaw = !calibration.baseline;
+    target.tailYawPercent = calibration.tailBiasPercent;
+    target.tailEnabled = command.mode != DriveMode::Prop;
+    target.propulsionEnabled = command.mode != DriveMode::Bionic;
+    target.tailFrequencyFromDrive = target.fixedCalibration = !calibration.baseline;
+    target.preserveTailBias = !calibration.baseline && command.mode == DriveMode::Hybrid;
+    target.enabled = leaseActive = true;
+    softStopping = expired = false;
+    lastMotionMs = command.receivedMs;
   }
 
   // The owner calls this after each actual BSP submission; API success is not
@@ -112,6 +176,8 @@ struct ControlState {
 
   void clearTarget() {
     cancelHeadingTarget();
+    calibrationActive = false;
+    calibration = {};
     const auto mode = target.mode;
     target = {};
     target.mode = mode;
@@ -283,7 +349,8 @@ struct ControlState {
     if (command.action != Action::Target && command.action != Action::Mode &&
         command.action != Action::Stop && command.action != Action::AttitudeOn &&
         command.action != Action::AttitudeOff && command.action != Action::YawPid &&
-        command.action != Action::HeadingTarget) return result(command, Code::Invalid);
+        command.action != Action::HeadingTarget && command.action != Action::CalibrationTarget) return result(command, Code::Invalid);
+    if (command.action == Action::CalibrationTarget && !validCalibration(command)) return result(command, Code::Invalid);
     if (command.action == Action::YawPid && !validPid(command.yawPid)) return result(command, Code::Invalid);
     if (std::strcmp(command.session, wifi.session) != 0)
       return result(command, Code::SessionConflict);
@@ -291,7 +358,8 @@ struct ControlState {
       return result(command, Code::StaleSequence);
     if (command.action != Action::Stop && loraHealthy(now))
       return result(command, Code::LoRaActive);
-    if ((command.action == Action::Target || command.action == Action::HeadingTarget) && stopPending && loRaSeen)
+    if ((command.action == Action::Target || command.action == Action::HeadingTarget ||
+         command.action == Action::CalibrationTarget) && stopPending && loRaSeen)
       return result(command, Code::NeutralPending);
     if (command.action == Action::Target) {
       if (!validAxis(command.axes.surge) || !validAxis(command.axes.yaw) ||
@@ -319,6 +387,8 @@ struct ControlState {
       stop();
     } else if (command.action == Action::HeadingTarget) {
       startHeading(command.headingCwDegrees,command.axes.surge,command.propulsionScalePercent,command.receivedMs);
+    } else if (command.action == Action::CalibrationTarget) {
+      startCalibration(command);
     } else if (command.action == Action::Target && command.axes.surge == 0 &&
         command.axes.yaw == 0 && command.axes.heave == 0) {
       // Ordinary key/button release ramps the current successful ESC outputs
@@ -336,6 +406,8 @@ struct ControlState {
       setMode(command.mode); // Configuration alone never starts or renews motion.
     } else {
       cancelHeadingTarget();
+      calibrationActive = false;
+      calibration = {};
       const auto mode = target.mode;
       target = {};
       target.mode = mode;

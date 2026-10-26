@@ -44,7 +44,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('csv',type=Path)
     parser.add_argument('--output',type=Path,default=ROOT/'build/analysis/yaw-pid-20261024')
-    parser.add_argument('--compiler',default='C:/msys64/ucrt64/bin/g++.exe')
+    parser.add_argument('--compiler',default=os.environ.get('ROBOFISH_CXX','C:/msys64/ucrt64/bin/g++.exe'))
     args=parser.parse_args();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
     rows=list(csv.DictReader(args.csv.open(encoding='utf-8-sig')))
     stamps=np.array([datetime.fromisoformat(row['time_utc']).timestamp() for row in rows]);t=stamps-stamps[0]

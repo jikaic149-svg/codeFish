@@ -30,7 +30,7 @@ from control_config import CONTROL
 import vision_app
 
 OUTPUT=ROOT/'build/host-vision/perspective-control'
-COMPILER=Path('C:/msys64/ucrt64/bin/g++.exe')
+COMPILER=Path(os.environ.get('ROBOFISH_CXX','C:/msys64/ucrt64/bin/g++.exe'))
 
 
 def native_model():
@@ -86,6 +86,7 @@ def simulate(model,name,quad,path,initial_angle,*,yaw_gain=.6,require_arrival=Tr
     assert abs(heading.update(sample,100.)['yaw_deg'])<1e-6
     guide=PathGuidance(arrival_radius_m=.20,lookahead_m=CONTROL['guidance']['lookahead_m'],
         min_lookahead_m=CONTROL['guidance']['min_lookahead_m'],k_f=CONTROL['guidance']['cross_track_gain'],
+        full_attraction_error_m=CONTROL['guidance']['full_attraction_error_m'],curve_preview_m=CONTROL['guidance']['curve_preview_m'],
         cruise_speed_mps=CONTROL['guidance']['cruise_speed_mps'],min_speed_target_mps=CONTROL['guidance']['min_speed_mps'])
     image_path=transform_points(inverse,path)
     # The operator draws pixels; preparation must recover the same metric path.

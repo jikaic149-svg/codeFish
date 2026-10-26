@@ -10,7 +10,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 if importlib.util.find_spec('cv2') is None:raise unittest.SkipTest('Requires the installed YOLO/OpenCV Python')
 import cv2
@@ -21,7 +21,7 @@ sys.path[:0]=[str(ROOT/'upper'),str(ROOT/'vision')]
 from angle_observation import OpticalBodyAxis,AngleSamples
 from observer_runtime import ObserverSession
 from pool_perspective import PoolPerspective,transform_points
-from web_runtime import WebBridge
+from web_runtime import WebBridge,WorkstationComm
 
 
 def fish(angle=0.,centre=(2.,1.)):
@@ -37,6 +37,56 @@ def field_for(image):
 
 
 class ObserverTests(unittest.TestCase):
+    def test_full_body_mask_has_finite_distance_weights(self):
+        image=np.zeros((80,240,3),np.uint8)
+        with np.errstate(over='raise',invalid='raise'):
+            pose=OpticalBodyAxis().update(image,(0,0,240,80),1.,field_for(image),1)
+        self.assertTrue(np.isfinite(pose['centre_world']).all())
+        self.assertTrue(math.isfinite(pose['world_deg']))
+
+    def test_control_uses_current_imu_without_a_historical_image_pair(self):
+        session=ObserverSession.__new__(ObserverSession)
+        session.head={'imu_zero_cw_deg':40.,'visual_zero_world_deg':15.,'source_id':100}
+        sample={'valid':True,'yaw_cw_deg':30.,'sample_time':999.95,'source_id':200}
+        session.bridge=SimpleNamespace(get_yaw_sample=lambda:sample,get_yaw_sample_at=Mock(return_value={'valid':False}))
+        with patch('observer_runtime.time.time',return_value=1000.):
+            heading,source=session.control_heading()
+            self.assertEqual(source,'IMU_YAW')
+            np.testing.assert_allclose(heading,[math.cos(math.radians(25)),-math.sin(math.radians(25))])
+            session.bridge.get_yaw_sample_at.assert_not_called()
+            sample['sample_time']=998.
+            self.assertEqual(session.control_heading(),(None,'UNAVAILABLE'))
+
+    def test_head_selection_stays_in_perspective_and_maps_to_original_pixels(self):
+        image=np.zeros((80,240,3),np.uint8);session=ObserverSession.__new__(ObserverSession)
+        session.frame=image;session.field=PoolPerspective(4.,2.).calibrate([[20,10],[220,3],[235,75],[8,65]],image.shape)
+        session.view_mode='perspective';session.interaction='HEAD_DIRECTION';session.debug=False
+        session.frozen={'image':image,'display_space':'field','selection_id':'head'}
+        session.raw_overlay=lambda frozen:image.copy()
+        shown,_=session.compose_preview()
+        self.assertEqual(shown.shape[:2],(500,1000));self.assertEqual(session.display_space,'field')
+        point=session.pointer_point({'x':0,'y':0,'space':'field','selection_id':'head'})
+        np.testing.assert_allclose(point,[20,10],atol=1e-5)
+
+    def test_sender_period_includes_http_time_and_keeps_stop_reason(self):
+        now=[0.];starts=[];waits=[]
+        def parent(body):
+            if body['task']=='heading':starts.append(now[0])
+            now[0]+=.08
+            return {'accepted':True}
+        comm=WorkstationComm(SimpleNamespace(parent=parent),start_sender=False);comm.authorized=True
+        comm._udp_latest={'heading_cw_deg':10.,'power_percent':30.,'brake':False}
+        def wait(delay):
+            waits.append(delay);now[0]+=delay;comm._udp_latest_t=now[0]
+        comm._stop=SimpleNamespace(is_set=lambda:len(starts)>=5,wait=wait)
+        with patch('web_runtime.time.monotonic',side_effect=lambda:now[0]):
+            comm._send()
+            self.assertEqual(comm.sent_targets,5)
+            np.testing.assert_allclose(starts,[0,.1,.2,.3,.4],atol=1e-9)
+            np.testing.assert_allclose(waits,[.02]*5,atol=1e-9)
+            comm.stop_now('imu_unavailable')
+        self.assertEqual(comm.last_stop_reason,'imu_unavailable');self.assertFalse(comm.authorized)
+
     def test_optical_angle_uses_world_shape_and_manual_head_resolves_ambiguity(self):
         image,bbox=fish(25.);field=field_for(image);optical=OpticalBodyAxis()
         initial=optical.update(image,bbox,1.,field,1)
@@ -105,12 +155,93 @@ class ObserverTests(unittest.TestCase):
             self.assertFalse(bridge.result['body_yaw']['usable'])
             with self.assertRaises(RuntimeError):bridge.parent({'task':'heading_target'})
             auth={'Authorization':'Bearer fixture'};client=bridge.app.test_client()
-            for task in ('START','STOP','SPEED','RECORD'):
+            for task in ('heading_target','prepare','target'):
                 self.assertEqual(client.post('/action',json={'task':task},headers=auth).status_code,400)
+            self.assertEqual(client.post('/action',json={'task':'THRESHOLD','value':300},headers=auth).status_code,400)
+            self.assertEqual(client.post('/action',json={'task':'VIEW','value':'unknown'},headers=auth).status_code,400)
             for task in ('SAMPLE_STOP','POOL_CALIB','EXIT'):
                 self.assertEqual(client.post('/action',json={'task':task},headers=auth).status_code,202)
                 session.actions()
             self.assertTrue(bridge.closed.is_set())
+
+
+    def test_single_point_is_shared_by_guidance_overlay_trajectory_and_csv(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder);now=time.time();image,_=fish()
+            session.field=field_for(image);session.accept_frame(1,now,image)
+            session.optical.calibrate([580,250],session.pose,session.field)
+            session.pose=dict(session.optical.latest)
+            # Deliberately offset the optical centre: it must only affect metrology.
+            session.pose.update(centre_world=[3.,1.5],x_m=3.,y_m=1.5)
+            expected=session.field.transform([[500,250]])[0]
+            np.testing.assert_allclose(session.position(),expected)
+            np.testing.assert_allclose(session.history[-1],expected)
+            session.path_px=[(500,250),(800,250)]
+            with patch.object(session.guide,'start',wraps=session.guide.start) as start:
+                session.guide.start(session.field.transform(session.path_px),session.position(),session.track_time,[1,0])
+                np.testing.assert_allclose(start.call_args.args[1],expected)
+            frozen=session.snapshot()
+            np.testing.assert_array_equal(session.raw_overlay()[250,500],[0,0,255])
+            session.samples.start({});session.publish(write_sample=True)
+            point=bridge.result['position']
+            self.assertTrue(point['valid'])
+            self.assertEqual(point['source'],'YOLO_BOX_CENTRE')
+            self.assertEqual((point['x_px'],point['y_px'],point['track_id']),(500.,250.,1))
+            self.assertEqual(point['sample_time'],session.track_time)
+            np.testing.assert_allclose([point['x_m'],point['y_m']],expected)
+            session.samples.close()
+            with Path(session.samples.status['file']).open(encoding='utf-8-sig',newline='') as stream:
+                row=next(csv.DictReader(stream))
+            np.testing.assert_allclose([float(row['x_m']),float(row['y_m'])],expected,atol=1e-5)
+            self.assertEqual(row['position_source'],'YOLO_BOX_CENTRE')
+            session.detection.position=(525,250)
+            np.testing.assert_array_equal(session.raw_overlay(frozen)[250,500],[0,0,255])
+            session.publish()
+            np.testing.assert_allclose([bridge.result['position'][key] for key in ('x_m','y_m')],
+                                      session.field.transform([[525,250]])[0])
+            session.detection.position=None;session.publish()
+            self.assertFalse(bridge.result['position']['valid'])
+            self.assertIsNone(bridge.result['position']['x_m'])
+            session.detection.position=(525,250);session.received_at=now-2.;session.publish()
+            self.assertFalse(bridge.result['position']['valid'])
+            self.assertIsNone(bridge.result['position']['x_px'])
+            session.received_at=time.time();session.field=PoolPerspective();session.publish()
+            self.assertFalse(bridge.result['position']['valid'])
+            self.assertEqual(bridge.result['position']['x_px'],525.)
+
+    def test_automatic_tracking_still_sends_targets_and_stops_without_preview_actions(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder);now=time.time();image,_=fish()
+            session.field=field_for(image);session.accept_frame(1,now,image)
+            session.path_px=[(500,250),(800,250)]
+            session.head={'imu_aligned':True,'imu_zero_cw_deg':0.,'visual_zero_world_deg':0.}
+            session.comm=SimpleNamespace(authorized=True,last_error='',last_round_trip_ms=None,speed_status={},
+                sent_targets=0,last_target_at=None,last_stop_reason='',
+                ensure_bionic_mode=Mock(return_value=True),stop_now=Mock(return_value=True),process_tracking_error=Mock())
+            client=bridge.app.test_client();headers={'Authorization':'Bearer fixture'}
+            for task in ('START','STOP'):
+                self.assertEqual(client.post('/action',json={'task':task},headers=headers).status_code,400)
+            with patch.object(session,'control_heading',return_value=([1.,0.],'IMU_YAW')),                  patch.object(bridge,'get_yaw_sample',return_value={'valid':True,'sample_time':now,'yaw_cw_deg':0.}):
+                self.assertEqual(client.post('/action',json={'task':'AUTO_START'},headers=headers).status_code,202)
+                session.actions()
+                self.assertEqual(bridge.last_task['state'],'processed')
+                self.assertTrue(session.automatic and session.tracking and bridge.control_enabled)
+                session.accept_frame(2,now+.05,image)
+                command=session.comm.process_tracking_error.call_args.kwargs
+                self.assertAlmostEqual(command['target_heading_cw_deg'],0.)
+                self.assertGreater(command['speed_target_mps'],0.)
+                session.publish();self.assertTrue(bridge.result['tracking']['automatic'])
+                self.assertNotIn('preview_only',bridge.result['tracking'])
+                self.assertEqual(client.post('/action',json={'task':'AUTO_STOP'},headers=headers).status_code,202)
+                session.actions();session.comm.stop_now.assert_called_once()
+                self.assertFalse(session.automatic or session.tracking or bridge.control_enabled)
+                self.assertEqual(client.post('/action',json={'task':'AUTO_START'},headers=headers).status_code,202)
+                session.actions()
+                lost=SimpleNamespace(metrics={},position=None,confidence=0.)
+                with patch.object(session.tracker,'update',return_value=lost):
+                    session.accept_frame(3,now+.1,image)
+                self.assertFalse(session.automatic or session.tracking)
+                self.assertEqual(session.comm.stop_now.call_count,2)
 
     def test_replay_never_pairs_live_imu_and_preview_off_keeps_observer_ready(self):
         with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
@@ -143,6 +274,61 @@ class ObserverTests(unittest.TestCase):
             self.assertAlmostEqual(sample['yaw_cw_deg'],25.)
             self.assertEqual(sample['onboard']['heading_target_cw_deg'],0.)
             self.assertEqual(sample['native_telemetry_time'],9.8)
+
+    def test_rectified_view_selection_coordinates_and_restored_debug_tools(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder,'fixture.mp4')
+            image=np.full((600,1000,3),(160,100,20),np.uint8)
+            cv2.ellipse(image,(500,250),(80,23),0,0,360,(20,20,20),-1)
+            session.field=PoolPerspective(4.,2.).calibrate([[100,70],[900,30],[940,540],[60,480]],image.shape)
+            session.accept_frame(1,time.time(),image,0.);session.render_preview();session.publish()
+            result=cv2.imdecode(np.frombuffer(bridge.frames['result'],np.uint8),1)
+            raw=cv2.imdecode(np.frombuffer(bridge.frames['raw'],np.uint8),1)
+            self.assertEqual(result.shape[:2],(500,1000));self.assertEqual(raw.shape[:2],(600,1000))
+            self.assertEqual(bridge.metadata['display_space'],'field')
+            point=session.pointer_point({'x':.3,'y':.6,'space':'field'})
+            np.testing.assert_allclose(session.field.transform([point])[0],[.3*999*4/1000,.6*499*2/500],atol=1e-7)
+            client=bridge.app.test_client();headers={'Authorization':'Bearer fixture'}
+            def action(body):
+                self.assertEqual(client.post('/action',json=body,headers=headers).status_code,202)
+                session.actions()
+                self.assertEqual(bridge.last_task['state'],'processed',bridge.last_task)
+            with patch.object(bridge,'parent',side_effect=AssertionError('visual actuation')) as motion:
+                action({'task':'HEAD_DIRECTION'});session.render_preview()
+                self.assertEqual(session.display_space,'field')
+                with self.assertRaises(ValueError):session.pointer_point({'x':.3,'y':.6,'space':'image'})
+                world=session.field.transform([[580,250]])[0]
+                action({'kind':'down','x':world[0]/4*1000/999,'y':world[1]/2*500/499,'space':'field'})
+                self.assertTrue(session.preview)
+                action({'task':'CLAHE'});action({'task':'BINARY'});action({'task':'DEBUG'})
+                action({'task':'THRESHOLD','value':110});action({'task':'PREVIEW_FPS','value':10})
+                self.assertTrue(session.binary and session.clahe);self.assertEqual(session.threshold,110)
+                action({'task':'VIEW','value':'perspective'});session.render_preview()
+                for kind,x in [('down',.4),('move',.5),('up',.7)]:action({'kind':kind,'x':x,'y':.5,'space':'field'})
+                self.assertGreaterEqual(len(session.path_px),2)
+                for task in ('START','STOP'):
+                    self.assertEqual(client.post('/action',json={'task':task},headers=headers).status_code,400)
+                session.publish();self.assertFalse(bridge.result['tracking']['active'])
+                self.assertNotIn('preview_only',bridge.result['tracking'])
+                action({'task':'CLEAR_PATH'})
+                self.assertFalse(session.path_px or session.tracking)
+                action({'task':'TURN_CALIB'});self.assertTrue(session.turn.active)
+                action({'task':'CLEAR_PATH'});self.assertFalse(session.turn.active)
+                action({'task':'SNAPSHOT'});self.assertTrue(list(Path(folder).glob('vision-snapshot-*.png')))
+                action({'task':'RECORD'});session.preview=False
+                for index in range(2,7):
+                    session.accept_frame(index,time.time(),image,index/30.);session.publish(write_sample=True)
+                action({'task':'RECORD'})
+                from video_recorder import recording_status
+                recorded=recording_status();self.assertTrue(recorded['saved'],recorded)
+                capture=cv2.VideoCapture(recorded['path'])
+                try:
+                    self.assertEqual(int(capture.get(cv2.CAP_PROP_FRAME_COUNT)),5)
+                    self.assertEqual(capture.read()[1].shape[:2],(600,1000))
+                finally:capture.release()
+                with Path(recorded['csv_path']).open(encoding='utf-8-sig',newline='') as stream:
+                    self.assertEqual(len(list(csv.DictReader(stream))),5)
+                motion.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

@@ -7,7 +7,7 @@ from device_client import display_host
 
 ROOT=Path(os.environ.get('ROBOFISH_FLASH_HOME',Path(__file__).resolve().parent.parent/'embedding/s3/tools'))
 sys.path.insert(0,str(ROOT))
-PYTHON='D:/ESP32/.espressif/python_env/idf5.3_py3.13_env/Scripts/python.exe'
+PYTHON=os.environ.get('ROBOFISH_IDF_PYTHON','D:/ESP32/.espressif/python_env/idf5.3_py3.13_env/Scripts/python.exe')
 TEMP=None
 ticket=None
 PACKAGE=None

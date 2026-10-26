@@ -46,6 +46,26 @@ class DeviceError(RuntimeError):
         self.code, self.retryable = code, retryable
 
 
+def calibration_payload(value):
+    fields=('tail_drive_pct','tail_bias_pct','prop_surge_pct','prop_diff_pct')
+    if not isinstance(value,dict) or not {'mode',*fields}<=set(value) or set(value)-{'mode',*fields,'baseline'}:
+        raise DeviceError('标定需要驱动模式及四个独立输出量')
+    mode=value['mode'];baseline=value.get('baseline',False)
+    if type(mode) is not int or mode not in (1,2,3) or type(baseline) is not bool:
+        raise DeviceError('无效标定模式或基线选项')
+    for key in fields:
+        number=value[key];minimum=0 if key=='tail_drive_pct' else -100
+        if type(number) not in (int,float) or not math.isfinite(number) or not minimum<=number<=100:
+            raise DeviceError('尾摆须为0～100%，尾偏置、桨推进及差动须为-100～100%')
+    if mode==1 and (value['prop_surge_pct'] or value['prop_diff_pct']):
+        raise DeviceError('鱼尾测试的双桨共同推进和差动须为0')
+    if mode==2 and (value['tail_drive_pct'] or value['tail_bias_pct']):
+        raise DeviceError('双桨测试的尾摆和偏置须为0')
+    if baseline and (mode!=3 or value['prop_surge_pct']<0 or value['tail_drive_pct']!=value['prop_surge_pct'] or value['tail_bias_pct']!=value['prop_diff_pct']):
+        raise DeviceError('旧混合基线要求尾摆等于共同推进，尾偏置等于差动')
+    return {'mode':mode,**{key:float(value[key]) for key in fields},'baseline':baseline}
+
+
 def parse_host(value):
     """Split an optional :port off a private LAN address.
 
@@ -275,7 +295,7 @@ class DeviceClient:
                 event('device_http', host=host, method=method, path=path.split('?')[0],
                       status=status, elapsed_ms=elapsed, error_type=failure,
                       action=body.get('action') if isinstance(body, dict) and
-                      body.get('action') in ('acquire', 'target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid') else None)
+                      body.get('action') in ('acquire', 'target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid', 'heading_target', 'calibration_target') else None)
             if not persistent:
                 connection.close()
 
@@ -385,7 +405,7 @@ class DeviceClient:
             raise DeviceError('控制会话未连接或已被接管，请重新连接控制', code='control_session_changed')
         if saved.get('recovery_required') and action != 'stop':
             raise DeviceError('连接恢复后需先确认全停，再接受新的操作', code='recovery_required', retryable=True)
-        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid','heading_target') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid','heading_target','calibration_target') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         body = dict(payload, action=action, session=session, sequence=sequence)
         status, result = None, {}
@@ -478,9 +498,10 @@ class DeviceClient:
             return radio_session
         raise DeviceError('请先连接 LoRa 控制或授权 Wi-Fi 控制，再启动视觉循迹',code='control_session_changed')
 
-    def motion_control(self, host, action, session, sequence, *, client_id=None, **payload):
+    def motion_control(self, host, action, session, sequence, *, client_id=None, via_wifi=False, **payload):
         host = display_host(host) if host else ''
-        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid','heading_target') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
+        if type(via_wifi) is not bool:raise DeviceError('无效控制通道')
+        if action not in ('target', 'mode', 'stop', 'attitude_on', 'attitude_off', 'yaw_pid','heading_target','calibration_target') or type(sequence) is not int or not 1 <= sequence <= 0xffffffff:
             raise DeviceError('无效控制操作或序号')
         if not isinstance(session,str) or not 1<=len(session)<=64 or any(not 32<=ord(c)<=126 for c in session):
             raise DeviceError('无效控制会话')
@@ -504,6 +525,9 @@ class DeviceClient:
                 value=payload.get(key,100)
                 if type(value) not in (int,float) or not math.isfinite(value) or not lo<=value<=hi:
                     raise DeviceError('航向或推进目标超出范围')
+        if action == 'calibration_target':
+            if not via_wifi:raise DeviceError('独立动力标定只使用已授权 Wi-Fi',code='unsupported_control')
+            payload=calibration_payload(payload)
         if action == 'yaw_pid':
             pid=payload.get('pid')
             if set(payload)!={'pid'} or not isinstance(pid,dict) or set(pid)!={'kp','ki','kd'} or any(
@@ -512,6 +536,8 @@ class DeviceClient:
             payload={'pid':{key:round(value,3) for key,value in pid.items()}}
         with self._guard:
             dual = self._capabilities.get(host, {}).get('lora_protocol') == 2
+            if action=='calibration_target' and self._capabilities.get(host,{}).get('dynamics_calibration_supported') is not True:
+                raise DeviceError('请先升级 2.7.2-drive-calibration 固件，再重新连接',code='unsupported_control')
             if action=='heading_target' and self._capabilities.get(host,{}).get('heading_target_supported') is not True:
                 raise DeviceError('当前固件不支持 S3 航向目标，请烧录 2.7.0 或更新固件',code='unsupported_control')
             if action == 'yaw_pid' and self._capabilities.get(host, {}).get('yaw_pid_supported') is not True:
@@ -525,14 +551,14 @@ class DeviceClient:
         with self._motion_guard:
             link=self.lora.status()
             with self._guard:
-                forced=self.control_transport=='lora'
+                forced=self.control_transport=='lora' and not via_wifi
                 if forced and not (link['connected'] and (not host or link['host'] in ('',host))):
                     raise DeviceError('LoRa 串口未连接，指令未发送；Wi-Fi 仅用于遥测',code='lora_unavailable')
                 saved=self._sessions.get(host) or {}
                 authorized=saved.get('control_session')==session and bool(saved.get('password'))
                 raw,received=self._motion_latest.get(host,({},float('-inf')))
                 fresh=time.monotonic()-received<2 and host not in self._telemetry_failures
-                radio_only=link['connected'] and (not host or link['host'] in ('',host)) and (
+                radio_only=not via_wifi and link['connected'] and (not host or link['host'] in ('',host)) and (
                     forced or not authorized or not fresh or saved.get('recovery_required'))
                 if radio_only:
                     self._order_request(saved if authorized else None,session,sequence,client_id)
@@ -543,7 +569,7 @@ class DeviceClient:
             if radio_only:
                 return dict(self.lora.submit(link['host'],action,dict(payload,mode=mode)),
                             id=sequence,session=session,mode=mode)
-        if not dual:
+        if not dual or via_wifi:
             with self._motion_guard:
                 with self._guard:
                     saved = self._sessions.get(host) or {}
@@ -780,7 +806,7 @@ class DeviceClient:
                     event('telemetry_sample',host=host,rtt_ms=round(latency,2),device_uptime_ms=raw.get('uptime_ms'),
                           imu=view['imu'],actuators=view['actuators'],motion=view['motion'],
                           body_imu={axis:view.get('attitude_control',{}).get('body_'+axis+'_deg') for axis in ('roll','pitch','yaw')},
-                          attitude=view.get('attitude_control'),
+                          attitude=view.get('attitude_control'),allocation=view.get('allocation'),
                           axes=view['control']['axes'],route=view['control']['route'],owner=view['owner'],
                           lora={key:raw.get('lora',{}).get(key) for key in ('healthy','accepted','rejected','last_source','last_sequence','last_code','age_ms')},
                           command_result=raw.get('command_result'),safety=view['safety_mode'])

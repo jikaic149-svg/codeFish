@@ -24,7 +24,9 @@ def verify_device_page(browser, target):
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(f'http://127.0.0.1:{target.server_port}/')
     page.wait_for_function("document.getElementById('outputs').textContent.includes('91.0')")
-    assert page.locator('[data-axis], #connect, #mode').count() == 0
+    assert page.locator('[data-axis]').count() == 6
+    assert page.locator('[data-axis]').first.is_disabled()
+    assert page.locator('#connect').is_visible()
     assert '115200' not in page.locator('#imu').inner_text()  # No fabricated sensor metadata.
     fixture.Target.motion['imu'] = dict(uart_ready=True, baud=115200, frames=1,
         angles_deg=dict(valid=True, x=45, y=-45, z=90, age_ms=20))
@@ -36,7 +38,7 @@ def verify_device_page(browser, target):
     assert page.locator('#outputs').inner_text() == saved
     page.unroute('**/motion_status')
     page.wait_for_function("document.getElementById('connection').textContent.includes('Wi-Fi 已连接')")
-    page.locator('details').evaluate('(element) => element.open = true')
+    page.locator('#tab-update').click()
     page.locator('#firmware').set_input_files({
         'name': 'robotfish.bin', 'mimeType': 'application/octet-stream', 'buffer': fixture.image()})
     page.locator('#upload').click()

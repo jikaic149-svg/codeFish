@@ -15,7 +15,8 @@ from yolo_tracker import YoloBodyTracker
 
 
 def main():
-    source=ROOT.parent/'屏幕录制 2026-10-18 115851.mp4'
+    samples=os.environ.get('ROBOFISH_VISION_SAMPLES')
+    source=next(iter(sorted(Path(samples).glob('*.mp4')))) if samples else ROOT.parent/'屏幕录制 2026-10-18 115851.mp4'
     output=ROOT/'build/host-vision/yolo-imu'
     output.mkdir(parents=True,exist_ok=True)
     capture=cv2.VideoCapture(str(source))

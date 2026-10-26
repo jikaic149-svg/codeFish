@@ -1,0 +1,1130 @@
+{
+  "data_cutoff_utc": "2026-10-25T17:45:35Z",
+  "files": [
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141130-291-tail-straight-20p0-0-0-0-3198\\metadata.json",
+      "bytes": 2001,
+      "sha256": "b2de528bfbb3a35f91443e1a9fd6c7ee8355607c2661c9d4a6cb7574a00355f3"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141130-291-tail-straight-20p0-0-0-0-3198\\summary.json",
+      "bytes": 1715,
+      "sha256": "3d53da8a91f83e1d645a1c1070ba81ce8aadc521ce94a80249f21b87888dcc96"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141130-291-tail-straight-20p0-0-0-0-3198\\events.jsonl",
+      "bytes": 5143,
+      "sha256": "5a8ee052660616e4b41b687572494781d9a51c9febe1dc66ca70d174ca9504ce"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141130-291-tail-straight-20p0-0-0-0-3198\\fish.jsonl",
+      "bytes": 2743121,
+      "sha256": "0aab7027452f3065fe233a7c060748593d66d168d2db0b3ecf924f709499fc0c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141130-291-tail-straight-20p0-0-0-0-3198\\samples.csv",
+      "bytes": 390302,
+      "sha256": "6ce3e941c02cb57ec264e348c8a039c3314a5e94286a457bb54f64e497f622b8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141354-854-tail-straight-20p0-0-0-0-ec77\\metadata.json",
+      "bytes": 2001,
+      "sha256": "0f2cfc3c8895ff8a57aba05e3e800c24cf83e5c4f368525a273a43dc45e9db90"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141354-854-tail-straight-20p0-0-0-0-ec77\\summary.json",
+      "bytes": 1717,
+      "sha256": "85739641f040646ebd6f039e76798390e80f5c81ac2a66c66f802ee4ee49ace2"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141354-854-tail-straight-20p0-0-0-0-ec77\\events.jsonl",
+      "bytes": 5349,
+      "sha256": "2527f3facc2139a92242a5edc62ae234e46ea4c886bf496dfd7792030ba8a2c9"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141354-854-tail-straight-20p0-0-0-0-ec77\\fish.jsonl",
+      "bytes": 1449856,
+      "sha256": "6a733feceb847f9316474db352c22debcd5568fc857ca4db26b11ad34fb065ef"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141354-854-tail-straight-20p0-0-0-0-ec77\\samples.csv",
+      "bytes": 216695,
+      "sha256": "73f3b4279b6a8736c52533735ed834d31f4e6adccc236127d40950e8c39a8258"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141544-344-tail-straight-30p0-0-0-0-4c80\\metadata.json",
+      "bytes": 2001,
+      "sha256": "b53a117a52af5570ca53ccee3d87a66d41466531a23e2a6e3033838fa5f7d56f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141544-344-tail-straight-30p0-0-0-0-4c80\\summary.json",
+      "bytes": 1713,
+      "sha256": "fa277116fae26bc8827ea9eebacb419e2481dc59e5dc518ea2b87720f5eecb4f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141544-344-tail-straight-30p0-0-0-0-4c80\\events.jsonl",
+      "bytes": 4972,
+      "sha256": "d3c4268b25bd676d9901b3805c394f97720f3cc3aca286b884f21b85be23d8e9"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141544-344-tail-straight-30p0-0-0-0-4c80\\fish.jsonl",
+      "bytes": 1089838,
+      "sha256": "03004ab3281ed23ffb1cc734681d73a9e5e842326c134b7552da58bc5e85e8bf"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141544-344-tail-straight-30p0-0-0-0-4c80\\samples.csv",
+      "bytes": 136742,
+      "sha256": "cec0086876db2d75b94932bcc5fe92efad21a15dbfacc22e91fd2ac1741d3d4c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141819-958-tail-left-20p0--20p0-0-0-2046\\metadata.json",
+      "bytes": 1997,
+      "sha256": "d7c21b8f1255474ad457f08be9e86647b8bc2571e9f5dc30497a326b94c43260"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141819-958-tail-left-20p0--20p0-0-0-2046\\summary.json",
+      "bytes": 1749,
+      "sha256": "c5ad9b516115878c4cfd5b975c23974b94d99a8464a80f59402c2e2eb48fdf34"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141819-958-tail-left-20p0--20p0-0-0-2046\\events.jsonl",
+      "bytes": 4758,
+      "sha256": "a1b5ff256ec999bd9428c27d7dd14124ebe3ff93a580f774191f811183352c8e"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141819-958-tail-left-20p0--20p0-0-0-2046\\fish.jsonl",
+      "bytes": 3245443,
+      "sha256": "63b7c8d5a1ef5cbaf5f027907e01f93ddeba7d27f66448c4c90d0b2c7735f682"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-141819-958-tail-left-20p0--20p0-0-0-2046\\samples.csv",
+      "bytes": 420387,
+      "sha256": "e50e385a677c27f64ced1f98b2127a3d8cfb75566bc578d386a9359366e2f5d0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142004-414-tail-left-30p0--30p0-0-0-4d73\\metadata.json",
+      "bytes": 1997,
+      "sha256": "fc14f931901bab475da24d2d5a60dad1db8b16005804b1a09062d42f498de460"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142004-414-tail-left-30p0--30p0-0-0-4d73\\summary.json",
+      "bytes": 1713,
+      "sha256": "dcdde73f59eb64ae548194c6f1c9fbc785d5fbbf71e72d383ffada7bc0429a4c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142004-414-tail-left-30p0--30p0-0-0-4d73\\events.jsonl",
+      "bytes": 4768,
+      "sha256": "7d96136e2538f2e567f412a046da37c99c80e43b48d4565d6d95f6a906efc91d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142004-414-tail-left-30p0--30p0-0-0-4d73\\fish.jsonl",
+      "bytes": 1269191,
+      "sha256": "a6d65a5a99f391445b119bf6442a65a45477ad6845042bf62d64d953943ea876"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142004-414-tail-left-30p0--30p0-0-0-4d73\\samples.csv",
+      "bytes": 162548,
+      "sha256": "a0128d916bd45acfa15907d7538560c0d47433646764016bc4bd30353147c993"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142156-444-tail-left-30p0--30p0-0-0-1840\\metadata.json",
+      "bytes": 1997,
+      "sha256": "39db63b5a47b79ebf729f4abe3cbcfa95c07637ba2473c85dada4d41dbff388d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142156-444-tail-left-30p0--30p0-0-0-1840\\summary.json",
+      "bytes": 1748,
+      "sha256": "08bf8f0058ba069ae93abb584899b54c0106e4a2df58504ccc75efbb8ef81f4e"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142156-444-tail-left-30p0--30p0-0-0-1840\\events.jsonl",
+      "bytes": 4747,
+      "sha256": "d4c096506f9ed6243ad6a0cdbab290e500b2a82ce7971852f18318e793306160"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142156-444-tail-left-30p0--30p0-0-0-1840\\fish.jsonl",
+      "bytes": 1999651,
+      "sha256": "b4d1ca8e96b2a01c33a176fa6030516f9df683dad747350a6412d8159576f6a3"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142156-444-tail-left-30p0--30p0-0-0-1840\\samples.csv",
+      "bytes": 256405,
+      "sha256": "41ad9b137217a40fe6e7d5fb82bcdde434a0f553838f0f5efd69fe9769731c90"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142305-309-tail-left-40p0--40p0-0-0-d51c\\metadata.json",
+      "bytes": 1997,
+      "sha256": "9eb0d8f0409a2937394b8cda8aaa32d29d814da1bd7a3ed0bf1043b31f2290e8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142305-309-tail-left-40p0--40p0-0-0-d51c\\summary.json",
+      "bytes": 1729,
+      "sha256": "a66d3d3d76c22a3d0ebac5319b62755b10d35d082bf192e2d1c21b45d8a6c0dc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142305-309-tail-left-40p0--40p0-0-0-d51c\\events.jsonl",
+      "bytes": 4762,
+      "sha256": "96db6f5303cc0dc80f6198442b96b99e2aa0fc3233e79fb42352cb4eb04ab73b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142305-309-tail-left-40p0--40p0-0-0-d51c\\fish.jsonl",
+      "bytes": 907127,
+      "sha256": "632191bca2edccbdaf451f4ddcdf4f943acc9365f0b28b2cb018da0b847ea2fb"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142305-309-tail-left-40p0--40p0-0-0-d51c\\samples.csv",
+      "bytes": 118106,
+      "sha256": "3e9a917fa84a4bbe8673d0b9b55d416fd4dd40072d917dbd13acd89c43c109a4"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142337-150-tail-right-40p0-40p0-0-0-4915\\metadata.json",
+      "bytes": 1997,
+      "sha256": "af23a46ac5bafe53f847c9549c54568d03ebabf009e78eb60c32386d5672d4d0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142337-150-tail-right-40p0-40p0-0-0-4915\\summary.json",
+      "bytes": 1632,
+      "sha256": "f157d88e1618ef95524968cffaf10a02ce5e4a105ee5c4a5091edc71acc9a578"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142337-150-tail-right-40p0-40p0-0-0-4915\\events.jsonl",
+      "bytes": 4997,
+      "sha256": "c419dc91c1e93e354b116ec4f052994f4c19064c5ab4dbec547a95d85c2ec9b1"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142337-150-tail-right-40p0-40p0-0-0-4915\\fish.jsonl",
+      "bytes": 3301403,
+      "sha256": "1a34097b052891aca1e304a3f84b74645d1251296de38b3ad53db61763c08088"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142337-150-tail-right-40p0-40p0-0-0-4915\\samples.csv",
+      "bytes": 431824,
+      "sha256": "85d966b55b2be0ff14254621f55f79d66fc710fe025868a42abeb8197e675a25"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142510-395-tail-right-30p0-30p0-0-0-64ec\\metadata.json",
+      "bytes": 1998,
+      "sha256": "df79e8f9e51193340d73716be226a30ea68c2d52f00167a4f45064db6af75a4d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142510-395-tail-right-30p0-30p0-0-0-64ec\\summary.json",
+      "bytes": 1610,
+      "sha256": "6bd0c4d2df411f4ad4dda6ecdeaf3bdfda42cb5980ba1099007dda27e1c3159b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142510-395-tail-right-30p0-30p0-0-0-64ec\\events.jsonl",
+      "bytes": 7231,
+      "sha256": "1edb3d9b73e356fff695a3ad10194cadcb77b4512b68ce34aeac90f35d90779d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142510-395-tail-right-30p0-30p0-0-0-64ec\\fish.jsonl",
+      "bytes": 5110375,
+      "sha256": "2d5920acfa92b4f5983de2e6680e18cffc94b0fc50bc96323fce8e8f09057bce"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142510-395-tail-right-30p0-30p0-0-0-64ec\\samples.csv",
+      "bytes": 644081,
+      "sha256": "76bfb30d2d3f96238ac5a6b9d7fc9f25b9956af174a2354687d62017effdb906"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142721-960-tail-right-40p0-40p0-0-0-d040\\metadata.json",
+      "bytes": 1996,
+      "sha256": "8b042d5923d93d20217ac0cbf025516a8a474fa666dcc32464f512855be9b53f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142721-960-tail-right-40p0-40p0-0-0-d040\\summary.json",
+      "bytes": 1710,
+      "sha256": "ad82252dd11afd92f0b7cd16001173dac9f37879aa78af323f1fd89ab6fa437a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142721-960-tail-right-40p0-40p0-0-0-d040\\events.jsonl",
+      "bytes": 4761,
+      "sha256": "ea3b8241c120258b4fa61fd4d1368feb61a882051c058c3b2726126e7614491b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142721-960-tail-right-40p0-40p0-0-0-d040\\fish.jsonl",
+      "bytes": 2150230,
+      "sha256": "3a23192e3e1e7fb6d6a2c312402c625aa23bf62b7529207c2f16c2ce997ae055"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142721-960-tail-right-40p0-40p0-0-0-d040\\samples.csv",
+      "bytes": 274607,
+      "sha256": "cf0f8442364cdd36e75aa7981e23f4fe0e87d822db5c4b49cbc0d0e910eab7b8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142844-973-prop-straight-0-0-20p0-0-4582\\metadata.json",
+      "bytes": 1999,
+      "sha256": "ab8706bfd8b9bdf15d7e24e10aff23775b14c77a42177d58189026ec1a5dcccc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142844-973-prop-straight-0-0-20p0-0-4582\\summary.json",
+      "bytes": 1706,
+      "sha256": "c8f87a80359ced833a9f41a834394d242d7811d46c4e1293d0b4e5d8947283a7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142844-973-prop-straight-0-0-20p0-0-4582\\events.jsonl",
+      "bytes": 4766,
+      "sha256": "2d974c2f67f7ef28aeb40b24e6307944673d13eddcbf1d216990efe964c92ec9"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142844-973-prop-straight-0-0-20p0-0-4582\\fish.jsonl",
+      "bytes": 406734,
+      "sha256": "b6adee46da60882c0368fca0705ca01fbc3b0d8b575d2240f90b0a1e7e18f374"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142844-973-prop-straight-0-0-20p0-0-4582\\samples.csv",
+      "bytes": 50029,
+      "sha256": "88b2601db4c6a6cb4f78e25249cc72bf204a4397693bcfbe4e7dd962b8dd9dbe"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142935-963-prop-straight-0-0-20p0-0-fdc4\\metadata.json",
+      "bytes": 2000,
+      "sha256": "176971d3c8bd2297d6a83d0d18f4aa96f4284497583f15054832d1f348a0b344"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142935-963-prop-straight-0-0-20p0-0-fdc4\\summary.json",
+      "bytes": 1710,
+      "sha256": "b913ac9a47eccd91dc1090a7b24b561e8c5272654afbb815f10b2867e660eff0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142935-963-prop-straight-0-0-20p0-0-fdc4\\events.jsonl",
+      "bytes": 4772,
+      "sha256": "36e9beeb3182426385fbfc13ddc7cecfa6ea177667dda1f5e233d5a8c8b2a32d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142935-963-prop-straight-0-0-20p0-0-fdc4\\fish.jsonl",
+      "bytes": 670616,
+      "sha256": "cb35a6ffcdf699e43a1cb661a42d2125b01f282f39ae74b74216caddc113b219"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-142935-963-prop-straight-0-0-20p0-0-fdc4\\samples.csv",
+      "bytes": 82977,
+      "sha256": "4aa5222ab49989686a6960d12bcf2b3d6f22bb44651f3bb98cb5cc18d4f3f88f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143011-711-prop-straight-0-0-30p0-0-035d\\metadata.json",
+      "bytes": 1999,
+      "sha256": "7317436cab3001e4cabca07e701c4c5bf8cdf34966ee16bfb265fcb6a7632d32"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143011-711-prop-straight-0-0-30p0-0-035d\\summary.json",
+      "bytes": 1704,
+      "sha256": "09d2b0717a68f6b68e6453543bca708f05b5c28e418d7c89df32af0e73b1914e"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143011-711-prop-straight-0-0-30p0-0-035d\\events.jsonl",
+      "bytes": 4762,
+      "sha256": "d68be901c5bffa6139f079ac47de48577ef7ec926cd7f248c96b590a05bd1351"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143011-711-prop-straight-0-0-30p0-0-035d\\fish.jsonl",
+      "bytes": 429716,
+      "sha256": "48aecbbe8f8d4daf11b61fd67acec90f12f4a14c0ae4fb18aa62088f012d1fe8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143011-711-prop-straight-0-0-30p0-0-035d\\samples.csv",
+      "bytes": 52934,
+      "sha256": "2123a3d8d2b162a9c4030451882d6aea8446d6df1d8d0e8718eac08427719b50"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143117-244-prop-straight-0-0-30p0-0-4f85\\metadata.json",
+      "bytes": 2000,
+      "sha256": "fe7edccd18f7b8a34aa2ecbd21d97bcefef38e72a6474e84d9d1136b5ca7dacd"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143117-244-prop-straight-0-0-30p0-0-4f85\\summary.json",
+      "bytes": 1739,
+      "sha256": "b695d1eeb339374e552b70bf58c7cfa9d5d21bb056be6f91e68d5e669279c254"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143117-244-prop-straight-0-0-30p0-0-4f85\\events.jsonl",
+      "bytes": 4778,
+      "sha256": "2d2fd626d23d02b4621768874cf413a54f20cc73390cac56fee5fff4910685e9"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143117-244-prop-straight-0-0-30p0-0-4f85\\fish.jsonl",
+      "bytes": 685444,
+      "sha256": "cab1c7781b1f290e77d1e208ba28d0f7fc0fd79fa0051edfd45a0fe409398e96"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143117-244-prop-straight-0-0-30p0-0-4f85\\samples.csv",
+      "bytes": 83776,
+      "sha256": "13bb794aa83230c3fc8fc5ccc7f16556d303bcfe81ca4b58f4fbe6d4aba11cec"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143152-399-prop-straight-0-0-40p0-0-2efe\\metadata.json",
+      "bytes": 2000,
+      "sha256": "88802c5333733d82906a5ca69bbccc9ec9ca397860b6820040f07d880ba27766"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143152-399-prop-straight-0-0-40p0-0-2efe\\summary.json",
+      "bytes": 1707,
+      "sha256": "4fd1c478237d65f691a7512833ca24c95961bb9f89a8b8863ff8672e96faf7cc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143152-399-prop-straight-0-0-40p0-0-2efe\\events.jsonl",
+      "bytes": 4770,
+      "sha256": "43f841de3ee4ffd593e6406baf2357987bc6ef7f90a3ab63d5d3b6770a9c3a0b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143152-399-prop-straight-0-0-40p0-0-2efe\\fish.jsonl",
+      "bytes": 745960,
+      "sha256": "87dc4b6f3565da9d11a10e75d48b7ec8d6ba00906de4da3286e4ddadc5257505"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143152-399-prop-straight-0-0-40p0-0-2efe\\samples.csv",
+      "bytes": 93011,
+      "sha256": "ab15414010962fec26baff7bcf1b6f01be06071aef821d4102b65ce951efb47f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143224-454-prop-left-0-0-0--20p0-fe97\\metadata.json",
+      "bytes": 1994,
+      "sha256": "6d3396e0965b0d6aec2e98c27c227173930cc53b52495e70efb46aa068a2b805"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143224-454-prop-left-0-0-0--20p0-fe97\\summary.json",
+      "bytes": 1701,
+      "sha256": "0d0f0d9d402ff30c0eb9d21f6d6cbdb146c46c6c7a095ef47f0e5a7ae7953b60"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143224-454-prop-left-0-0-0--20p0-fe97\\events.jsonl",
+      "bytes": 4770,
+      "sha256": "d467f9c897528fbf22046291e1d2d92738716d999b2649287cbd3335cef0200b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143224-454-prop-left-0-0-0--20p0-fe97\\fish.jsonl",
+      "bytes": 572625,
+      "sha256": "26c3c36e54daffeada8aeb95bc9ba5cc5d2a000cabac2c4248233553058785a7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143224-454-prop-left-0-0-0--20p0-fe97\\samples.csv",
+      "bytes": 70868,
+      "sha256": "2303a0bd801b4930a94b5986b7b2bf3d70b2f218415cd9027a31d8a73aa814bc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143347-169-prop-left-0-0-0--30p0-d6ef\\metadata.json",
+      "bytes": 1994,
+      "sha256": "0866da210a0fd52f0ae69116dd0530d7ac336c5e936606ac931dd9ab34c8323a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143347-169-prop-left-0-0-0--30p0-d6ef\\summary.json",
+      "bytes": 1707,
+      "sha256": "c482cbbb02ddad9d01ce21276c0c84638eb6344f53dd3b73bb066e43ef42ac36"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143347-169-prop-left-0-0-0--30p0-d6ef\\events.jsonl",
+      "bytes": 4756,
+      "sha256": "251093c6fd5b05c459c76db976a76c715f50614fa214ef86db7320e27a67838c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143347-169-prop-left-0-0-0--30p0-d6ef\\fish.jsonl",
+      "bytes": 497299,
+      "sha256": "cc6f8705fda3284af84318bb9a973e98e3e3dd96529e9c21a57648025d878c98"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143347-169-prop-left-0-0-0--30p0-d6ef\\samples.csv",
+      "bytes": 61551,
+      "sha256": "db9acc548c0548a57a46050cafcb6bc1aa873718a8904448d1efbf413b4d6257"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143419-327-prop-left-0-0-0--40p0-20ab\\metadata.json",
+      "bytes": 1993,
+      "sha256": "1e83d6373e46dc12da35b1c7a58990c421fbe1ce25e8379ef082b14336b26ba4"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143419-327-prop-left-0-0-0--40p0-20ab\\summary.json",
+      "bytes": 1727,
+      "sha256": "7df3e25ff3ec39534506709b76bbb9f76f58c36250c447ab51ae18c4cefa5b30"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143419-327-prop-left-0-0-0--40p0-20ab\\events.jsonl",
+      "bytes": 4759,
+      "sha256": "8448c41d0e2e01bae19185fae380732c856920ed791be4313cfa46cd29585a7a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143419-327-prop-left-0-0-0--40p0-20ab\\fish.jsonl",
+      "bytes": 316634,
+      "sha256": "b9fda2ac0458a3535f872a1ed3380e17176a5e1d2e77e30341bf11d7aae8e63d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143419-327-prop-left-0-0-0--40p0-20ab\\samples.csv",
+      "bytes": 38810,
+      "sha256": "e5ab671c0d26cef237c84084eab69b3a1b72eabaf863b4cc1ee3726ecb31dac8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143456-435-prop-right-0-0-0-20p0-f422\\metadata.json",
+      "bytes": 1993,
+      "sha256": "054d233b3962c63f8cbdc1a74b942177eeb739d468ef4c3c564a98454c2bc36f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143456-435-prop-right-0-0-0-20p0-f422\\summary.json",
+      "bytes": 1711,
+      "sha256": "4e1836dfe927e40eb0d46fe30ef39f5dfe2f06b89ae958dd113510dbefb0d453"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143456-435-prop-right-0-0-0-20p0-f422\\events.jsonl",
+      "bytes": 4758,
+      "sha256": "e0a32b7b0a00512d244bddbcd7a946cfddcf577aecc3ec9b94f0fba4f4bdc2fd"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143456-435-prop-right-0-0-0-20p0-f422\\fish.jsonl",
+      "bytes": 451760,
+      "sha256": "e7e1db20d17c725749721187b21c0cc88e8a573adbf2ca866b9cc835f482d13f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143456-435-prop-right-0-0-0-20p0-f422\\samples.csv",
+      "bytes": 54990,
+      "sha256": "48ef19239702a64d8849d787128e2af486683862f3ba5667f2f2577e75f46968"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143549-482-prop-right-0-0-0-30p0-277a\\metadata.json",
+      "bytes": 1993,
+      "sha256": "c51ffbde0c76e8c8060618fdcbdab372f7621ba78e6642db08c97fe527a51cc7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143549-482-prop-right-0-0-0-30p0-277a\\summary.json",
+      "bytes": 1737,
+      "sha256": "e692c904521d579d1df58823adb4ce00fcfc2bd552e7d4530c84c0dd429a0a35"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143549-482-prop-right-0-0-0-30p0-277a\\events.jsonl",
+      "bytes": 4763,
+      "sha256": "c50281736229ee280c151cdfc40038ee30bdcdde2d50f1f6c507ff90d62fe2b0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143549-482-prop-right-0-0-0-30p0-277a\\fish.jsonl",
+      "bytes": 587500,
+      "sha256": "46e0f0a88cf1645ec87fe06b478de5f58c6b31752deaa0b6c5059463725d6dfe"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143549-482-prop-right-0-0-0-30p0-277a\\samples.csv",
+      "bytes": 71971,
+      "sha256": "493eaba368aa65ede7f68f3f9e64f2e484232f5ad332c747738c6bef6b2f8a4d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143712-083-prop-right-0-0-0-40p0-b8f6\\metadata.json",
+      "bytes": 1993,
+      "sha256": "fd3d857fae1f23a7da583f232e4693cdf0c81ffa71a1c0bf7d7bc5649df18dd7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143712-083-prop-right-0-0-0-40p0-b8f6\\summary.json",
+      "bytes": 1733,
+      "sha256": "61fc6a58297e9686840ff9859b443208698b620e2ed161aed836a17cc0e9cccf"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143712-083-prop-right-0-0-0-40p0-b8f6\\events.jsonl",
+      "bytes": 4748,
+      "sha256": "5b3cd21e8ee58e1ea3fe6dcb657a949ccbdcbad04001db17880a580e4b42a7cc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143712-083-prop-right-0-0-0-40p0-b8f6\\fish.jsonl",
+      "bytes": 444441,
+      "sha256": "b7207f78fcb95ee97ed0ff3ce90ed8ac432fc6f027af28c6656b44fe969257c4"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143712-083-prop-right-0-0-0-40p0-b8f6\\samples.csv",
+      "bytes": 55686,
+      "sha256": "5312a5acdccba875d15c774049a42f8bbaf43cdad71279b9d5fc3e7966a7235f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143739-337-hybrid-straight-10p0-0-10p0-0-9d84\\metadata.json",
+      "bytes": 2003,
+      "sha256": "890e5eba8055e429ee27ba747f8dd33463ea450db8fad2a6611291fa3974a2af"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143739-337-hybrid-straight-10p0-0-10p0-0-9d84\\summary.json",
+      "bytes": 1715,
+      "sha256": "21d22e3808be68d1de7baf8c3601a51a14b915f6135910fd733f9dafe86ac678"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143739-337-hybrid-straight-10p0-0-10p0-0-9d84\\events.jsonl",
+      "bytes": 4787,
+      "sha256": "ee9365fcb88e16256a00ae31d0946ef5655da56ada66a42290be50e2cf184f76"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143739-337-hybrid-straight-10p0-0-10p0-0-9d84\\fish.jsonl",
+      "bytes": 1597291,
+      "sha256": "5b03b50dab390657f4f206bfe1ec382a082a75c9a91636503b6ff257995a1981"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143739-337-hybrid-straight-10p0-0-10p0-0-9d84\\samples.csv",
+      "bytes": 208477,
+      "sha256": "3b134f2e59e9d0ef951762217f780ff71b78faa8ddb96aea07887b89a94310eb"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143830-909-hybrid-straight-15p0-0-15p0-0-7d7d\\metadata.json",
+      "bytes": 2003,
+      "sha256": "58ae7442a6f0ae2ab82bae031541ebb4600e76e95ffef4b11a9319cac6dd8b5f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143830-909-hybrid-straight-15p0-0-15p0-0-7d7d\\summary.json",
+      "bytes": 1738,
+      "sha256": "2fc87289e113c0a11a1712198cb04818d570c479674c111a8fe4c16c8c85bab0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143830-909-hybrid-straight-15p0-0-15p0-0-7d7d\\events.jsonl",
+      "bytes": 4787,
+      "sha256": "02302cb53049d8df9eefc5643cc55d05264541d7f38dadcb94807633fdf19155"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143830-909-hybrid-straight-15p0-0-15p0-0-7d7d\\fish.jsonl",
+      "bytes": 964761,
+      "sha256": "2d74e5e06279079342decf2b054c812003c8a81966032035761ca55b2c2b33dd"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143830-909-hybrid-straight-15p0-0-15p0-0-7d7d\\samples.csv",
+      "bytes": 120957,
+      "sha256": "1c78baef423d536cec60c93a623d57552db9b79cc2d14e8775a9a7c9a090b631"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143905-862-hybrid-straight-20p0-0-20p0-0-9067\\metadata.json",
+      "bytes": 2003,
+      "sha256": "91a78f804f622b73845f27b5c208adf4809b55fc0f397129c878aa4c180b65cf"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143905-862-hybrid-straight-20p0-0-20p0-0-9067\\summary.json",
+      "bytes": 1706,
+      "sha256": "980bb62d9fd24f331caeec3342198ed72facae86360683dbcaad3d400ec4ebf6"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143905-862-hybrid-straight-20p0-0-20p0-0-9067\\events.jsonl",
+      "bytes": 4779,
+      "sha256": "233b665ea2a4f597f0bb68638ac6e9af89cbde07e816cf4b1b64863aa74622e8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143905-862-hybrid-straight-20p0-0-20p0-0-9067\\fish.jsonl",
+      "bytes": 853294,
+      "sha256": "8435b80c5946a92183bcbeb590992e554f5f83cf9a04c2eea77d1223c8f12eb7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143905-862-hybrid-straight-20p0-0-20p0-0-9067\\samples.csv",
+      "bytes": 107883,
+      "sha256": "40e6ae7ceba6f0dd084beb7053110ffa3e9fe9517350db52069c6be58f46dd18"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143937-289-hybrid-left-20p0--40p0-20p0--40p0-59a4\\metadata.json",
+      "bytes": 2003,
+      "sha256": "b7c3abdb8709ff3d501954eba0359b74ce53a7d2fe0526494218b19d199f0935"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143937-289-hybrid-left-20p0--40p0-20p0--40p0-59a4\\summary.json",
+      "bytes": 1711,
+      "sha256": "4fbf0672174c3b2117693153d6ed89c8c1923517200075abcccdfbf6cf24342e"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143937-289-hybrid-left-20p0--40p0-20p0--40p0-59a4\\events.jsonl",
+      "bytes": 4786,
+      "sha256": "a65e3cc23c1d1755244c8fd8305d32599a11d02e481fdef7cea1520667e5133c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143937-289-hybrid-left-20p0--40p0-20p0--40p0-59a4\\fish.jsonl",
+      "bytes": 806270,
+      "sha256": "152d2093ec461ac9c0d9605bfd13eeb23a9629889cd248e38e5ae86130894f3c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-143937-289-hybrid-left-20p0--40p0-20p0--40p0-59a4\\samples.csv",
+      "bytes": 102219,
+      "sha256": "0b37b2bad9f46948432a63de9557cb197f0d855bac01ec848ba22dc7e827cbf3"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144010-751-hybrid-left-20p0--40p0-20p0--40p0-3aba\\metadata.json",
+      "bytes": 2002,
+      "sha256": "79798952476bedf03bb5d5eb765966bee95d253d930c5390b3deb3d3930c0582"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144010-751-hybrid-left-20p0--40p0-20p0--40p0-3aba\\summary.json",
+      "bytes": 1704,
+      "sha256": "e32d68629aac1342fabdfd0e5beb50fa896cfa77c2306148b6f035c88ff041ee"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144010-751-hybrid-left-20p0--40p0-20p0--40p0-3aba\\events.jsonl",
+      "bytes": 4789,
+      "sha256": "436dcf9dd8edc6a77bd43f1d09c78dbf303c1f7094d29f166ffb721770e8554e"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144010-751-hybrid-left-20p0--40p0-20p0--40p0-3aba\\fish.jsonl",
+      "bytes": 571118,
+      "sha256": "6fb26c06b91984251c0255c41af1f0a378a1f4374e17fbf886972dc8544fa126"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144010-751-hybrid-left-20p0--40p0-20p0--40p0-3aba\\samples.csv",
+      "bytes": 74786,
+      "sha256": "c2ae3533cf4f6d3bfc2a79890874cf64ed5f35c47494294f0b4136a702ece9ec"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144037-723-hybrid-left-15p0--30p0-15p0--30p0-b784\\metadata.json",
+      "bytes": 2001,
+      "sha256": "71016f483dc6c7c61d09468f0fd3e0c3608fc12a146adabe1f83526f88c03594"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144037-723-hybrid-left-15p0--30p0-15p0--30p0-b784\\summary.json",
+      "bytes": 1733,
+      "sha256": "5dd9a51a94852dd3192a8dcaeed6aaeb77a191c1b2c06dcb404c7284aed3f44b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144037-723-hybrid-left-15p0--30p0-15p0--30p0-b784\\events.jsonl",
+      "bytes": 4776,
+      "sha256": "0ea46297500859be9c766459efbdca3e64d6781aeb4cb3b27100085a6357166b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144037-723-hybrid-left-15p0--30p0-15p0--30p0-b784\\fish.jsonl",
+      "bytes": 391935,
+      "sha256": "fa0843668f4aab6193d80c52b292a0936f83a50d9a5801a1f251c2a0e092cbba"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144037-723-hybrid-left-15p0--30p0-15p0--30p0-b784\\samples.csv",
+      "bytes": 50397,
+      "sha256": "732916c5f26632654b9b09675597358de62274645ac11a0c2635cf08f0628396"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144102-573-hybrid-left-15p0--30p0-15p0--30p0-316e\\metadata.json",
+      "bytes": 2002,
+      "sha256": "ee6766f880ec2c8954678e1cdc6d4b03a321b4494e45e5a65c53f7a91a813a29"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144102-573-hybrid-left-15p0--30p0-15p0--30p0-316e\\summary.json",
+      "bytes": 1706,
+      "sha256": "df8efd391fc6fdb9a4212573bd35b80d3b8c890b76e7e9096863e78f520d9213"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144102-573-hybrid-left-15p0--30p0-15p0--30p0-316e\\events.jsonl",
+      "bytes": 4782,
+      "sha256": "8d8a4998ee46fc69614089024999c5f3670aac4270f33dc8542e6a659d3b72b0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144102-573-hybrid-left-15p0--30p0-15p0--30p0-316e\\fish.jsonl",
+      "bytes": 565973,
+      "sha256": "b644ba50773a0f4f9da6d12d053e5eef2b925a5722a9a74e91dd27ff51fe5db9"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144102-573-hybrid-left-15p0--30p0-15p0--30p0-316e\\samples.csv",
+      "bytes": 71479,
+      "sha256": "3b8900ade93a4413cf694776bda747339c66fabc9778a6e319697887a8ef3b7b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144131-191-hybrid-left-10p0--20p0-10p0--20p0-a263\\metadata.json",
+      "bytes": 2003,
+      "sha256": "587b21a0e5c7f49cb1898bb2564fd8c54b63eb4281df0a549199370c31681b3b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144131-191-hybrid-left-10p0--20p0-10p0--20p0-a263\\summary.json",
+      "bytes": 1708,
+      "sha256": "576ce35138b8021221226f573188c219cf7dd9687f0757ec8c50ae650dd89e7a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144131-191-hybrid-left-10p0--20p0-10p0--20p0-a263\\events.jsonl",
+      "bytes": 4786,
+      "sha256": "21296060e784a76f8907bfd8304f1a5f939e6e68b5210d94ddac136571afbdbf"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144131-191-hybrid-left-10p0--20p0-10p0--20p0-a263\\fish.jsonl",
+      "bytes": 951842,
+      "sha256": "dbc6a280376a119c1c407d0fb61147d79a16e8bdfce7343407ba4b3b04ea8265"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144131-191-hybrid-left-10p0--20p0-10p0--20p0-a263\\samples.csv",
+      "bytes": 124609,
+      "sha256": "a6c94fbda2b09f53b41031c3a4c393980245f37fb7a1afc8439d1918b0420658"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144213-066-hybrid-right-10p0-20p0-10p0-20p0-03d0\\metadata.json",
+      "bytes": 2000,
+      "sha256": "710a6b017f8c15f82ca0a63a28b6f7e7e80d747a7e99c96a0dcb15967246a72f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144213-066-hybrid-right-10p0-20p0-10p0-20p0-03d0\\summary.json",
+      "bytes": 1716,
+      "sha256": "5e8871477ce5cf348dd7e743e572b46403af9bd4cc4de7b690e56dac4356df0b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144213-066-hybrid-right-10p0-20p0-10p0-20p0-03d0\\events.jsonl",
+      "bytes": 4782,
+      "sha256": "077d8bff0213f1c8a1b8dd0c61ae1965ff377ca26fda16cd59a5c18c5fd8208c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144213-066-hybrid-right-10p0-20p0-10p0-20p0-03d0\\fish.jsonl",
+      "bytes": 626514,
+      "sha256": "1bf218a2a2a773e65daac434ef4b75066f4ffdebd53523eefa2ebb80cc718e90"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144213-066-hybrid-right-10p0-20p0-10p0-20p0-03d0\\samples.csv",
+      "bytes": 78745,
+      "sha256": "96a647b96dfd52bc076dd6141e7417286264b5c7bbf9cd8a4e6849ff4a28e933"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144318-585-hybrid-right-15p0-30p0-15p0-30p0-4525\\metadata.json",
+      "bytes": 1999,
+      "sha256": "426910f5fb74361305f7796ffda24f0cb4da571ce357cedb2a10ed052c41641f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144318-585-hybrid-right-15p0-30p0-15p0-30p0-4525\\summary.json",
+      "bytes": 1705,
+      "sha256": "ef3d021d0a223a159b36d6e21ba1f25bc5150533e2666f7bb7fc2ccac77b96d2"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144318-585-hybrid-right-15p0-30p0-15p0-30p0-4525\\events.jsonl",
+      "bytes": 4772,
+      "sha256": "cd65466892a3d080b3f31b209cdb3c63e746c4f0181c153d1befd1ba14d6161b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144318-585-hybrid-right-15p0-30p0-15p0-30p0-4525\\fish.jsonl",
+      "bytes": 422418,
+      "sha256": "19a4e2365c3e32fcca2318035510ce53369a32835ba2ccb8dad92715fd8cd0c2"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144318-585-hybrid-right-15p0-30p0-15p0-30p0-4525\\samples.csv",
+      "bytes": 53972,
+      "sha256": "b8e7822d25932161ddbf4519bc64be71718fe379c06535244855cd8c2c8bcc03"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144356-019-hybrid-right-20p0-40p0-20p0-40p0-4eac\\metadata.json",
+      "bytes": 1999,
+      "sha256": "3f90fc9dfdde5d918d9831634e82ce034a1ef4bd09246ce77331addafcb7e414"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144356-019-hybrid-right-20p0-40p0-20p0-40p0-4eac\\summary.json",
+      "bytes": 1707,
+      "sha256": "663f38d24f46a48e4034bce89d760c38ec3cc9f0fe18cbfd9300d4b86e3f39e1"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144356-019-hybrid-right-20p0-40p0-20p0-40p0-4eac\\events.jsonl",
+      "bytes": 4775,
+      "sha256": "9b532ea003c10914c70d266348451729a3773e14ae7a8515d4d3189fedb5aad7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144356-019-hybrid-right-20p0-40p0-20p0-40p0-4eac\\fish.jsonl",
+      "bytes": 389699,
+      "sha256": "bbc187dbf838221c4a72156648b046e4a8a5cbbb80691e6c8dad492805d10663"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-144356-019-hybrid-right-20p0-40p0-20p0-40p0-4eac\\samples.csv",
+      "bytes": 50239,
+      "sha256": "7ecbb55285f449917a277e41cc919da628d8916a66ff5df0c8ff9a8d0357c35b"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171132-002-hybrid-straight-0-0-10p0-0-561b\\metadata.json",
+      "bytes": 2096,
+      "sha256": "77da1e6a262f5f82360237c40a9d720c67ede0f7f4c7961e35efa7a67927b5dc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171132-002-hybrid-straight-0-0-10p0-0-561b\\summary.json",
+      "bytes": 1714,
+      "sha256": "2712d061682dc6aac550a0df667a17e7c6968a999c941f6a419b36f6414daabf"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171132-002-hybrid-straight-0-0-10p0-0-561b\\events.jsonl",
+      "bytes": 4750,
+      "sha256": "509cc8d786718af3097668967ae905a56351a43f8ca238670e96f2fa0aeb175a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171132-002-hybrid-straight-0-0-10p0-0-561b\\fish.jsonl",
+      "bytes": 1708039,
+      "sha256": "53e1040e8cf028bf0eab9ee6c7cbee46a7a6aa0e9a5530478f617ce8525d3364"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171132-002-hybrid-straight-0-0-10p0-0-561b\\samples.csv",
+      "bytes": 196907,
+      "sha256": "e28b9dbf6fc79a8ace9e53e16234a1d4244623ebb9a60620bc43affefe399ee3"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171334-727-hybrid-left-0--40p0-10p0-0-6a93\\metadata.json",
+      "bytes": 2092,
+      "sha256": "0efc72de339ae891e0f26c8b1d01d31c3d6ac56f9958bfa1f4203c9d8d208c6c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171334-727-hybrid-left-0--40p0-10p0-0-6a93\\summary.json",
+      "bytes": 1724,
+      "sha256": "4b5db1f5518a99fdb76b66bdf4cdeaad016c231df3b6ecce217f5243759ffdd2"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171334-727-hybrid-left-0--40p0-10p0-0-6a93\\events.jsonl",
+      "bytes": 4759,
+      "sha256": "978c2901d9517f0b13a1474cc14b81cac74c63076dc37e3479e9fdb5cb63a6d1"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171334-727-hybrid-left-0--40p0-10p0-0-6a93\\fish.jsonl",
+      "bytes": 908295,
+      "sha256": "1bbb5649573c4f50dbff644f6a943d3fe4abb52895c2910f873a5b4019745325"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171334-727-hybrid-left-0--40p0-10p0-0-6a93\\samples.csv",
+      "bytes": 114101,
+      "sha256": "8e7c07fd418b233c568a4891b271325ae88447a5264ed5e91ac8de459f05643d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171506-332-hybrid-left-0--60p0-10p0-0-afe7\\metadata.json",
+      "bytes": 2092,
+      "sha256": "876f8904fb6f728bc2986359f5da70a6d1ad798ba602c13cd4c8ec9f473e06af"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171506-332-hybrid-left-0--60p0-10p0-0-afe7\\summary.json",
+      "bytes": 1741,
+      "sha256": "80ec86b48e640e60ba77c4a66ec338657110841934c1f5d49227b680ac3d7ec0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171506-332-hybrid-left-0--60p0-10p0-0-afe7\\events.jsonl",
+      "bytes": 4763,
+      "sha256": "8ef9bc8ca1ed6454275c1bafd2e158fde1a9b23a3f7731fba72364db257532e8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171506-332-hybrid-left-0--60p0-10p0-0-afe7\\fish.jsonl",
+      "bytes": 851360,
+      "sha256": "d6b4511e92e5f044279edea5a6dcee7764927aa58879579aac74dafe3b73254d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171506-332-hybrid-left-0--60p0-10p0-0-afe7\\samples.csv",
+      "bytes": 101454,
+      "sha256": "508d025be92692395b48921cae6ff9caf369c31b254b6588912913d24f581ddc"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171558-052-hybrid-left-0--80p0-10p0-0-91c4\\metadata.json",
+      "bytes": 2092,
+      "sha256": "0492297bb978d4678dfc7b48d4c2ccef045048e44c871899bd3b60fe389e4143"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171558-052-hybrid-left-0--80p0-10p0-0-91c4\\summary.json",
+      "bytes": 1709,
+      "sha256": "cad9c77526c9c1999a5686be5014d0659cc7a56095424239089574a72f117e78"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171558-052-hybrid-left-0--80p0-10p0-0-91c4\\events.jsonl",
+      "bytes": 4765,
+      "sha256": "9982f375d8bce1dfc2b2244ebff3ee0731dd1c0f335fcc41c575c8bd43c60d82"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171558-052-hybrid-left-0--80p0-10p0-0-91c4\\fish.jsonl",
+      "bytes": 1704827,
+      "sha256": "23609d9942528bcf7366fa5e19fdd9a81b8b06390d78c74d4512109cce2441a8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171558-052-hybrid-left-0--80p0-10p0-0-91c4\\samples.csv",
+      "bytes": 208238,
+      "sha256": "998b7d584a6913f99897cbf428c955022fd2444ca2330e607c6f28de03158b78"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171744-877-hybrid-left-0--100p0-10p0-0-6a09\\metadata.json",
+      "bytes": 2094,
+      "sha256": "1d4abf2c89045d178fafd6dce8c64e2e5495391c496c0ceaa75758eb39162671"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171744-877-hybrid-left-0--100p0-10p0-0-6a09\\summary.json",
+      "bytes": 1749,
+      "sha256": "eb4697b2226ca15ad5a941fb0fa73abb67c758ed3f060aded0135d80f2d1c975"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171744-877-hybrid-left-0--100p0-10p0-0-6a09\\events.jsonl",
+      "bytes": 4771,
+      "sha256": "8efef107954d2ec394693476fe137308280770f72db9fb86f68db44b8ddb1876"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171744-877-hybrid-left-0--100p0-10p0-0-6a09\\fish.jsonl",
+      "bytes": 1601128,
+      "sha256": "1cfca5b60f582df473fff02666df9efe8e4b78e723ad1452b3b8e955b1cdbc7f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-171744-877-hybrid-left-0--100p0-10p0-0-6a09\\samples.csv",
+      "bytes": 191368,
+      "sha256": "1a3a19ae11925fce0b56711ae993e260425699c21a55efb5e5070330e5c26ec4"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172009-992-hybrid-right-0-100p0-20p0-0-8a8a\\metadata.json",
+      "bytes": 2094,
+      "sha256": "83cb1745c6463e65058c83f26ff503f9bcf246500a3646de7911a9bc8a7301e6"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172009-992-hybrid-right-0-100p0-20p0-0-8a8a\\summary.json",
+      "bytes": 1734,
+      "sha256": "a5a1f1da2e08010427757f14f8917e999eec906d5155150b6b7c809c48e7691e"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172009-992-hybrid-right-0-100p0-20p0-0-8a8a\\events.jsonl",
+      "bytes": 4767,
+      "sha256": "6effd1f2c48080b7cad271dfec7650f0c1e6d805c128fa8a2b02400c15a98c31"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172009-992-hybrid-right-0-100p0-20p0-0-8a8a\\fish.jsonl",
+      "bytes": 1406615,
+      "sha256": "f82f6a4fe33aa75a4aa5c4572072c6cb59c964cdb569d354e79877b1d5110dc6"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172009-992-hybrid-right-0-100p0-20p0-0-8a8a\\samples.csv",
+      "bytes": 160443,
+      "sha256": "71817754581ca29a686dea8993ec0776402f48cbfb046f561c9ab571c7806922"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172107-304-hybrid-right-0-80p0-20p0-0-7c7c\\metadata.json",
+      "bytes": 2092,
+      "sha256": "683fcf36925320b170c860024818f7be33c01da3c4661ced3056a8b7d0592714"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172107-304-hybrid-right-0-80p0-20p0-0-7c7c\\summary.json",
+      "bytes": 1705,
+      "sha256": "4fd84524962329a8eca0751ef8f114333d3d72b79a05eb747eac532832adffd0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172107-304-hybrid-right-0-80p0-20p0-0-7c7c\\events.jsonl",
+      "bytes": 4763,
+      "sha256": "b742a5aa6f1875ef91392ae1329e7373e877467d3837b756244f6618a0976054"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172107-304-hybrid-right-0-80p0-20p0-0-7c7c\\fish.jsonl",
+      "bytes": 1526984,
+      "sha256": "95aa206f785e2da6ba42b7f19e574d0239ac8c3328d383bfd773f5a87fc0660d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172107-304-hybrid-right-0-80p0-20p0-0-7c7c\\samples.csv",
+      "bytes": 185180,
+      "sha256": "4ab9747d4bba412bf4015f35acf8df8d14ee273ec59965b4eb55ab64d9b64098"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172208-751-hybrid-right-0-60p0-20p0-0-ae25\\metadata.json",
+      "bytes": 2091,
+      "sha256": "0759f977fd9262b33abca872e89704a13fc5ec42e97bfeb953ea2d0ddff15fe0"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172208-751-hybrid-right-0-60p0-20p0-0-ae25\\summary.json",
+      "bytes": 1730,
+      "sha256": "790c5bf3d5ba373dd8b051c5027b327374c494caa5f3e937729d32a68dad481f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172208-751-hybrid-right-0-60p0-20p0-0-ae25\\events.jsonl",
+      "bytes": 4770,
+      "sha256": "e74a7e1c24bf90a43a2c974c242478ddd937f83b25748d0db653abaea28bf3d8"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172208-751-hybrid-right-0-60p0-20p0-0-ae25\\fish.jsonl",
+      "bytes": 603919,
+      "sha256": "e5e21c3eda95062ce7f3ed2fd2f4122d5d0f79cae37aa4220eada0ac4c9b0b71"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172208-751-hybrid-right-0-60p0-20p0-0-ae25\\samples.csv",
+      "bytes": 70999,
+      "sha256": "c1ac2eeb414f58ddad1668bc44beabd35b406aa25abaa9b090a761637255591f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172240-364-hybrid-right-0-40p0-20p0-0-7ba3\\metadata.json",
+      "bytes": 2090,
+      "sha256": "a859674796701fadafd6c109c0ddb48c18fe1abd65251b5557f1ec0debae829d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172240-364-hybrid-right-0-40p0-20p0-0-7ba3\\summary.json",
+      "bytes": 1666,
+      "sha256": "6d59d2f659b4710de3bf444f0b955ad9e9f17700ceb1ed584dcd4b42f38da372"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172240-364-hybrid-right-0-40p0-20p0-0-7ba3\\events.jsonl",
+      "bytes": 4399,
+      "sha256": "f7270dde5e12aa9dcba631cedb68d9c3ee366262e442462418212b730888aa2d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172240-364-hybrid-right-0-40p0-20p0-0-7ba3\\fish.jsonl",
+      "bytes": 352091,
+      "sha256": "c8cab5ee99dce495766771975f46d92d0e9f78b13a447c607279bcd190e6fce2"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\20261025-172240-364-hybrid-right-0-40p0-20p0-0-7ba3\\samples.csv",
+      "bytes": 46005,
+      "sha256": "c6fc8fc1624bb9b79fd974a844000535e81cad725a4498df19206bca6df10a2d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\robotfish-trace-2026-10-25T14-52-26-410Z.txt",
+      "bytes": 666009,
+      "sha256": "da0c383bfbcd8ac9a037daf45f17681d9dd3391fce7e54b0f8aba0f71b754c2a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\robotfish-trace-2026-10-25T16-09-22-380Z.txt",
+      "bytes": 764443,
+      "sha256": "be86a6ed5ac26a8195ce9bc0d379280a1530cfebd04aae09fcbc308be5f558ab"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\robotfish-trace-2026-10-25T16-53-56-576Z.txt",
+      "bytes": 770903,
+      "sha256": "0a3c721fcf408ad5b4507f73b99fa131f766654378a47e8c33e610346bdc2fcf"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\robotfish-trace-2026-10-25T17-45-35-598Z.txt",
+      "bytes": 845503,
+      "sha256": "fd301934225f8c4078ea05e9fe7e780f02bc33e0577e519613e2d96731a97368"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\bias_yaw_dynamics.csv",
+      "bytes": 1827,
+      "sha256": "bcc9802675e0e7bc683880a149da787be17f543a63309e7d2296024bc5b9573a"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\kinematics.csv",
+      "bytes": 27074,
+      "sha256": "1e4f9609556bbc793b584f0c080db23e0da7dbb92586cd2d7d5c46a1d66ae1d4"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\table_coast.csv",
+      "bytes": 3657,
+      "sha256": "a4dfdadcf8fc9d8db05c658791a42cdb412642b570a763127b85c518c1a5e8a7"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\table_tail.csv",
+      "bytes": 2299,
+      "sha256": "184ad6a1bdc944d44f9d5ef4952173e8fe4d52f913821350721cda6114b2ee2f"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\table_turn.csv",
+      "bytes": 2834,
+      "sha256": "2e7e8d3992e581b2cb471be305a9f924b2d5ea98323637bc7df7b60892fe9525"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\test_plan_template.csv",
+      "bytes": 622,
+      "sha256": "048d429e39c6f79b503575b114fa9e13d88bf21e82f3e23eae6b5f0158c70715"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\trace_table.csv",
+      "bytes": 21365,
+      "sha256": "d0c5abff77133754565ba2624d4dd2be0bff18b35d1347fa506a6d4f118c2424"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\turn_step_response.csv",
+      "bytes": 2019,
+      "sha256": "b03b84cf26e6e92f6c0bef0d96273bba6f222640319bb5a36c0f3f7c0b6a6b61"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\RobotFish-Dynamics\\analysis\\out\\yaw_map_points.csv",
+      "bytes": 1052,
+      "sha256": "6a8586c5b2a0740d6f6c6a0da4fe5241de83bf84b494f0a8f5f69ee84b075af2"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\vision\\path_guidance.py",
+      "bytes": 32164,
+      "sha256": "2cb6d8269d1b30b99f34d3c6ecec2b09a99d098c25081e40796befdf74b83cb5"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\vision\\configs\\control.json",
+      "bytes": 1568,
+      "sha256": "7ba97929ed7141c0a61ff919512b6a9073525b0bd64c50ad51aeead45c0fb896"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\vision\\configs\\measured_hybrid_dynamics_20261025.json",
+      "bytes": 2795,
+      "sha256": "51106c975fe811ebd2f542a91a50764e32e731b6a243f60e4786e84ce39d9577"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\main\\ControlState.h",
+      "bytes": 21227,
+      "sha256": "433ec532c560d418decc8cc013711eb73d2026d531a871c9ba4f6b4b2d3c9092"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\main\\Device\\Actuator\\TailMotion.cpp",
+      "bytes": 6494,
+      "sha256": "45b7930327d08145b1612501b381afbfd89ee723ad6d0d764f0cfa7568aedd7c"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\main\\config\\ControlConfig.h",
+      "bytes": 3372,
+      "sha256": "5ac50f08d24cb2d1aa1f629e5ee06142e667411d47eb6642ae5a90d573854c7d"
+    },
+    {
+      "path": "C:\\Users\\rlyoulo\\Desktop\\SAKANA\\RobotFish-ESP-IDF\\upper\\workstation.js",
+      "bytes": 29315,
+      "sha256": "10be829f16d8bc0b492409a3708c9143103ad994a796ba0d44bfa3f9ea09cebf"
+    }
+  ]
+}

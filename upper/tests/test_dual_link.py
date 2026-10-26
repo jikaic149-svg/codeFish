@@ -52,9 +52,9 @@ class DualLinkTests(unittest.TestCase):
             self.assertEqual(wire(uart.writes[-1]), [102, 1, SOURCE, 1])
             link.submit(link.host, 'target', {'mode': 3, 'axes': {'surge': 10}})
             link.submit(link.host, 'target', {'mode': 3, 'axes': {'surge': -35, 'yaw': 40, 'heave': -100}})
-            now[0] = .49; link.step()
+            now[0] = .249; link.step()
             self.assertEqual(len(uart.writes), 1)
-            now[0] = .5; link.step()
+            now[0] = .25; link.step()
             self.assertEqual(wire(uart.writes[-1]), [101, 1, SOURCE, 2, 20, 3, -350, 400, -1000, 1000])
             now[0] = 1.5; link.step()
             self.assertEqual(wire(uart.writes[-1])[0], 102)  # No repeat of a motion goal.

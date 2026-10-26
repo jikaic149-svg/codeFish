@@ -11,8 +11,15 @@ import time
 
 from tooling import WORKSPACE
 
-TASKS={'MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','POOL_SIZE','PREVIEW',
-       'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','EXIT'}
+TASKS={'MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','POOL_SIZE','PREVIEW','AUTO_START','AUTO_STOP',
+       'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','PERSPECTIVE_TEST','EXIT','VIEW','PREVIEW_FPS',
+       'CLEAR_PATH','TURN_CALIB','SPEED','RECORD','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','THRESHOLD'}
+
+
+def vision_python():
+    python=Path(os.environ.get('ROBOFISH_VISION_PYTHON',r'D:\python\venvs\yolo\ultralytics\8.4.118\Scripts\python.exe'))
+    if not python.is_file():raise RuntimeError('找不到视觉Python环境')
+    return python
 
 
 class VisionService:
@@ -46,8 +53,10 @@ class VisionService:
             if profile['key']=='head':profile.update(label='鱼头与 yaw 零位',saved=False,values={},runtime_only=True)
             if profile['key']=='tail':profile.update(label='YOLO 目标选择',saved=False,values={},runtime_only=True)
         default='vision/fish_body_yolo/best.pt' if (WORKSPACE/'vision/fish_body_yolo/best.pt').is_file() else ''
+        guidance=json.loads((WORKSPACE/'vision/configs/control.json').read_text(encoding='utf-8'))['guidance']
         return {'models':models,'default_model':default,'model_required':True,'algorithm':'YOLO + 独立视觉角度与轨迹观测',
-                'observation_only':True,'supported_tasks':sorted(TASKS),'calibration':profiles,'output':str(self.output)}
+                'guidance_defaults':guidance,
+                'observation_only':False,'automatic_tracking':True,'tracking_transport':'wifi','supported_tasks':sorted(TASKS),'calibration':profiles,'output':str(self.output)}
 
     def model_path(self,value=None):
         if value in (None,''):value=self.configuration()['default_model']
@@ -57,6 +66,19 @@ class VisionService:
         if not any(path.parent==folder for folder in allowed) or path.suffix.lower()!='.pt' or not path.is_file():
             raise ValueError('请选择 vision 内已交付的 .pt 模型')
         return path
+
+    def cameras(self):
+        with self.guard:
+            if self.process and self.process.poll() is None:
+                raise RuntimeError('请先停止视觉，再重新检测摄像头')
+            try:
+                result=subprocess.run([str(vision_python()),'-B',str(WORKSPACE/'vision/camera_sources.py')],
+                    capture_output=True,text=True,encoding='utf-8',timeout=25,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError('摄像头检测超时，请检查设备占用后重新检测') from exc
+            if result.returncode:raise RuntimeError('无法检测摄像头，请检查视觉环境或设备占用')
+            return json.loads(result.stdout)
 
     def open_output(self):
         folder=self.output;folder.mkdir(parents=True,exist_ok=True)
@@ -78,8 +100,7 @@ class VisionService:
             if self.process and self.process.poll() is None:
                 if argument!=self.source or (str(model) if model else '')!=self.model:raise RuntimeError('请先停止视觉，再应用新的相机或模型参数')
                 return self.state()
-            python=Path(os.environ.get('ROBOFISH_VISION_PYTHON',r'D:\python\venvs\yolo\ultralytics\8.4.118\Scripts\python.exe'))
-            if not python.is_file():raise RuntimeError('找不到视觉Python环境')
+            python=vision_python()
             output=self.output;output.mkdir(parents=True,exist_ok=True)
             for name in ('ultralytics','matplotlib'):(output/name).mkdir(exist_ok=True)
             self.token=secrets.token_hex(24);self.port=None;self.ready.clear();self.logs.clear();self.source=argument

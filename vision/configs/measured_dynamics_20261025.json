@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "profile_id": "robotfish-20261025-prop-surge-tail-angle",
+  "source_directory": "Desktop/RobotFish-Dynamics",
+  "source_segments": [
+    "20261025-142935-963-prop-straight-0-0-20p0-0-fdc4",
+    "20261025-143011-711-prop-straight-0-0-30p0-0-035d"
+  ],
+  "drive_mode": "HYBRID",
+  "allocation": {
+    "forward_command": "common propeller percentage; left = right = PC surge",
+    "tail_drive_pct": 0,
+    "prop_diff_pct": 0,
+    "steering": "native yaw PID controls static tail attack angle",
+    "zero_forward": "no tail oscillation or common propeller thrust; tail angle remains controlled"
+  },
+  "propulsion": {
+    "measured_mode": "PROP",
+    "speed_measurement": "median one-second metric displacement in the final 2 seconds of camera samples during drive",
+    "quality": "late-drive reference only; raw traces still accelerate, so these are not verified steady-state speeds",
+    "measured_speed_range_mps": [0.24122803162319684, 0.3862307690767761],
+    "measured_command_range_pct": [20, 30],
+    "below_measured_range": "estimate along the line from zero to the first measured point; keep visual PID feedback",
+    "above_measured_range": "hold feedforward at the highest measured command; keep visual PID feedback",
+    "limitations": [
+      "The default 0.10 m/s target is below the measured propulsion range.",
+      "The 40 percent run has no reliable late-drive speed and is excluded.",
+      "Tail-angle steering adds drag; the straight-run map is feedforward only.",
+      "No measured braking or turn-radius envelope is enabled for the new allocation."
+    ],
+    "samples": [
+      {
+        "speed_mps": 0.24122803162319684,
+        "command_pct": 20,
+        "segment_id": "fdc49a346d43",
+        "observed_prop_left_pct": 20,
+        "observed_prop_right_pct": 20,
+        "observed_tail_drive_pct": 0,
+        "sample_count": 19,
+        "camera_window_since_segment_start_s": [6.299976825714111, 8.268543004989624],
+        "speed_std_mps": 0.0147808849,
+        "speed_trend_mps2": 0.0217013292,
+        "quality": "late-drive estimate; still accelerating"
+      },
+      {
+        "speed_mps": 0.3862307690767761,
+        "command_pct": 30,
+        "segment_id": "035d1e80acc5",
+        "observed_prop_left_pct": 30,
+        "observed_prop_right_pct": 30,
+        "observed_tail_drive_pct": 0,
+        "sample_count": 19,
+        "camera_window_since_segment_start_s": [4.47398567199707, 6.426287651062012],
+        "speed_std_mps": 0.0380977336,
+        "speed_trend_mps2": 0.0442214264,
+        "quality": "late-drive estimate; still accelerating"
+      }
+    ]
+  },
+  "curve_envelope": {
+    "available": false,
+    "reason": "Existing turn runs use tail oscillation and/or propeller differential; no matched left/right radius and zero-forward coast data cover the new allocation."
+  }
+}

@@ -34,7 +34,7 @@ Motion schedule(const robofish::motion::Request &request, const robofish::motion
   // Keep strength scaling and the existing angular-speed budget for both joints.
   const float turn = std::clamp(std::abs(yaw) * 0.01f * request.outputScale, 0.0f, 1.0f);
   motion.frequencyHz = effective > 0 ?
-      recipe.forwardMaximumFrequencyHz * std::sqrt(std::max(effective, turn)) : 0;
+      recipe.forwardMaximumFrequencyHz * std::sqrt(request.tailFrequencyFromDrive ? effective : std::max(effective, turn)) : 0;
   if (motion.amplitudeDegrees > 0) {
     const double peakSpeed = algorithm::kTwoPi * motion.frequencyHz *
         std::max(motion.amplitudeDegrees, previousAmplitudeDegrees) *
@@ -56,7 +56,7 @@ Output allocate(const robofish::motion::Request &request, const robofish::motion
   output.targetRear = geometry.tailRear.centerDegrees;
   if (request.enabled && request.tailEnabled) {
     const bool oscillating = request.mode == DriveMode::Bionic || request.mode == DriveMode::Hybrid;
-    if (oscillating) {
+    if (oscillating && !request.preserveTailBias) {
       // Share joint travel between steering bias and oscillation. Reserving all
       // travel for bias first can make full steering appear to freeze the tail.
       float scale = 1.0f;
@@ -73,6 +73,7 @@ Output allocate(const robofish::motion::Request &request, const robofish::motion
     }
     const float frontCenter = boundedCenter(geometry.tailFront, biasDegrees, output.limits);
     const float rearCenter = boundedCenter(geometry.tailRear, biasDegrees, output.limits);
+    output.effectiveBiasDegrees = frontCenter - geometry.tailFront.centerDegrees;
     output.targetFront = frontCenter;
     output.targetRear = rearCenter;
     if (oscillating) {
@@ -84,6 +85,7 @@ Output allocate(const robofish::motion::Request &request, const robofish::motion
         available = std::min(available, rearAvailable);
       }
       const float amplitude = std::min(amplitudeDegrees, std::max(0.0f, available));
+      output.effectiveAmplitudeDegrees = amplitude;
       if (amplitude != amplitudeDegrees) output.limits |= robofish::motion::TailLimited;
       output.load = recipe.amplitudeDegrees > 0 ? amplitude / recipe.amplitudeDegrees : 0;
       output.targetFront += amplitude * static_cast<float>(std::sin(phaseRad));

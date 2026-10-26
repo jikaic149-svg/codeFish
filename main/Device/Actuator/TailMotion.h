@@ -21,6 +21,9 @@ struct Output {
   float front = 0;
   float rear = 0;
   float load = 0;
+  // Nominal front-joint offset/envelope after travel limiting, not sensed angles.
+  float effectiveBiasDegrees = 0;
+  float effectiveAmplitudeDegrees = 0;
   uint32_t limits = 0;
 };
 

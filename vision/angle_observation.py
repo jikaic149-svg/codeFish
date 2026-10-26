@@ -17,6 +17,13 @@ def wrap_degrees(value):
     return (float(value)+180.)%360.-180.
 
 
+def body_mask(frame,value_max=130):
+    hsv=cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
+    neutral=(hsv[:,:,1]<=90)|(hsv[:,:,0]<75)|(hsv[:,:,0]>135)
+    mask=((hsv[:,:,2]<=value_max)&neutral).astype(np.uint8)*255
+    return cv2.morphologyEx(mask,cv2.MORPH_OPEN,np.ones((3,3),np.uint8))
+
+
 class OpticalBodyAxis:
     """YOLO selects identity/ROI; the image alone supplies the measured axis.
 
@@ -30,22 +37,20 @@ class OpticalBodyAxis:
         self.direction=None;self.zero_world=None;self.initialized=False
         self.last_time=None;self.track_id=None;self.latest=None;self.continuity_id=0
 
-    def update(self,frame,bbox,stamp,field,track_id=None):
+    def update(self,frame,bbox,stamp,field,track_id=None,value_max=130):
         if self.latest is not None and self.latest.get('sample_time')==stamp:return dict(self.latest)
         if field.matrix is None:return {'valid':False,'reason':'NEEDS_POOL_CALIBRATION'}
         roi=_clip_roi(bbox,frame.shape[1],frame.shape[0]) if bbox is not None else None
         if roi is None:return {'valid':False,'reason':'NO_FISH'}
-        x1,y1,x2,y2=roi;hsv=cv2.cvtColor(frame[y1:y2,x1:x2],cv2.COLOR_BGR2HSV)
-        neutral=(hsv[:,:,1]<=90)|(hsv[:,:,0]<75)|(hsv[:,:,0]>135)
-        mask=((hsv[:,:,2]<=130)&neutral).astype(np.uint8)*255
-        mask=cv2.morphologyEx(mask,cv2.MORPH_OPEN,np.ones((3,3),np.uint8))
+        x1,y1,x2,y2=roi;mask=body_mask(frame[y1:y2,x1:x2],value_max)
         contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
         contours=[c for c in contours if cv2.contourArea(c)>=25]
         if not contours:return {'valid':False,'reason':'BODY_MASK_UNAVAILABLE'}
         solid=np.zeros_like(mask);cv2.drawContours(solid,[max(contours,key=cv2.contourArea)],-1,255,-1)
-        distance=cv2.distanceTransform(solid,cv2.DIST_L2,3)
+        # Keep a zero-valued background even when the body fills the entire ROI.
+        distance=cv2.distanceTransform(np.pad(solid,1),cv2.DIST_L2,3)[1:-1,1:-1]
         yy,xx=np.nonzero(solid);pixels=np.column_stack((xx+x1,yy+y1)).astype(np.float64)
-        weights=np.maximum(distance[yy,xx],.1)**2
+        weights=np.maximum(distance[yy,xx].astype(np.float64),.1)**2
         world=field.transform(pixels);centre=np.average(world,axis=0,weights=weights);points=world-centre
         values,vectors=np.linalg.eigh((points*weights[:,None]).T@points/weights.sum())
         ratio=float(values[1]/max(values[0],1e-12));axis=vectors[:,1]
@@ -93,7 +98,13 @@ SAMPLE_FIELDS=('utc','source','replay','frame','video_s','camera_receipt_time','
     'target_relative_deg','vision_error_deg','imu_error_deg','vision_minus_imu_deg',
     'native_target_cw_deg','native_target_active','native_yaw_active','yaw_output_right_pct','yaw_p','yaw_i','yaw_d','surge_pct',
     'tail1_deg','tail2_deg','left_esc_pct','right_esc_pct','uptime_ms','native_telemetry_time','native_source_id','lora_sequence',
-    'detect_ms','optical_ms','preview_ms','processing_ms','yolo_preprocess_ms','yolo_inference_ms','yolo_postprocess_ms')
+    'vision_threshold','speed_mps','detect_ms','optical_ms','preview_ms','processing_ms','yolo_preprocess_ms','yolo_inference_ms','yolo_postprocess_ms',
+    'speed_1s_mps','output_sample_time','output_common_pct','output_differential_pct','output_tail_drive_pct',
+    'output_tail_bias_pct','output_tail_frequency_hz','output_tail_amplitude_deg',
+    'curve_speed_limit_mps','curve_distance_m','curve_radius_m','curve_speed_status','curve_profile_id',
+    'v_along_mps','v_cross_mps','course_error_deg','sideslip_deg','path_curvature_per_m',
+    'curve_heading_feedforward_deg','reference_rate_limited','paused','pause_reason','pause_count','target_ack_age_ms','stop_reason',
+    'along_m','seg_index','output_effective_tail_bias_deg','output_effective_tail_amplitude_deg')
 
 
 class AngleSamples:

@@ -1,11 +1,16 @@
 """Actual OpenCV file roundtrip, codec failure and recorder lifecycle checks."""
 import csv
+import importlib.util
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 
+if importlib.util.find_spec('cv2') is None:raise unittest.SkipTest('Requires the installed YOLO/OpenCV Python')
 import cv2
 import numpy as np
+ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(ROOT/'vision'))
 from video_recorder import AsyncVideoRecorder
 
 

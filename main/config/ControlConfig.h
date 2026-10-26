@@ -5,6 +5,24 @@
 
 // Latest F405 allocation policy, with unrelated services and safety omitted.
 namespace robofish::config::control {
+// HeadingTarget only: the speed loop supplies both tail gait and common props;
+// yaw adds tail bias without increasing gait amplitude/frequency or adding a floor.
+// Equal command percentages match the measured hybrid 10/10, 15/15 and 20/20
+// recipes; they do not imply equal thrust. Ratio [0,1], zero surge means zero gait.
+inline constexpr float kHeadingTailDriveRatio = 1.0f;
+// Increase requested oscillation amplitude, independently of frequency and bias.
+// Applies to heading control and explicit HYBRID calibration (not old baseline).
+// Existing actuator travel/rate limits still bound actual joint commands.
+inline constexpr float kHybridTailAmplitudeGain = 1.5f;
+static_assert(kHybridTailAmplitudeGain >= 1 && kHybridTailAmplitudeGain <= 2);
+// Optional differential gain [0,1] and cap [0,100]%; remaining common-drive
+// headroom also limits it. Neither changes the existing yaw PID or tail gain.
+inline constexpr float kHeadingPropDiffGain = 0.0f;
+inline constexpr float kHeadingPropDiffLimitPercent = 0.0f;
+inline constexpr const char *kHeadingAllocationProfile = "hybrid_gait_tail_bias";
+static_assert(kHeadingTailDriveRatio >= 0 && kHeadingTailDriveRatio <= 1 &&
+              kHeadingPropDiffGain >= 0 && kHeadingPropDiffGain <= 1 &&
+              kHeadingPropDiffLimitPercent >= 0 && kHeadingPropDiffLimitPercent <= 100);
 inline constexpr uint32_t kPeriodMs = 20;
 inline constexpr uint32_t kMaximumSlewElapsedMs = kPeriodMs;
 // Ordinary start/stop: 0 to 100% (or back to neutral) takes 500 ms.

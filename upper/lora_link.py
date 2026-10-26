@@ -9,9 +9,9 @@ import time
 from diagnostics import event
 
 SOURCE = 23120
-SEND_INTERVAL = .5  # 2.4 kbit/s radio: latest target only, at most two frames/s.
+SEND_INTERVAL = .25  # 2.4 kbit/s radio: latest target only, at most four changed frames/s.
 HEARTBEAT_INTERVAL = 1.0
-TARGET_REFRESH_INTERVAL = 1.0  # Fresh unchanged input renews at 1 Hz; changes retain the 500 ms RF spacing.
+TARGET_REFRESH_INTERVAL = 1.0  # Unchanged input renews at 1 Hz; changes use the 250 ms RF spacing.
 TARGET_MAX_AGE = 1.0
 
 

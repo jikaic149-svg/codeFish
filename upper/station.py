@@ -454,6 +454,7 @@ class Workstation:
                and feedback.get('body_valid') is True and all(type(v) in (int,float) and math.isfinite(v) for v in (yaw,age))
                and 0<=age<=350)
         source_id=view.get('diagnostics',{}).get('uptime_ms')
+        allocation=(view.get('diagnostics') or {}).get('allocation') or {}
         angle_age=view.get('imu',{}).get('age_ms')
         # body_yaw uses the filtered ANGLE sample. feedback.age_ms is the older
         # of angle/rate packets and remains the validity gate, not its timestamp.
@@ -464,6 +465,9 @@ class Workstation:
                 'source_id':source_id,
                 'heading_reference':view.get('heading_reference') or {},
                 'actuators':dict(view.get('actuators') or {}),
+                'allocation':{key:allocation.get(key) for key in
+                    ('written_common_pct','written_differential_pct','tail_drive_pct','tail_bias_pct','tail_frequency_hz','tail_amplitude_deg',
+                     'written_tail_front_offset_deg','written_tail_rear_offset_deg','effective_tail_bias_deg','effective_tail_amplitude_deg')},
                 'control':{**(view.get('control') or {}),'lora_sequence':view.get('diagnostics',{}).get('lora',{}).get('last_sequence')},
                 'onboard':{'yaw_active':feedback.get('yaw_active') is True,
                     'heading_target_active':feedback.get('heading_target_active') is True,
@@ -485,14 +489,25 @@ class Workstation:
                 view=device_client.CLIENT.robot(host)
                 if view.get('attitude_control',{}).get('heading_target_supported') is not True:
                     raise device_client.DeviceError('循迹需要支持航向目标的 S3 固件，请烧录 2.7.0 或更新固件',code='unsupported_control')
+                if view.get('attitude_control',{}).get('heading_tail_guidance_supported') is not True:
+                    raise device_client.DeviceError('实测动力循迹需要 2.7.3-tail-guidance 固件，请先升级并重新连接',code='unsupported_control')
+                if view.get('attitude_control',{}).get('heading_allocation_profile')!='hybrid_gait_tail_bias':
+                    raise device_client.DeviceError('摆尾＋双桨循迹需要 2.7.5-hybrid-guidance 固件，请先升级并重新连接',code='unsupported_control')
+                if (view.get('attitude_control',{}).get('heading_tail_amplitude_gain') or 0)<1.5:
+                    raise device_client.DeviceError('加大摆幅的循迹需要 2.7.6-strong-tail 固件，请先升级并重新连接',code='unsupported_control')
+                if view.get('attitude_control',{}).get('heading_bias_priority_supported') is not True:
+                    raise device_client.DeviceError('转向优先的摆尾循迹需要 2.7.7-steering-priority 固件，请先升级并重新连接',code='unsupported_control')
+                if view.get('control',{}).get('lora_healthy') is True:
+                    raise device_client.DeviceError('LoRa 仍占有主控，请等待鱼端释放后再启动 Wi-Fi 循迹')
+                device_client.CLIENT.motion_control(host,'stop',binding,sequence,client_id=session+'-setup',via_wifi=True)
                 if view.get('motion',{}).get('mode')!=3:
-                    device_client.CLIENT.motion_control(host,'mode',binding,sequence,client_id=session,mode=3)
+                    device_client.CLIENT.motion_control(host,'mode',binding,sequence,client_id=session,mode=3,via_wifi=True)
                     view=device_client.CLIENT.robot(host)
                 ready=view.get('motion',{}).get('mode')==3
                 with self.guard:
                     if generation!=self.control_generation:raise device_client.DeviceError('视觉启动期间控制权已变化')
                     self.sequences[session]=sequence
-                    if ready:self.vision_sessions[session]={'generation':generation,'binding':binding,'host':host}
+                    if ready:self.vision_sessions[session]={'generation':generation,'binding':binding,'host':host,'transport':'wifi'}
                 return {'ready':ready,'mode':3 if ready else view.get('motion',{}).get('mode'),'yaw_owner':'S3',
                         'simulated':False,'message':'S3 角度环与 PC 视觉/速度环已准备' if ready else '等待鱼端确认混合模式，请稍后再次启动'}
             with self.guard:
@@ -506,12 +521,12 @@ class Workstation:
                 self._ordered(session,sequence)
                 authorization=self.vision_sessions.get(session)
                 if not isinstance(authorization,dict) or authorization['generation']!=self.control_generation:
-                    raise device_client.DeviceError('视觉任务已退出或被人工接管，需要重新启动循迹')
+                    raise device_client.DeviceError('视觉任务已退出或被人工接管，需要重新启动循迹',code='vision_session_changed')
                 host,binding=authorization['host'],authorization['binding']
-                if host!=self.host:raise device_client.DeviceError('视觉设备已变化')
+                if host!=self.host:raise device_client.DeviceError('视觉设备已变化',code='vision_session_changed')
             if device_client.CLIENT.control_binding(host,session)!=binding:
-                raise device_client.DeviceError('控制会话已变化，请重新启动视觉循迹')
-            result=device_client.CLIENT.motion_control(host,action,binding,sequence,client_id=session,**payload)
+                raise device_client.DeviceError('控制会话已变化，请重新启动视觉循迹',code='control_session_changed')
+            result=device_client.CLIENT.motion_control(host,action,binding,sequence,client_id=session,via_wifi=True,**payload)
             with self.guard:self.sequences[session]=sequence
             return result
 
