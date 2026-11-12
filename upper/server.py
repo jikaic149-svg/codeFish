@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent
 OCD = tooling.OPENOCD_HOME
 TOKEN = secrets.token_hex(24)
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
-REVISION = 'workstation-36-steering-priority'
+REVISION = 'workstation-37-host-logic-fixes'
 DYNAMICS = DynamicsControl(STATION,VISION)
 FEATURES = {'attitude_control': True, 'shutdown': True}
 # Simulator controls proxy only when explicitly requested, so a normal run
@@ -387,12 +387,12 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/health':return self.reply(200,{'service':'robotfish-local','revision':REVISION,'instance':str(ROOT),'pid':os.getpid(),'shutdown_supported':True,'vision_observation_only':False,'vision_control_mode':3,'vision_client_revision':'yolo-s3-heading-1'})
         if path=='/api/session':return self.reply(200,{'token':TOKEN,'revision':REVISION,'features':FEATURES})
         if path=='/api/tooling':return self.reply(200,tooling.info())
-        if path=='/api/station/lora':return self.reply(200,device_client.CLIENT.lora_status())
+        if path=='/api/station/lora':return self.reply(200,dict(device_client.CLIENT.lora_status(),manual_epoch=STATION.manual_epoch))
         if path=='/api/station/lora/ports':
             try:return self.reply(200,device_client.CLIENT.lora_ports())
             except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/station':
-            try:return self.reply(200,dict(STATION.read(),mode=STATION.mode))
+            try:return self.reply(200,dict(STATION.read(),mode=STATION.mode,manual_epoch=STATION.manual_epoch))
             except device_client.DeviceError as exc:return self.device_error(exc)
         if path=='/api/data':return self.reply(200,STATION.data())
         if path=='/api/telemetry':return self.reply(200,STATION.telemetry())
@@ -615,9 +615,13 @@ class Handler(BaseHTTPRequestHandler):
                         port=body.get('port',''), address=body.get('address','0102'),
                         channel=body.get('channel','20'), connected=body.get('connected',True)))
             if action=='station/control':
-                return self.reply(200,STATION.configure_control(body.get('action'),body.get('value'),body.get('session'),body.get('sequence'),client_id=body.get('client_id')))
+                if body.get('action')=='heading_target' and type(body.get('manual_epoch')) is not int:
+                    raise device_client.DeviceError('请刷新上位机后重新操作',code='manual_input_changed')
+                return self.reply(200,STATION.configure_control(body.get('action'),body.get('value'),body.get('session'),body.get('sequence'),client_id=body.get('client_id'),manual_epoch=body.get('manual_epoch')))
             if action=='station/target':
-                return self.reply(200,STATION.target(body.get('axes'),body.get('session'),body.get('sequence'),body.get('source'),client_id=body.get('client_id')))
+                if type(body.get('manual_epoch')) is not int:
+                    raise device_client.DeviceError('请刷新上位机后重新操作',code='manual_input_changed')
+                return self.reply(200,STATION.target(body.get('axes'),body.get('session'),body.get('sequence'),body.get('source'),client_id=body.get('client_id'),manual_epoch=body['manual_epoch']))
             if action=='station/command':
                 return self.reply(200,STATION.command(body.get('command'),body.get('source','lora')))
             if action=='station/simulate':return self.reply(200,STATION.simulate(body.get('changes')))

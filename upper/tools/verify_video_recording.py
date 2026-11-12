@@ -65,9 +65,14 @@ def main():
         capture.release()
         assert frames==recording['frames'] and frames>=4,(frames,recording)
         with Path(recording['csv_path']).open(encoding='utf-8-sig',newline='') as file:
-            rows=list(csv.reader(file))
-            assert len(rows)==frames+1
-            assert len({row[0] for row in rows[1:]})==frames,'Duplicate source frames were recorded'
+            rows=list(csv.DictReader(file))
+            assert len(rows)==frames
+            assert [int(row['recording_frame']) for row in rows]==list(range(frames))
+            assert sum(int(row['recording_repeated']) for row in rows)==recording['repeated_frames']
+            fresh=[row for row in rows if row['recording_repeated']=='0']
+            assert len({row['frame'] for row in fresh})==len(fresh),'A source frame was submitted twice'
+            duration=frames/recording['fps']
+            assert abs(duration-(float(rows[-1]['video_s'])-float(rows[0]['video_s'])+1/recording['fps']))<.1
         return {'file':path.name,'frames':frames,'bytes':path.stat().st_size}
     try:
         with patch.dict(os.environ,{'ROBOFISH_VISION_SAMPLES':str(work)}):

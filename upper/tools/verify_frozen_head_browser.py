@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,7 +28,7 @@ def main():
         bridge = WebBridge(observer=True)
     image = np.full((600,1000,3), 200, np.uint8)
     cv2.ellipse(image, (500,250), (80,23), 0, 0, 360, (20,20,20), -1)
-    detector = SimpleNamespace(device='cpu', last_speed={}, update=lambda *_:SimpleNamespace(
+    detector = SimpleNamespace(device='cpu', last_speed={}, select=Mock(), update=lambda *_:SimpleNamespace(
         metrics={'body_bbox':(400,150,600,350), 'track_id':1}, position=(500,250), confidence=.9))
     session = ObserverSession('fixture.mp4', 'fixture.pt', bridge, detector=detector,
                               output=output, calibration=output/'unused-pool.json')
@@ -60,7 +60,7 @@ def main():
         'data':{'rows':[],'count':0,'recording':False,'capacity':30000},
         'telemetry':{'latest':{},'count':0}, 'vision/cameras':{'cameras':[]},
         'vision/config':{'models':[],'default_model':'','model_required':False,'calibration':[],
-                         'supported_tasks':['HEAD_DIRECTION','POOL_CALIB','VIEW']}}
+                         'supported_tasks':['HEAD_DIRECTION','POOL_CALIB','MARKER_ROI','VIEW']}}
     def route(route):
         url = urlsplit(route.request.url)
         if url.hostname != '127.0.0.1':return route.abort()
@@ -104,6 +104,26 @@ def main():
                 assert session.display_space == space
                 np.testing.assert_allclose(session.head['head_pixel'], point, atol=1.5)
                 cases.append({'view':view,'head_selected':True,'view_preserved':True})
+            # Local rectangle follows the pointer without waiting for a JPEG/state poll.
+            page.locator('[data-vision-task=MARKER_ROI]').first.click()
+            page.wait_for_function("visionState.selection_id && $('vision-result').dataset.selectionId===visionState.selection_id && $('vision-result').dataset.pointerReady==='true'")
+            page.locator('#vision-result').scroll_into_view_if_needed()
+            points = page.locator('#vision-result').evaluate('''img=>{
+                const b=visionImageBounds(img);
+                return [[b.left+.35*b.width,b.top+.3*b.height],[b.left+.65*b.width,b.top+.6*b.height]];
+            }''')
+            page.mouse.move(*points[0]);page.mouse.down()
+            page.mouse.move(*points[1],steps=12)
+            selection = page.locator('.vision-selection-overlay')
+            assert selection.is_visible(), page.evaluate("({pointerDown,interaction:visionState.result.interaction,image:$('vision-result').dataset,bounds:visionImageBounds($('vision-result'))})")
+            assert float(selection.evaluate("node=>parseFloat(node.style.width)")) > 20
+            page.evaluate("$('vision-result').dataset.pointerReady='false'")
+            page.mouse.up()
+            page.wait_for_function("!visionState.selection_id && !visionState.result.interaction",timeout=3000)
+            assert detector.select.call_count == 1, detector.select.call_args_list
+            np.testing.assert_allclose(detector.select.call_args.args[1],
+                                       [.35*999,.3*599,.65*999,.6*599],atol=1.5)
+            assert not selection.is_visible()
             # Four-corner markers still refresh while the base image stays frozen.
             page.locator('[data-vision-task=POOL_CALIB]').first.click()
             page.wait_for_function("visionState.selection_id && $('vision-result').dataset.selectionId===visionState.selection_id && $('vision-result').dataset.pointerReady==='true'")
@@ -114,7 +134,8 @@ def main():
             page.locator('[data-vision-task=POOL_CALIB]').first.click()
             page.wait_for_function('!visionState.selection_id')
             assert not errors, errors
-            report = {'cases':cases,'frozen_markers_refresh':True,'cancel_resumes':True,'physical_calls':0,'errors':errors}
+            report = {'cases':cases,'roi_local_feedback':True,'roi_release_during_reload':True,
+                      'frozen_markers_refresh':True,'cancel_resumes':True,'physical_calls':0,'errors':errors}
             (output/'verification.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
             print(json.dumps(report), flush=True);browser.close()
     except Exception:

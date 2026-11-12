@@ -12,6 +12,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import dynamics_calibration as recording
 import dynamics_control as control
+from station import Workstation
 
 
 class DynamicsControlTests(unittest.TestCase):
@@ -22,9 +23,8 @@ class DynamicsControlTests(unittest.TestCase):
         self.frame = 0
         self.x = 0.
         self.outputs_active = False
-        self.station = SimpleNamespace(host='192.168.1.42', guard=threading.RLock(),
-            command_guard=threading.RLock(), control_generation=0, vision_sessions={},
-            heading_goal=None, control_source='lora', read=self.fish)
+        self.station=Workstation()
+        self.station.host='192.168.1.42';self.station.read=self.fish
         self.vision = SimpleNamespace(state=self.image)
         self.recorder = recording.DynamicsRecorder(self.station, self.vision, self.root)
         self.controller = control.DynamicsControl(self.station, self.vision, self.recorder)

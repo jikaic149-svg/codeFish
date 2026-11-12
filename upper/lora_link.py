@@ -168,7 +168,7 @@ class LoRaLink:
             now = self.clock()
             if self.serial is None:
                 return
-            if self.pending and now - self.pending[2] >= TARGET_MAX_AGE:
+            if self.pending and self.pending[0] != 'stop' and now - self.pending[2] >= TARGET_MAX_AGE:
                 self.pending = None
             if self._wait_seconds(now)>0:
                 return

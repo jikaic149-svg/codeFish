@@ -123,8 +123,8 @@ class DynamicsControl:
 
     def _invalidate_vision(self):
         with self.station.guard:
-            self.station.control_generation += 1
-            self.station.vision_sessions.clear()
+            self.station._revoke_vision()
+            self.station.manual_epoch+=1
             self.station.heading_goal = None
             self.station_generation = self.station.control_generation
 

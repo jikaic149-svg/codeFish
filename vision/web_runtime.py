@@ -27,7 +27,8 @@ TASKS={'AUTO_START','AUTO_STOP','CLEAR_PATH','MARKER_ROI','HEAD_DIRECTION','POOL
 class WebBridge:
     def __init__(self,*,observer=False):
         self.observer=observer;self.metadata={};self.control_enabled=False
-        self.guard=threading.Lock();self.events=queue.Queue(maxsize=128)
+        self.guard=threading.Lock();self.frame_ready=threading.Condition(self.guard);self.events=queue.Queue(maxsize=128)
+        self.action_guard=threading.Lock();self.exit_task=None
         self.frames={};self.frame_time=0.;self.width=self.height=0
         self.result={};self.last_task=None;self.active_tasks=[];self.closed=threading.Event()
         self.cruise_speed_mps = CONTROL['guidance']['cruise_speed_mps']
@@ -56,27 +57,32 @@ class WebBridge:
             def generate():
                 previous=None
                 while not self.closed.is_set():
-                    with self.guard:raw=self.frames.get(kind)
+                    with self.frame_ready:
+                        self.frame_ready.wait_for(lambda:self.closed.is_set() or
+                            bool(self.frames.get(kind)) and self.frames[kind] is not previous,timeout=.5)
+                        raw=self.frames.get(kind)
                     if raw and raw is not previous:
                         previous=raw
                         yield b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: '+str(len(raw)).encode()+b'\r\n\r\n'+raw+b'\r\n'
-                    else:time.sleep(.01)
             return Response(generate(),mimetype='multipart/x-mixed-replace; boundary=frame',headers={'Cache-Control':'no-store'})
         @self.app.post('/action')
         def action():
             body=request.get_json(silent=True)
             if not isinstance(body,dict):return {'error':'invalid action'},400
-            supported=(TASKS|{'SPEED','PREVIEW','VIEW','PREVIEW_FPS','THRESHOLD','PERSPECTIVE_TEST','SAMPLE_START','SAMPLE_STOP'} if self.observer else TASKS|{'SPEED'})
+            supported=(TASKS|{'SPEED','PREVIEW','VIEW','PREVIEW_FPS','THRESHOLD','PERSPECTIVE_TEST','SAMPLE_START','SAMPLE_STOP','EXP_AUTO'} if self.observer else TASKS|{'SPEED'})
             if body.get('task') not in supported and body.get('kind') not in ('down','move','up','right'):
                 return {'error':'unsupported action'},400
             if body.get('task') == 'SPEED' and (type(body.get('value')) not in (int, float)
                     or not math.isfinite(body['value']) or body['value'] < 0):
                 return {'error':'speed must be a finite nonnegative value in m/s'},400
             if body.get('task')=='VIEW' and body.get('value') not in ('raw','perspective'):return {'error':'invalid view'},400
-            if body.get('task')=='PREVIEW_FPS' and (type(body.get('value')) is not int or body['value'] not in (3,10,15,30)):
-                return {'error':'preview FPS must be 3, 10, 15 or 30'},400
+            if body.get('task')=='PREVIEW_FPS' and (type(body.get('value')) is not int or body['value'] not in (3,10,15,30,60,120)):
+                return {'error':'preview FPS must be 3, 10, 15, 30, 60 or 120'},400
             if body.get('task')=='THRESHOLD' and (type(body.get('value')) is not int or not 0<=body['value']<=255):
                 return {'error':'threshold must be 0..255'},400
+            if 'exposure_mode' in body and (not self.observer or body.get('task') not in ('EXP_UP','EXP_DOWN')
+                    or body['exposure_mode'] not in ('auto','manual')):
+                return {'error':'invalid exposure mode'},400
             if 'space' in body and body['space'] not in ('image','field'):return {'error':'invalid coordinate space'},400
             if body.get('task') == 'POOL_SIZE' and any(
                     type(body.get(key)) not in (int, float) or not math.isfinite(body[key])
@@ -85,9 +91,21 @@ class WebBridge:
             if 'kind' in body and any(type(body.get(key)) not in (int,float) or not 0<=body[key]<=1 for key in ('x','y')):
                 return {'error':'invalid coordinate'},400
             body={**body,'id':uuid.uuid4().hex}
-            try:self.events.put_nowait(body)
-            except queue.Full:return {'error':'action queue full'},409
-            with self.guard:self.last_task={'id':body['id'],'task':body.get('task',body.get('kind')),'state':'queued'}
+            with self.action_guard,self.guard:
+                if self.exit_task:
+                    if body.get('task') in ('AUTO_STOP','EXIT'):return {'id':self.exit_task,'state':'queued'},202
+                    return {'error':'vision is exiting'},409
+                if self.closed.is_set():return {'error':'vision has exited'},409
+                if body.get('task') in ('AUTO_STOP','EXIT'):
+                    # Cancel queued input, especially AUTO_START, before STOP.
+                    # Already executing work completes before the queued STOP.
+                    while True:
+                        try:self.events.get_nowait()
+                        except queue.Empty:break
+                try:self.events.put_nowait(body)
+                except queue.Full:return {'error':'action queue full'},409
+                if body.get('task')=='EXIT':self.exit_task=body['id']
+                self.last_task={'id':body['id'],'task':body.get('task',body.get('kind')),'state':'queued'}
             return {'id':body['id'],'state':'queued'},202
         @self.app.post('/transform')
         def transform():
@@ -120,11 +138,14 @@ class WebBridge:
             with self.guard:
                 self.frames['raw']=jpeg.tobytes();self.frame_time=timestamp
                 self.height,self.width=frame.shape[:2]
+                self.frame_ready.notify_all()
 
     def update(self,frame):
         ok,jpeg=cv2.imencode('.jpg',frame,[cv2.IMWRITE_JPEG_QUALITY,75])
         if ok:
-            with self.guard:self.frames['result']=jpeg.tobytes()
+            with self.guard:
+                self.frames['result']=jpeg.tobytes()
+                self.frame_ready.notify_all()
 
     def send(self,result):
         # Existing VISION publishes this same structured state to its tablet UI.
@@ -164,7 +185,9 @@ class WebBridge:
                 'state':'processed','status':status,'tracking':bool(tracking)}
             self.active_tasks.clear()
 
-    def close(self):self.closed.set()
+    def close(self):
+        self.closed.set()
+        with self.frame_ready:self.frame_ready.notify_all()
 
     def _telemetry_loop(self):
         while not self.closed.is_set():

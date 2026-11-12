@@ -18,6 +18,8 @@ def load_control_config():
             or not 0<data['model']['confidence']<1 or data['model']['imgsz']<32
             or not 0<data['guidance']['min_lookahead_m']<=data['guidance']['lookahead_m']
             or not 0<data['guidance'].get('heading_reference_rate_deg_s',35)<=180
+            or not 0<data['guidance'].get('rejoin_exit_m',.08)<data['guidance'].get('rejoin_enter_m',.15)
+            or not 0<data['guidance'].get('rejoin_heading_deg',20)<90
             or not 0<=data['guidance'].get('max_curve_heading_deg',22)<=45
             or not 0<data['guidance'].get('curve_speed_ratio',.68)<=1
             or data['guidance']['min_speed_mps']>data['guidance']['cruise_speed_mps']):

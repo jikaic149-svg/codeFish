@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / 'project'
 STATE = ROOT / 'state'
 PYTHON = ROOT / 'runtime/python.exe'
+LOCAL_VISION_PYTHON = Path(r'D:\python\venvs\yolo\ultralytics\8.4.118\Scripts\python.exe')
 IDF_PYTHON = ROOT / 'idf-env/Scripts/python.exe'
 IDF = ROOT / 'tools/esp-idf'
 BUILD = STATE / 'build/firmware'
@@ -102,8 +103,27 @@ def conclude(action, status, summary, **details):
     return {'success': 0, 'failed': 1, 'cancelled': 130, 'unconfirmed': 2}[status]
 
 
-def environment(idf=False):
+def environment(idf=False, vision_device=None):
     env = dict(os.environ)
+    vision_device = vision_device or env.get('ROBOFISH_VISION_DEVICE', 'auto')
+    if vision_device not in ('auto', 'cpu', 'cuda'):
+        raise ValueError('视觉设备必须为 auto、cpu 或 cuda')
+    configured = env.get('ROBOFISH_VISION_PYTHON')
+    vision_python = Path(configured) if configured else LOCAL_VISION_PYTHON
+    # Old portable editor terminals still export the bundled CPU interpreter.
+    if vision_python.resolve() == PYTHON.resolve():
+        configured = None
+        vision_python = LOCAL_VISION_PYTHON
+    if vision_device == 'cpu':
+        vision_python = PYTHON
+    elif not vision_python.is_file():
+        if configured or vision_device == 'cuda':
+            raise RuntimeError('找不到视觉Python环境：' + str(vision_python))
+        vision_python = PYTHON
+    if vision_python == PYTHON:
+        env['CUDA_VISIBLE_DEVICES'] = '-1'
+    elif env.get('CUDA_VISIBLE_DEVICES') in ('-1', ''):
+        env.pop('CUDA_VISIBLE_DEVICES')
     for name in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX', 'ELECTRON_RUN_AS_NODE'):
         env.pop(name, None)
     directories = {
@@ -145,7 +165,8 @@ def environment(idf=False):
         PATH=os.pathsep.join(str(p) for p in ([IDF_PYTHON.parent] if idf else []) + bins),
         PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', PYTHONIOENCODING='utf-8',
         PIP_CONFIG_FILE=os.devnull, GIT_CONFIG_GLOBAL=str(STATE / 'gitconfig'), GIT_CONFIG_NOSYSTEM='1',
-        ROBOFISH_WORKSPACE=str(PROJECT), ROBOFISH_VISION_PYTHON=str(PYTHON),
+        ROBOFISH_WORKSPACE=str(PROJECT), ROBOFISH_VISION_PYTHON=str(vision_python),
+        ROBOFISH_VISION_DEVICE=vision_device,
         ROBOFISH_IDF_PYTHON=str(IDF_PYTHON), ROBOFISH_CODE=str(ROOT / 'editor/Code.exe'),
         ROBOFISH_VISION_SAMPLES=str(ROOT / 'samples'), ROBOFISH_HOST_PORT=env.get('ROBOFISH_HOST_PORT', '8767'),
         ROBOFISH_CXX=str(ROOT / 'tools/ucrt64/bin/g++.exe'),
@@ -153,7 +174,7 @@ def environment(idf=False):
         IDF_PYTHON_ENV_PATH=str(ROOT / 'idf-env'), IDF_COMPONENT_MANAGER='0', IDF_CCACHE_ENABLE='0',
         OPENOCD_SCRIPTS=str(openocd.parent.parent / 'share/openocd/scripts'),
         ESP_ROM_ELF_DIR=str(roms), ESP_IDF_VERSION='5.3',
-        CUDA_VISIBLE_DEVICES='-1', YOLO_AUTOINSTALL='false', YOLO_OFFLINE='true',
+        YOLO_AUTOINSTALL='false', YOLO_OFFLINE='true',
         VSCODE_PORTABLE=str(ROOT / 'editor/data'),
         TCL_LIBRARY=str(ROOT / 'runtime/tcl/tcl8.6'), TK_LIBRARY=str(ROOT / 'runtime/tcl/tk8.6'),
     )
@@ -161,8 +182,8 @@ def environment(idf=False):
     return env
 
 
-def initialize(force=False):
-    env = environment()
+def initialize(force=False, vision_device=None):
+    env = environment(vision_device=vision_device)
     marker = STATE / 'initialized.json'
     saved = json.loads(marker.read_text(encoding='utf-8')) if marker.is_file() else {}
     font = ROOT / 'fonts/NotoSansSC-VF.ttf'
@@ -200,13 +221,13 @@ def initialize(force=False):
             'cmake.cmakePath': str(ROOT / 'tools/cmake/bin/cmake.exe'),
             'C_Cpp.default.compilerPath': str(ROOT / 'tools/ucrt64/bin/g++.exe'),
             'terminal.integrated.defaultProfile.windows': 'Command Prompt',
-            'terminal.integrated.env.windows': {key: env[key] for key in (
+            'terminal.integrated.env.windows': {key: env.get(key) for key in (
                 'PATH', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'PIP_CACHE_DIR',
                 'PIP_CONFIG_FILE', 'PYTHONNOUSERSITE', 'PYTHONDONTWRITEBYTECODE', 'PYTHONUSERBASE',
                 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'YOLO_CONFIG_DIR',
                 'MPLCONFIGDIR', 'TORCH_HOME', 'HF_HOME', 'CCACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH',
                 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'ROBOFISH_WORKSPACE',
-                'ROBOFISH_VISION_PYTHON', 'ROBOFISH_IDF_PYTHON', 'ROBOFISH_CODE',
+                'ROBOFISH_VISION_PYTHON', 'ROBOFISH_VISION_DEVICE', 'ROBOFISH_IDF_PYTHON', 'ROBOFISH_CODE',
                 'ROBOFISH_VISION_SAMPLES', 'ROBOFISH_EXPERIMENTS_DIR', 'ROBOFISH_HOST_PORT',
                 'ROBOFISH_CXX', 'IDF_PATH', 'IDF_TOOLS_PATH', 'IDF_PYTHON_ENV_PATH',
                 'IDF_COMPONENT_MANAGER', 'OPENOCD_SCRIPTS', 'ESP_ROM_ELF_DIR',
@@ -420,7 +441,8 @@ def tests(env):
                  PROJECT / 'tests' / script, '-Compiler', compiler], environment(idf=True))
     for name in ('test_curve_speed.py', 'test_path_guidance.py', 'test_measured_speed_profile.py',
                  'test_observer_continuity.py', 'test_vision_continuity.py',
-                 'test_dynamics_calibration.py', 'test_dynamics_control.py', 'test_video_recording.py'):
+                 'test_dynamics_calibration.py', 'test_dynamics_control.py', 'test_video_recording.py',
+                 'test_portable_vision.py', 'test_heading_observer.py'):
         execute([PYTHON, '-B', '-m', 'unittest', 'discover', '-s', 'upper/tests', '-p', name, '-v'], env)
     execute([ROOT / 'tools/node/node.exe', 'upper/tests/test_dynamics_steps.js'], env)
     execute([ROOT / 'tools/node/node.exe', 'tests/control/web_status.js'], env)
@@ -447,7 +469,8 @@ def host(action, extra, env):
     browser_env = dict(env, ROBOFISH_BROWSER_EXE=str(browser), ROBOFISH_BROWSER_ROOT=str(ROOT),
         ROBOFISH_BROWSER_ARGS=subprocess.list2cmdline([
             '--user-data-dir=' + str(STATE / 'browser'), '--no-first-run', '--no-default-browser-check',
-            '--disable-gpu', '--disable-background-mode', '--enable-logging', '--log-level=2',
+            *(['--disable-gpu'] if env['ROBOFISH_VISION_PYTHON'] == str(PYTHON) else []),
+            '--disable-background-mode', '--enable-logging', '--log-level=2',
             '--log-file=' + str(log_path), 'http://127.0.0.1:' + env['ROBOFISH_HOST_PORT'] + '/']))
     # Let the Windows desktop own the browser instead of the short-lived debug/terminal process.
     execute(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
@@ -459,13 +482,15 @@ def host(action, extra, env):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--vision-device', choices=('auto', 'cpu', 'cuda'), default=None,
+                        help='视觉推理设备；默认自动使用本机GPU环境，不可用时保留包内CPU环境')
     parser.add_argument('action', choices=('init', 'setup', 'start', 'stop', 'debug-host', 'shell', 'editor', 'build',
                         'flash', 'ota', 'idf', 'check', 'test', 'delivery', 'train', 'validate', 'smoke', 'yolo'))
     args, extra = parser.parse_known_args()
     if args.action in ACTION_LABELS:
         print('正在' + ACTION_LABELS[args.action] + '，请等待……', flush=True)
     repaired = repair_environment() if args.action == 'setup' else []
-    env = initialize(force=args.action in ('init', 'setup'))
+    env = initialize(force=args.action in ('init', 'setup'), vision_device=args.vision_device)
     os.environ.clear()
     os.environ.update(env)
     result = {'status': 'success', 'summary': '所选命令已正常结束。'}

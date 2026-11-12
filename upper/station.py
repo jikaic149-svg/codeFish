@@ -61,6 +61,7 @@ class Workstation:
         self.sequences = {}
         self.control_generation=0
         self.vision_sessions={}
+        self.manual_epoch=0
         self.heading_reference=None;self.heading_goal=None;self.heading_uptime=None
         self.raw_stream = self.raw_cursor = self.raw_lost = self.raw_dropped = 0
         self.raw_latest = {}
@@ -175,9 +176,10 @@ class Workstation:
             self.raw_latest.clear()
             self.raw_batch, self.raw_error = {}, ''
             self.generation += 1
+            self.manual_epoch+=1
             if mode == 'simulation':
                 self.sim = Simulator('', 0, 'local-simulation')
-                self.axes=None;self.control_source='lora';self.sequences.clear();self.control_generation+=1;self.vision_sessions.clear()
+                self.axes=None;self.control_source='lora';self.sequences.clear();self._revoke_vision()
                 self.links = {'lora': True, 'wifi': True, 'spi': True, 'upgrading': False}
                 self.owner, self.safety = 'none', 'WAIT_COMMAND'
                 self.reason, self.last_goal = '等待新的有效运动指令', 0.0
@@ -185,7 +187,7 @@ class Workstation:
 
     def _neutral(self, surface=False):
         if self.owner!='none' or self.vision_sessions:
-            self.control_generation+=1;self.vision_sessions.clear()
+            self._revoke_vision()
         self.axes = None
         self.sim.left_esc = self.sim.right_esc = self.sim.power = 0
         self.sim.action = 0
@@ -279,6 +281,13 @@ class Workstation:
         if previous is None and len(self.sequences) >= 8:
             raise device_client.DeviceError('控制会话已满，请重新进入测试模式')
 
+    def _revoke_vision(self):
+        """Only one visual mission owns motion; paused missions retain their slot."""
+        for session in self.vision_sessions:
+            self.sequences.pop(session,None)
+        self.vision_sessions.clear()
+        self.control_generation+=1
+
     def _control_route(self, source, stop=False):
         if self.mode != 'simulation':
             raise device_client.DeviceError('LoRa发送端尚未接入，未向实物发送；管理链不代发运动')
@@ -291,9 +300,12 @@ class Workstation:
         if not stop and source == 'wifi' and self.links['lora']:
             raise device_client.DeviceError('LoRa正常，2.4G不能接管')
 
-    def configure_control(self, action, value, session, sequence, *, client_id=None):
+    def configure_control(self, action, value, session, sequence, *, client_id=None, manual_epoch=None):
         with self.command_guard:
             with self.guard:
+                if action=='heading_target' and manual_epoch is not None and (
+                        type(manual_epoch) is not int or manual_epoch!=self.manual_epoch):
+                    raise device_client.DeviceError('旧航向请求已因全停失效，请重新操作',code='manual_input_changed')
                 hardware_host = self.host if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else ''
                 hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
                 if hardware_radio:hardware_host=self.host
@@ -332,7 +344,8 @@ class Workstation:
                                 next_sequence,client_id=key)
                             with self.guard:self.sequences[key]=next_sequence
                     with self.guard:
-                        self.control_generation+=1;self.vision_sessions.clear()
+                        self._revoke_vision()
+                        if action=='stop':self.manual_epoch+=1
                 if action == 'source':
                     if value not in ('wifi', 'auto','lora'):
                         raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
@@ -347,6 +360,7 @@ class Workstation:
                 elif action == 'stop':
                     result = device_client.CLIENT.motion_control(hardware_host, 'stop', session, sequence, client_id=client_id)
                     result['message'] = '已全停，等待新的有效运动目标'
+                    result['manual_epoch']=self.manual_epoch
                 elif action=='heading_target':
                     result=device_client.CLIENT.motion_control(hardware_host,'heading_target',session,sequence,
                                                                client_id=client_id,**heading_payload)
@@ -499,6 +513,10 @@ class Workstation:
                     raise device_client.DeviceError('转向优先的摆尾循迹需要 2.7.7-steering-priority 固件，请先升级并重新连接',code='unsupported_control')
                 if view.get('control',{}).get('lora_healthy') is True:
                     raise device_client.DeviceError('LoRa 仍占有主控，请等待鱼端释放后再启动 Wi-Fi 循迹')
+                with self.guard:
+                    self._revoke_vision()
+                    generation=self.control_generation
+                    self.manual_epoch+=1
                 device_client.CLIENT.motion_control(host,'stop',binding,sequence,client_id=session+'-setup',via_wifi=True)
                 if view.get('motion',{}).get('mode')!=3:
                     device_client.CLIENT.motion_control(host,'mode',binding,sequence,client_id=session,mode=3,via_wifi=True)
@@ -506,8 +524,9 @@ class Workstation:
                 ready=view.get('motion',{}).get('mode')==3
                 with self.guard:
                     if generation!=self.control_generation:raise device_client.DeviceError('视觉启动期间控制权已变化')
-                    self.sequences[session]=sequence
-                    if ready:self.vision_sessions[session]={'generation':generation,'binding':binding,'host':host,'transport':'wifi'}
+                    if ready:
+                        self.sequences[session]=sequence
+                        self.vision_sessions[session]={'generation':generation,'binding':binding,'host':host,'transport':'wifi'}
                 return {'ready':ready,'mode':3 if ready else view.get('motion',{}).get('mode'),'yaw_owner':'S3',
                         'simulated':False,'message':'S3 角度环与 PC 视觉/速度环已准备' if ready else '等待鱼端确认混合模式，请稍后再次启动'}
             with self.guard:
@@ -530,11 +549,13 @@ class Workstation:
             with self.guard:self.sequences[session]=sequence
             return result
 
-    def target(self, axes, session, sequence, source=None, *, client_id=None):
+    def target(self, axes, session, sequence, source=None, *, client_id=None, manual_epoch=None):
         if not isinstance(axes,dict) or set(axes) != {'surge','yaw','heave'} or any(type(value) not in (float,int) or not -100 <= value <= 100 for value in axes.values()):
             raise device_client.DeviceError('三轴目标须为-100～100的有限数值')
         with self.command_guard:
             with self.guard:
+                if manual_epoch is not None and (type(manual_epoch) is not int or manual_epoch!=self.manual_epoch):
+                    raise device_client.DeviceError('旧按键已因全停失效，请松开后重新操作',code='manual_input_changed')
                 hardware_host = self.host if self.mode != 'simulation' and device_client.CLIENT.is_robotfish(self.host) else ''
                 hardware_radio = not hardware_host and self.mode != 'simulation' and device_client.CLIENT.lora.status()['connected']
                 if hardware_radio:hardware_host=self.host
@@ -544,7 +565,7 @@ class Workstation:
                 if source not in (None, 'auto', 'wifi', 'lora'):
                     raise device_client.DeviceError('RobotFish 自动选择 LoRa / Wi-Fi 通道')
                 with self.guard:
-                    self.control_generation+=1;self.vision_sessions.clear()
+                    self._revoke_vision()
                 result = device_client.CLIENT.motion_control(hardware_host, 'target', session, sequence, client_id=client_id, axes=dict(axes))
                 return result
             with self.guard:
@@ -564,7 +585,7 @@ class Workstation:
                     if self.safety!='RUNNING' and (not self.links['spi'] or self.links['upgrading']):
                         raise device_client.DeviceError('SPI断链或升级中，禁止启动')
                     if source!='vision' and self.owner!=source:
-                        self.control_generation+=1;self.vision_sessions.clear()
+                        self._revoke_vision()
                     self.axes=dict(axes)
                     self.owner,self.last_goal,self.safety=source,now,'RUNNING'
                     self.sim.failsafe=False

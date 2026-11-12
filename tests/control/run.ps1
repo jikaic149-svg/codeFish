@@ -1,4 +1,4 @@
-param([string]$Compiler = 'C:/msys64/ucrt64/bin/g++.exe')
+param([string]$Compiler = $(if ($env:ROBOFISH_CXX) { $env:ROBOFISH_CXX } else { 'g++.exe' }))
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $output = Join-Path $project 'build/host-control'

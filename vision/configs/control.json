@@ -1,6 +1,6 @@
 {
   "units": "World x right/y down; heading CCW positive; raw body IMU yaw CW positive. Speed m/s; PID outputs percent.",
-  "guidance_basis": "Experimental initial settings, not an identified hydrodynamic model. Straight 0.12 m/s; full curve-severity base speed 0.05 m/s. Hybrid tail gait and common propeller command are 1:1; yaw shifts tail bias only. New static-tail angle-radius trials are references, not a matched oscillating-tail model. Desired radius is a geometric request, not verified fish capability.",
+  "guidance_basis": "Experimental initial settings, not an identified hydrodynamic model. Straight 0.12 m/s; full curve-severity base speed 0.05 m/s. Hybrid tail gait and common propeller command are 1:1; yaw shifts tail bias only. New static-tail angle-radius trials are references, not a matched oscillating-tail model. Desired radius is a geometric request, not verified fish capability. Rejoin distance/heading thresholds are initial settings, not tank-validated limits.",
   "model": {
     "imgsz": 960,
     "confidence": 0.25
@@ -17,14 +17,17 @@
     "max_speed_mps": 0.8
   },
   "guidance": {
-    "lookahead_m": 0.5,
-    "min_lookahead_m": 0.35,
-    "cross_track_gain": 0.6,
-    "full_attraction_error_m": 0.4,
+    "lookahead_m": 0.3,
+    "min_lookahead_m": 0.12,
+    "cross_track_gain": 1.2,
+    "rejoin_enter_m": 0.12,
+    "rejoin_exit_m": 0.05,
+    "rejoin_heading_deg": 20.0,
+    "full_attraction_error_m": 0.18,
     "curve_preview_m": 0.5,
     "curve_heading_gain": 1.1,
     "max_curve_heading_deg": 22.0,
-    "cross_track_filter_s": 0.35,
+    "cross_track_filter_s": 0.18,
     "heading_reference_rate_deg_s": 35.0,
     "desired_turn_radius_m": 0.6,
     "path_smoothing_offset_m": 0.15,

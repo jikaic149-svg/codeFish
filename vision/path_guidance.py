@@ -258,6 +258,9 @@ class PathGuidance:
         desired_turn_radius_m=0.0,
         path_smoothing_offset_m=0.15,
         curve_speed_ratio=0.68,
+        rejoin_enter_m=0.15,
+        rejoin_exit_m=0.08,
+        rejoin_heading_deg=20.0,
     ):
         self.spacing_m = float(spacing_m)
         self.lookahead_m = float(lookahead_m)
@@ -306,6 +309,12 @@ class PathGuidance:
         self.desired_turn_radius_m = max(0., float(desired_turn_radius_m))
         self.path_smoothing_offset_m = max(0., float(path_smoothing_offset_m))
         self.curve_speed_ratio = float(np.clip(curve_speed_ratio, 0., 1.))
+        self.rejoin_enter_m = float(rejoin_enter_m)
+        self.rejoin_exit_m = float(rejoin_exit_m)
+        self.rejoin_heading_rad = math.radians(float(rejoin_heading_deg))
+        if (not 0 < self.rejoin_exit_m < self.rejoin_enter_m
+                or not 0 < self.rejoin_heading_rad < math.pi / 2):
+            raise ValueError("回轨退出距离必须小于进入距离，回正角度必须在 0～90 度之间")
         self.clear()
 
     @staticmethod
@@ -348,6 +357,8 @@ class PathGuidance:
         self._filtered_cross_track = None
         self._reference_timestamp = None
         self._heading_reference = None
+        self.phase = "TRACK"
+        self._active_lookahead_m = self.lookahead_m
         self.path_geometry = dict(source="GEOMETRIC", rounded=False)
 
     @property
@@ -383,6 +394,8 @@ class PathGuidance:
         self._filtered_cross_track = None
         self._reference_timestamp = float(timestamp)
         self._heading_reference = math.atan2(-float(self.body_heading[1]), float(self.body_heading[0]))
+        self.phase = "TRACK"
+        self._active_lookahead_m = self.lookahead_m
         return self.update(position,timestamp,body_heading=self.body_heading)
 
     def update(
@@ -405,9 +418,37 @@ class PathGuidance:
             raise ValueError("采样时间无效")
         dt = max(0., now - self._reference_timestamp) if self._reference_timestamp is not None else 0.
 
-        self._advance_progress(current)
-        closest = self._point_at(self.progress_m)
-        cross_track_m = float(np.linalg.norm(current - closest))
+        if body_heading is None:
+            raise RuntimeError("IMU yaw is unavailable; position course is not a heading")
+        heading = _unit(body_heading)
+        psi_body = math.atan2(-float(heading[1]), float(heading[0]))
+        projected_progress = self._project_progress(current)
+        projected = self._point_at(projected_progress)
+        projection_distance = float(np.linalg.norm(current - projected))
+        projected_tangent = self._tangent_at(projected_progress)
+        projected_heading = math.atan2(-float(projected_tangent[1]), float(projected_tangent[0]))
+        path_heading_error = abs(wrap_to_pi(projected_heading - psi_body))
+        # Follow the current local projection even during recovery. Only the
+        # extra forward carrot waits for alignment, never the projection itself.
+        if self.phase == "TRACK":
+            if projection_distance > self.rejoin_enter_m:
+                self.phase = "RETURN_TO_PATH"
+            elif path_heading_error > 2 * self.rejoin_heading_rad:
+                self.phase = "ALIGN_WITH_PATH"
+        elif self.phase == "RETURN_TO_PATH":
+            if projection_distance <= self.rejoin_exit_m:
+                self.phase = "ALIGN_WITH_PATH"
+        elif projection_distance > self.rejoin_enter_m:
+            self.phase = "RETURN_TO_PATH"
+        elif (projection_distance <= self.rejoin_exit_m
+                and path_heading_error <= self.rejoin_heading_rad
+                and abs(wrap_to_pi(projected_heading - self._heading_reference)) <= self.rejoin_heading_rad):
+            self.phase = "TRACK"
+        self.progress_m = projected_progress
+        self.segment_index = max(self.segment_index, min(len(self.path) - 2,
+            int(np.searchsorted(self.cumulative, self.progress_m, side="right")) - 1))
+        closest = projected
+        cross_track_m = projection_distance
         off_path_ratio = float(np.clip(
             cross_track_m / self.full_attraction_error_m, 0.0, 1.0
         ))
@@ -424,6 +465,8 @@ class PathGuidance:
             max(self.progress_m + 0.12, far_end_m - 0.12),
         )
         near_tangent = self._chord_direction(near_start_m, near_end_m)
+        if self.phase != "TRACK":
+            near_tangent = projected_tangent
         far_tangent = self._chord_direction(far_start_m, far_end_m)
         tangent_dot = float(np.clip(
             np.dot(near_tangent, far_tangent), -1.0, 1.0
@@ -452,17 +495,21 @@ class PathGuidance:
 
         # 根据前方曲率和离轨距离，在配置的最大／最小前视之间连续调整。
         lookahead_demand = max(path_curve_severity, off_path_ratio)
-        active_lookahead_m = (
+        requested_lookahead_m = (
             self.lookahead_m
             - (self.lookahead_m - self.min_lookahead_m) * lookahead_demand
         )
+        if self.phase != "TRACK":
+            self._active_lookahead_m = 0.
+        else:
+            # Restore the carrot gradually after rejoining; no half-metre jump.
+            self._active_lookahead_m = min(requested_lookahead_m,
+                self._active_lookahead_m + self.cruise_speed_mps * dt)
+        active_lookahead_m = self._active_lookahead_m
         lookahead_distance = min(
             total_path_m, self.progress_m + active_lookahead_m
         )
         lookahead = self._point_at(lookahead_distance)
-        if body_heading is None:
-            raise RuntimeError("IMU yaw is unavailable; position course is not a heading")
-        heading = _unit(body_heading)
         self.body_heading=heading.copy()
         heading_source="IMU_YAW"
         target=lookahead-current
@@ -489,11 +536,16 @@ class PathGuidance:
         alpha = 1. if self.cross_track_filter_s <= 0 else -math.expm1(-dt/self.cross_track_filter_s)
         self._filtered_cross_track += alpha * (signed_cross_track_error_m - self._filtered_cross_track)
         cross_track_rate_mps = (self._filtered_cross_track - previous_cross) / dt if dt > 1e-6 else 0.
-        cross_track_feedback=math.atan2(self.k_f*self._filtered_cross_track,active_lookahead_m)
+        cross_track_feedback=math.atan2(self.k_f*self._filtered_cross_track,
+                                       max(active_lookahead_m,self.min_lookahead_m))
         # Advance the actual heading target, not only an unused diagnostic yaw-rate demand.
         curve_heading = float(np.clip(self.curve_heading_gain*path_curve_angle_rad,
                                       -self.max_curve_heading_rad, self.max_curve_heading_rad))
+        if self.phase != "TRACK":
+            curve_heading = 0.
         raw_psi_ref=wrap_to_pi(psi_path+curve_heading+cross_track_feedback)
+        # Keep a forward-tangent LOS reference during return. Direct pursuit of
+        # a zero-lookahead point turns perpendicular, then backwards after drift.
         change=wrap_to_pi(raw_psi_ref-self._heading_reference)
         allowed_change=self.heading_reference_rate_rps*dt
         psi_ref=wrap_to_pi(self._heading_reference+float(np.clip(change,-allowed_change,allowed_change)))
@@ -503,7 +555,7 @@ class PathGuidance:
         heading_error_rad=wrap_to_pi(psi_ref-psi_body)
         heading_feedback=self.k_psi*heading_error_rad
         measured_speed_mps=max(0.,float(speed_mps)) if speed_mps is not None and math.isfinite(float(speed_mps)) else 0.
-        curve_term=self.k_kappa*measured_speed_mps*path_curvature_per_m
+        curve_term=self.k_kappa*measured_speed_mps*path_curvature_per_m if self.phase == "TRACK" else 0.
         curve_feedforward=float(np.clip(curve_term/self.r_max_rps,-1.,1.))
         r_cmd=heading_feedback+curve_term
         steering_demand=float(np.clip(r_cmd/self.r_max_rps,-1.,1.))
@@ -512,6 +564,8 @@ class PathGuidance:
         speed_target_mps=min(self.cruise_speed_mps,max(
             self.min_speed_target_mps,
             self.cruise_speed_mps*(1.-(1.-self.curve_speed_ratio)*path_curve_severity)*(.25+.75*alignment*alignment)))
+        if self.phase != "TRACK":
+            speed_target_mps = min(speed_target_mps,self.min_speed_target_mps)
         x_error_m = steering_demand * self.max_x_error_m
         control_severity = abs(steering_demand)
         endpoint_distance = float(np.linalg.norm(current - self.path[-1]))
@@ -531,6 +585,13 @@ class PathGuidance:
             speed_target_mps,curve_speed=self.curve_speed_planner.limit(self.progress_m,speed_target_mps,self.cruise_speed_mps)
         brake_request=arrived
         result = {
+            "phase": self.phase,
+            "progress_held": False,
+            "lookahead_held": self.phase != "TRACK",
+            "projection_point": projected.copy(),
+            "projection_progress_m": projected_progress,
+            "rejoin_point": projected.copy(),
+            "rejoin_distance_m": projection_distance,
             "curve_speed": curve_speed,
             "path_geometry": self.path_geometry,
             "cross_m": x_error_m,
@@ -615,7 +676,7 @@ class PathGuidance:
         self.progress_m = float(self.cumulative[index]+ratios[index]*lengths[index])
         self.segment_index = index
 
-    def _advance_progress(self, position):
+    def _project_progress(self, position):
         total = float(self.cumulative[-1])
         search_end = min(total, self.progress_m + self.search_ahead_m)
         first = max(0, int(np.searchsorted(
@@ -647,16 +708,7 @@ class PathGuidance:
                 best_distance_sq = distance_sq
                 best_progress = candidate_progress
 
-        self.progress_m = max(self.progress_m, min(best_progress, search_end))
-        self.segment_index = max(
-            self.segment_index,
-            min(
-                len(self.path) - 2,
-                int(np.searchsorted(
-                    self.cumulative, self.progress_m, side="right"
-                )) - 1,
-            ),
-        )
+        return max(self.progress_m, min(best_progress, search_end))
 
     def _point_at(self, distance_m):
         distance = float(np.clip(distance_m, 0.0, self.cumulative[-1]))

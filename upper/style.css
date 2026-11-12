@@ -90,3 +90,4 @@ body[data-device="robotfish"] .vision-board-setting { display:none; }
 .trace-line{display:block}
 #trace-terminal{height:360px;max-height:65vh;overflow:auto;white-space:pre;background:#10191b;color:#d7eee7;border:1px solid var(--line);border-radius:10px;padding:14px;font:12px/1.65 Consolas,monospace;tab-size:2}
 @media(max-width:760px){#trace-terminal{height:280px}.trace-toolbar .button{flex:1 1 auto}}
+.vision-selection-overlay{position:absolute;pointer-events:none;border:2px solid #ffb400;box-sizing:border-box;z-index:2}

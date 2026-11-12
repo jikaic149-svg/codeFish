@@ -27,7 +27,7 @@ from yolo_tracker import YoloBodyTracker
 
 TASKS={'POOL_CALIB','POOL_SIZE','HEAD_DIRECTION','MARKER_ROI','PREVIEW','AUTO_START','AUTO_STOP',
        'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','PERSPECTIVE_TEST','EXIT','VIEW','PREVIEW_FPS',
-       'CLEAR_PATH','TURN_CALIB','SPEED','RECORD','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','THRESHOLD'}
+       'CLEAR_PATH','TURN_CALIB','SPEED','RECORD','CLAHE','EXP_AUTO','EXP_DOWN','EXP_UP','DEBUG','BINARY','THRESHOLD'}
 
 
 class LatestCamera:
@@ -36,22 +36,95 @@ class LatestCamera:
         if not self.capture.isOpened():raise RuntimeError('无法打开摄像头')
         # Keep the camera's default size: forcing 1280x720 can fall back to slow YUY2.
         self.capture.set(cv2.CAP_PROP_FOURCC,cv2.VideoWriter_fourcc(*'MJPG'))
-        self.capture.set(cv2.CAP_PROP_FPS,30)
+        self.capture.set(cv2.CAP_PROP_FPS,120)
+        reported=self.capture.get(cv2.CAP_PROP_FPS)
+        self.reported_fps=float(reported) if math.isfinite(reported) and reported>0 else 30.
+        self.measured_fps=0.
         self.guard=threading.Lock();self.closed=threading.Event();self.latest=None;self.index=0
+        self.exposure_commands=queue.Queue(maxsize=16)
+        self._exposure={'mode':'unknown','requested':None,'readback':None,'error':None,
+            'status':'等待相机曝光状态','gray_mean':None,'sample_time':None}
+        # DirectShow uses 1/0 for auto/manual. Restore auto even if a previous
+        # process left a dark manual setting persisted in the camera driver.
+        self._apply_exposure(None)
         self.thread=threading.Thread(target=self._read,daemon=True,name='ObserverCamera');self.thread.start()
 
+    def request_exposure(self,delta=None):
+        if delta not in (None,-1,0,1):raise ValueError('曝光调节只能为 -1、+1、手动或自动模式')
+        try:self.exposure_commands.put_nowait(delta)
+        except queue.Full:raise ValueError('曝光操作过多，请等待相机完成调节') from None
+
+    def exposure_status(self):
+        with self.guard:return {**self._exposure,'pending':self.exposure_commands.qsize()}
+
+    def _set_manual_exposure(self,value):
+        if not self.capture.set(cv2.CAP_PROP_EXPOSURE,value):
+            raise ValueError(f'相机拒绝曝光 {value:g}，可能已到驱动边界')
+        actual=float(self.capture.get(cv2.CAP_PROP_EXPOSURE))
+        if not math.isfinite(actual) or not math.isclose(actual,value,abs_tol=1e-3,rel_tol=0.):
+            raise ValueError(f'曝光请求 {value:g}、相机读回 {actual:g} 不一致')
+
+    def _apply_exposure(self,delta):
+        previous=self.exposure_status();requested=None;before=None;manual_started=False
+        try:
+            if delta is None:
+                if not self.capture.set(cv2.CAP_PROP_AUTO_EXPOSURE,1.):
+                    raise ValueError('相机拒绝自动曝光，请检查驱动支持')
+                mode='auto';status='自动曝光已下发'
+            else:
+                # Auto returns the old manual setting on this driver, NOT its
+                # current exposure. Require an explicit mode switch; never let
+                # a "+" button silently disable auto and make the image darker.
+                if delta and previous['mode']!='manual':
+                    raise ValueError('当前为自动曝光，请先点击切换手动曝光；自动模式可保持正常亮度')
+                before=float(self.capture.get(cv2.CAP_PROP_EXPOSURE))
+                if not math.isfinite(before):raise ValueError('相机未提供有效曝光读值')
+                requested=before+delta
+                if not self.capture.set(cv2.CAP_PROP_AUTO_EXPOSURE,0.):
+                    raise ValueError('相机拒绝手动曝光，未写入曝光值')
+                manual_started=True
+                self._set_manual_exposure(requested)
+                actual=float(self.capture.get(cv2.CAP_PROP_EXPOSURE))
+                mode='manual';status=f'手动曝光 {actual:g}（相机读回）'
+            readback=float(self.capture.get(cv2.CAP_PROP_EXPOSURE))
+            update={'mode':mode,'requested':requested,
+                'readback':readback if math.isfinite(readback) else None,'error':None,'status':status}
+        except (ValueError,cv2.error) as error:
+            restored=False
+            if manual_started:
+                if previous['mode']=='auto':
+                    restored=bool(self.capture.set(cv2.CAP_PROP_AUTO_EXPOSURE,1.))
+                elif before is not None:
+                    restored=bool(self.capture.set(cv2.CAP_PROP_EXPOSURE,before))
+                    if restored:
+                        restored=math.isclose(float(self.capture.get(cv2.CAP_PROP_EXPOSURE)),before,abs_tol=1e-3,rel_tol=0.)
+            message=str(error)
+            if manual_started:message+='；'+('已恢复原曝光模式/值' if restored else '恢复失败，请点击恢复自动曝光')
+            update={'mode':previous['mode'] if not manual_started or restored else 'unknown',
+                'requested':requested,'readback':previous['readback'],'error':message,'status':message}
+        with self.guard:self._exposure.update(update)
+
     def _read(self):
+        began=time.monotonic();count=0
         while not self.closed.is_set():
+            # All camera property writes run here, never concurrently with read().
+            try:self._apply_exposure(self.exposure_commands.get_nowait())
+            except queue.Empty:pass
             ok,frame=self.capture.read();stamp=time.time()
             if not ok:self.closed.wait(.02);continue
+            gray_mean=float(cv2.cvtColor(frame[::8,::8],cv2.COLOR_BGR2GRAY).mean())
+            count+=1;now=time.monotonic()
             with self.guard:
+                if now-began>=1.:
+                    self.measured_fps=count/(now-began);began=now;count=0
+                self._exposure.update(gray_mean=gray_mean,sample_time=stamp)
                 self.index+=1;self.latest=(self.index,stamp,frame)
 
     def read(self,previous):
         with self.guard:return self.latest if self.latest and self.latest[0]!=previous else None
 
     def close(self):
-        self.closed.set();self.capture.release();self.thread.join(timeout=1)
+        self.closed.set();self.thread.join(timeout=1);self.capture.release();self.thread.join(timeout=1)
 
 
 class ObserverSession:
@@ -68,11 +141,12 @@ class ObserverSession:
         self.preview=True;self.frozen=None;self.interaction=None;self.points=[];self.roi_start=None
         self.preview_clock=0.;self.preview_ms=0.;self.detect_ms=self.optical_ms=self.processing_ms=0.
         self.preview_signature=None;self.preview_revision=0;self.roi_end=None
+        self.processed_times=deque(maxlen=240);self.preview_times=deque(maxlen=240)
         self.dropped=0;self.eof=False;self.test={};self.status='完成场地和鱼头标定、画好路径后，可明确启动 Wi-Fi 自动循迹'
         self.pending_size=(3.,1.6)
         self.sampled_frame=None
         self.camera_latency_s=CONTROL.get('camera_latency_s',.30)
-        self.preview_fps=15;self.view_mode='perspective';self.display_space='image'
+        self.preview_fps=120;self.view_mode='perspective';self.display_space='image'
         self.debug=False;self.binary=False;self.clahe=False;self.threshold=130
         self.exposure=None;self.capture=None;self.source_fps=30.;self.recorder=None
         self.path_px=[];self.drawing=False;self.history=deque(maxlen=1200)
@@ -85,7 +159,8 @@ class ObserverSession:
         self.guide=PathGuidance(lookahead_m=settings['lookahead_m'],min_lookahead_m=settings['min_lookahead_m'],
             full_attraction_error_m=settings['full_attraction_error_m'],curve_preview_m=settings['curve_preview_m'],
             **{key:settings[key] for key in ('curve_heading_gain','max_curve_heading_deg','cross_track_filter_s',
-                'heading_reference_rate_deg_s','desired_turn_radius_m','path_smoothing_offset_m','curve_speed_ratio')},
+                'heading_reference_rate_deg_s','desired_turn_radius_m','path_smoothing_offset_m','curve_speed_ratio',
+                'rejoin_enter_m','rejoin_exit_m','rejoin_heading_deg')},
             k_f=settings['cross_track_gain'],cruise_speed_mps=settings['cruise_speed_mps'],min_speed_target_mps=settings['min_speed_mps'],curve_speed_planner=self.curve_speed_planner)
         self.guidance={};self.tracking=False
         self.comm=None;self.automatic=False
@@ -150,6 +225,7 @@ class ObserverSession:
             self.guidance={}
         self.optical_ms=(time.perf_counter()-optical_started)*1000
         self.processing_ms=(time.perf_counter()-started)*1000
+        self.processed_times.append(time.monotonic())
         with self.bridge.guard:
             self.bridge.height,self.bridge.width=frame.shape[:2];self.bridge.frame_time=received_at
 
@@ -235,7 +311,8 @@ class ObserverSession:
             try:event=self.bridge.events.get_nowait()
             except queue.Empty:break
             task=event.get('task',event.get('kind'))
-            if task in ('down','move','up') and event.get('selection_id') and not self.frozen:continue
+            if task in ('down','move','up','right') and event.get('selection_id') and (
+                    not self.frozen or event['selection_id']!=self.frozen['selection_id']):continue
             try:
                 if task=='EXIT':self.stop_auto();self.close_recording();self.bridge.close()
                 elif task=='PREVIEW':
@@ -247,13 +324,13 @@ class ObserverSession:
                 elif task=='BINARY':self.binary=not self.binary;self.status='鱼体二值预览已'+('开启' if self.binary else '关闭')
                 elif task=='CLAHE':self.clahe=not self.clahe;self.status='预览对比度增强已'+('开启' if self.clahe else '关闭')
                 elif task=='THRESHOLD':self.threshold=event['value'];self.status=f'鱼体暗部阈值 {self.threshold}'
-                elif task in ('EXP_UP','EXP_DOWN'):
+                elif task in ('EXP_AUTO','EXP_UP','EXP_DOWN'):
                     if self.replay or self.capture is None:raise ValueError('录像不能调节相机曝光，请使用实时摄像头')
-                    capture=self.capture.capture if isinstance(self.capture,LatestCamera) else self.capture
-                    value=capture.get(cv2.CAP_PROP_EXPOSURE)+(1 if task=='EXP_UP' else -1)
-                    value=max(-13.,min(-1.,value));capture.set(cv2.CAP_PROP_AUTO_EXPOSURE,.25)
-                    if not capture.set(cv2.CAP_PROP_EXPOSURE,value):raise ValueError('当前摄像头不支持手动曝光')
-                    self.exposure=capture.get(cv2.CAP_PROP_EXPOSURE);self.status=f'曝光 {self.exposure:g}'
+                    if not isinstance(self.capture,LatestCamera):raise ValueError('当前输入不支持实时相机曝光调节')
+                    mode=event.get('exposure_mode')
+                    self.capture.request_exposure(None if task=='EXP_AUTO' or mode=='auto'
+                        else 0 if mode=='manual' else (1 if task=='EXP_UP' else -1))
+                    self.status='曝光操作已提交，等待相机线程执行并读回'
                 elif task=='RECORD':
                     if self.recorder is not None:self.close_recording();self.status='MP4 和同步 CSV 已保存'
                     else:
@@ -340,7 +417,10 @@ class ObserverSession:
                             self.status='场地透视已更新，请重新标定鱼头'
                     elif self.interaction=='HEAD_DIRECTION' and task=='down':
                         if not self.frozen['pose'].get('direction_world'):raise ValueError('冻结画面中鱼身不清晰，请取消后重试')
-                        zero=self.optical.calibrate(point,self.frozen['pose'],self.field);self.pose=dict(self.optical.latest)
+                        body=self.frozen.get('point_px')
+                        if body is None:raise ValueError('冻结画面中没有有效的 YOLO 鱼身中心，请重新标定')
+                        zero=self.optical.calibrate(point,self.frozen['pose'],self.field,body);self.pose=dict(self.optical.latest)
+                        head_length=float(np.linalg.norm(np.diff(self.field.transform([body,point]),axis=0)))
                         reference=self.frozen['imu'];live=self.bridge.get_yaw_sample()
                         old_id,new_id=reference.get('source_id'),live.get('source_id')
                         epoch_ok=not(type(old_id) is int and type(new_id) is int and ((new_id-old_id)&0xffffffff)>=0x80000000)
@@ -348,9 +428,10 @@ class ObserverSession:
                         self.head={'calibrated':True,'calibration_id':uuid.uuid4().hex,'visual_zero_world_deg':zero,
                             'angle_deg':zero,'imu_zero_cw_deg':reference.get('yaw_cw_deg') if imu_ok else None,
                             'image_sample_time':self.frozen['sample_time'],'source_id':reference.get('source_id'),
-                            'imu_aligned':imu_ok,'head_pixel':point,'body_pixel':self.frozen['pose']['centre_px']}
+                            'imu_aligned':imu_ok,'head_pixel':point,'body_pixel':list(body),'head_length_m':head_length,
+                            'source':'YOLO_CENTRE_TO_CLICK'}
                         self.samples.calibration('head',dict(self.head));self.interaction=None;self.frozen=None
-                        self.status='鱼头和视觉零位已标定，保持当前视角'
+                        self.status='已按 YOLO 中心→点击鱼头的连线标定方向；箭头随鱼体平移和转向'
                     elif self.interaction=='MARKER_ROI':
                         if task=='down':self.roi_start=point;self.roi_end=point
                         elif task=='move' and self.roi_start:self.roi_end=point
@@ -374,7 +455,7 @@ class ObserverSession:
             self.preview_clock=0.;self.preview_signature=None
 
     def raw_overlay(self,frozen=None):
-        image=frozen['image'].copy() if frozen else self.frame.copy();pose=frozen['pose'] if frozen else self.pose
+        image=frozen['image'].copy() if frozen else self.frame.copy()
         if self.binary and not frozen:image=cv2.cvtColor(body_mask(image,self.threshold),cv2.COLOR_GRAY2BGR)
         elif self.clahe and not frozen:
             lab=cv2.cvtColor(image,cv2.COLOR_BGR2LAB)
@@ -398,26 +479,26 @@ class ObserverSession:
         bbox=self.detection.metrics.get('body_bbox') if self.detection else None
         if self.debug and bbox and not frozen:
             a,b,c,d=map(round,bbox);cv2.rectangle(image,(a,b),(c,d),(0,220,0),1)
-        if pose.get('centre_px'):
-            cv2.arrowedLine(image,tuple(map(round,pose['centre_px'])),tuple(map(round,pose['front_px'])),(220,60,220),2)
-            cv2.putText(image,'VISION',tuple(map(round,pose['front_px'])),0,.45,(220,60,220),1)
+        point=frozen.get('point_px') if frozen else (self.detection.position if self.detection else None)
+        if point is not None and self.field.matrix is not None:
+            origin=self.field.transform([point])[0];inverse=np.linalg.inv(self.field.matrix)
+            head_length=self.head.get('head_length_m',.15)
             stamp=frozen['sample_time'] if frozen else self.sample_time
-            aligned=self.bridge.get_yaw_sample_at(stamp) if stamp is not None else {}
+            aligned=frozen['imu'] if frozen else (self.bridge.get_yaw_sample_at(stamp) if stamp is not None else {})
             reference=aligned.get('heading_reference') or {};native=aligned.get('onboard') or {}
             if aligned.get('valid') and reference.get('valid') and reference.get('calibration_id')==self.head.get('calibration_id'):
-                inverse=np.linalg.inv(self.field.matrix);zero=self.head['visual_zero_world_deg']
+                zero=self.head['visual_zero_world_deg']
                 angles=[('IMU',wrap_degrees(reference['zero_cw_deg']-aligned['yaw_cw_deg']),(0,220,0))]
                 target=native.get('heading_target_cw_deg')
                 if type(target) in (int,float):angles.append(('TARGET',wrap_degrees(reference['zero_cw_deg']-target),(0,180,255)))
                 for label,relative,color in angles:
-                    start,tip=heading_arrow(inverse,pose['centre_world'],math.radians(zero+relative))
+                    start,tip=heading_arrow(inverse,origin,math.radians(zero+relative),length_m=head_length)
                     cv2.arrowedLine(image,tuple(map(round,start)),tuple(map(round,tip)),color,2)
                     cv2.putText(image,label,tuple(map(round,tip)),0,.45,color,1)
         if self.debug:
             features=getattr(self.tracker,'_flow_points',None)
             if features is not None and not frozen:
-                for point in features.reshape(-1,2):cv2.circle(image,tuple(map(round,point)),2,(0,255,255),-1)
-        point=frozen.get('point_px') if frozen else (self.detection.position if self.detection else None)
+                for feature in features.reshape(-1,2):cv2.circle(image,tuple(map(round,feature)),2,(0,255,255),-1)
         if point is not None:
             pixel=tuple(map(round,point))
             cv2.circle(image,pixel,7,(255,255,255),-1)
@@ -448,7 +529,10 @@ class ObserverSession:
         if not self.preview:
             with self.bridge.guard:self.bridge.frames.clear()
             self.preview_ms=0.;self.preview_signature=None;return
-        if time.monotonic()-self.preview_clock<1/self.preview_fps:return
+        now=time.monotonic()
+        interval=1/self.preview_fps
+        elapsed=now-self.preview_clock
+        if elapsed<interval:return
         started=time.perf_counter();frozen=self.frozen
         signature=(frozen['index'] if frozen else self.index,self.interaction,len(self.points),self.pool_id,self.head.get('calibration_id'),
             self.view_mode,self.debug,self.binary,self.clahe,self.threshold,len(self.path_px))
@@ -457,12 +541,17 @@ class ObserverSession:
         result_ok,result=cv2.imencode('.jpg',image,[cv2.IMWRITE_JPEG_QUALITY,75])
         raw_ok,raw=cv2.imencode('.jpg',original,[cv2.IMWRITE_JPEG_QUALITY,75])
         if result_ok and raw_ok:
-            with self.bridge.guard:self.bridge.frames={'raw':raw.tobytes(),'result':result.tobytes()}
+            with self.bridge.frame_ready:
+                self.bridge.frames={'raw':raw.tobytes(),'result':result.tobytes()}
+                self.bridge.frame_ready.notify_all()
             self.preview_revision+=1
+            self.preview_times.append(time.monotonic())
             self.preview_signature=signature
-        self.preview_clock=time.monotonic();self.preview_ms=(time.perf_counter()-started)*1000
+        self.preview_clock=now-elapsed%interval;self.preview_ms=(time.perf_counter()-started)*1000
 
     def publish(self,*,write_sample=False):
+        camera_exposure=self.capture.exposure_status() if isinstance(self.capture,LatestCamera) else None
+        if camera_exposure is not None:self.exposure=camera_exposure['readback']
         pose=dict(self.pose);fresh=self.replay or self.frame is not None and time.time()-self.received_at<=.6
         if not fresh:pose={'valid':False,'reason':'STALE_FRAME'}
         latest=self.bridge.get_yaw_sample() if not self.replay else {'valid':False,'source':'REPLAY_NOT_PAIRED'}
@@ -482,8 +571,15 @@ class ObserverSession:
         position=point.tolist() if point is not None else [None,None]
         pixel=self.detection.position if fresh and self.detection else None
         speed=dict(getattr(self.tracker,'last_speed',{}) or {})
+        now=time.monotonic()
+        def rate(stamps):
+            return (len(stamps)-1)/max(1e-6,now-stamps[0]) if len(stamps)>1 and now-stamps[-1]<1. else 0.
         performance={'device':self.tracker.device,'detect_ms':self.detect_ms,'optical_ms':self.optical_ms,
             'preview_ms':self.preview_ms,'processing_ms':self.processing_ms,'yolo_stages_ms':speed,
+            'source_reported_fps':self.source_fps,
+            'capture_requested_fps':None if self.replay else 120,
+            'capture_fps':getattr(self.capture,'measured_fps',None) if fresh else 0.,
+            'processing_fps':rate(self.processed_times),'preview_fps':rate(self.preview_times) if self.preview else 0.,
             'preview_max_fps':self.preview_fps,'dropped_capture_frames':self.dropped}
         body_yaw=None
         old_id,new_id=self.head.get('source_id'),latest.get('source_id')
@@ -509,6 +605,7 @@ class ObserverSession:
             'speed_control':self.comm.speed_status if self.comm else {},
             'guidance':self.guidance,'turn_calibration':{'active':self.turn.active,'samples':self.turn.sample_count,'result':self.turn_result},
             'debug':{'enabled':self.debug,'binary':self.binary,'clahe':self.clahe,'threshold':self.threshold,'exposure':self.exposure},
+            'camera_exposure':camera_exposure,
             'view_mode':self.view_mode,'display_space':self.display_space}
         curve=self.guidance.get('curve_speed') or {}
         validation={'enabled':self.trace_validation_enabled}
@@ -567,7 +664,9 @@ class ObserverSession:
                     ('common_pct','differential_pct','tail_drive_pct','tail_bias_pct','tail_frequency_hz','tail_amplitude_deg',
                      'effective_tail_bias_deg','effective_tail_amplitude_deg')})
             self.samples.write(row)
-            if self.recorder is not None:self.recorder.submit(self.raw_overlay(),[row.get(key) for key in SAMPLE_FIELDS])
+            if self.recorder is not None:
+                self.recorder.submit(self.raw_overlay(),[row.get(key) for key in SAMPLE_FIELDS],
+                    timestamp=self.video_s if self.replay else self.received_at)
             self.sampled_frame=self.index;result['samples']=dict(self.samples.status)
         self.bridge.send(result)
         with self.bridge.guard:self.bridge.metadata={'ready':self.frame is not None,'observation_only':not self.automatic,
@@ -582,10 +681,14 @@ def run(source,model):
     cv2.setNumThreads(2);bridge=WebBridge(observer=True);bridge.start(poll_telemetry=str(source).isdigit());session=None;capture=None
     try:
         session=ObserverSession(source,model,bridge);replay=session.replay
+        if session.tracker.device!='cpu':
+            # Offline profiling favors bounded pools over all 32 logical cores.
+            import torch
+            torch.set_num_threads(4);cv2.setNumThreads(min(8,os.cpu_count() or 1))
         capture=cv2.VideoCapture(str(source)) if replay else LatestCamera(int(source))
         session.capture=capture
         if replay and not capture.isOpened():raise RuntimeError('无法读取指定录像')
-        fps=(capture.get(cv2.CAP_PROP_FPS) or 30.) if replay else 0.;session.source_fps=fps if replay else 30.
+        fps=(capture.get(cv2.CAP_PROP_FPS) or 30.) if replay else 0.;session.source_fps=fps if replay else capture.reported_fps
         index=0;next_frame=time.monotonic();last_publish=0.
         while not bridge.closed.is_set():
             session.actions();new=False
@@ -603,7 +706,7 @@ def run(source,model):
                         session.accept_frame(frame_index,stamp,frame);new=True
             session.render_preview()
             if new or time.monotonic()-last_publish>=.1:session.publish(write_sample=new);last_publish=time.monotonic()
-            bridge.closed.wait(.002)
+            if not new:bridge.closed.wait(.001)
     finally:
         if session:
             session.stop_auto();session.samples.close();session.close_recording()

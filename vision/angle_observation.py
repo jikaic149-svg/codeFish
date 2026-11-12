@@ -28,13 +28,14 @@ class OpticalBodyAxis:
     """YOLO selects identity/ROI; the image alone supplies the measured axis.
 
     Fit body pixels in field metres, weighting the thick rigid body above the
-    thin moving tail. A manual head click resolves the 180-degree ambiguity.
+    thin moving tail. A manual head click sets the exact heading offset.
     This is a body-axis proxy, not a trained head keypoint or an IMU estimate.
     """
     def __init__(self):self.reset()
 
     def reset(self):
         self.direction=None;self.zero_world=None;self.initialized=False
+        self.head_offset_deg=0.
         self.last_time=None;self.track_id=None;self.latest=None;self.continuity_id=0
 
     def update(self,frame,bbox,stamp,field,track_id=None,value_max=130):
@@ -59,33 +60,36 @@ class OpticalBodyAxis:
             self.initialized=False;self.continuity_id+=1
         if self.direction is not None and axis@self.direction<0:axis=-axis
         self.direction=axis;self.last_time=float(stamp);self.track_id=track_id
-        angle=wrap_degrees(math.degrees(math.atan2(-axis[1],axis[0])))
+        axis_angle=wrap_degrees(math.degrees(math.atan2(-axis[1],axis[0])))
+        angle=wrap_degrees(axis_angle+self.head_offset_deg)
+        direction=np.array([math.cos(math.radians(angle)),-math.sin(math.radians(angle))])
         inverse=np.linalg.inv(field.matrix)
-        endpoints=transform_points(inverse,[centre,centre+.15*axis])
+        endpoints=transform_points(inverse,[centre,centre+.15*direction])
         self.latest={'valid':self.initialized,'reason':'OK' if self.initialized else 'NEEDS_HEAD_CALIBRATION',
             'world_deg':angle,'relative_deg':wrap_degrees(angle-self.zero_world) if self.initialized else None,
-            'x_m':float(centre[0]),'y_m':float(centre[1]),'centre_world':centre.tolist(),'direction_world':axis.tolist(),
+            'axis_world_deg':axis_angle,'head_offset_deg':self.head_offset_deg,
+            'x_m':float(centre[0]),'y_m':float(centre[1]),'centre_world':centre.tolist(),'direction_world':direction.tolist(),
             'centre_px':endpoints[0].tolist(),'front_px':endpoints[1].tolist(),'axis_ratio':ratio,
             'quality':min(1.,(ratio-1.)/4.),'sample_time':float(stamp),'track_id':track_id,'continuity_id':self.continuity_id,
             'source':'OPTICAL_BODY_AXIS'}
         return dict(self.latest)
 
-    def calibrate(self,point,snapshot,field):
+    def calibrate(self,point,snapshot,field,body_pixel=None):
         if not snapshot.get('direction_world') or self.latest is None:
             raise ValueError('当前鱼身方向不清晰，请调整画面后重新标定')
         if snapshot.get('track_id')!=self.track_id or snapshot.get('continuity_id')!=self.continuity_id:
             raise ValueError('标定期间已丢失目标，请重新选择鱼头')
-        head=field.transform([point])[0];centre=np.asarray(snapshot['centre_world'])
+        head=field.transform([point])[0]
+        centre=field.transform([body_pixel])[0] if body_pixel is not None else np.asarray(snapshot['centre_world'])
         delta=head-centre
         if np.linalg.norm(delta)<.02:raise ValueError('请点击鱼头前端，与身体中心保持距离')
-        sign=1 if delta@np.asarray(snapshot['direction_world'])>=0 else -1
-        if sign<0:
-            self.direction=-self.direction
-            self.latest['world_deg']=wrap_degrees(self.latest['world_deg']+180.)
-            self.latest['direction_world']=self.direction.tolist()
-            self.latest['front_px']=transform_points(np.linalg.inv(field.matrix),[
-                np.asarray(self.latest['centre_world'])+.15*self.direction])[0].tolist()
-        self.zero_world=wrap_degrees(snapshot['world_deg']+(180. if sign<0 else 0.))
+        self.zero_world=wrap_degrees(math.degrees(math.atan2(-delta[1],delta[0])))
+        self.head_offset_deg=wrap_degrees(self.zero_world-snapshot['axis_world_deg'])
+        angle=wrap_degrees(self.latest['axis_world_deg']+self.head_offset_deg)
+        direction=[math.cos(math.radians(angle)),-math.sin(math.radians(angle))]
+        self.latest.update(world_deg=angle,direction_world=direction,head_offset_deg=self.head_offset_deg)
+        self.latest['front_px']=transform_points(np.linalg.inv(field.matrix),[
+            np.asarray(self.latest['centre_world'])+.15*np.asarray(direction)])[0].tolist()
         self.initialized=True
         self.latest.update(valid=True,reason='OK',relative_deg=wrap_degrees(self.latest['world_deg']-self.zero_world))
         return self.zero_world

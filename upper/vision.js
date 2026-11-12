@@ -11,7 +11,7 @@ let visionSpeedDirty=false;
 function visionSaved(key,fallback){try{return localStorage.getItem('robofish-vision-'+key)||fallback;}catch(_){return fallback;}}
 function saveVision(key,value){try{localStorage.setItem('robofish-vision-'+key,value);}catch(_){}}
 let visionLayout=visionSaved('layout','control');
-function clearVisionImage(image,empty){$(image).removeAttribute('src');delete $(image).dataset.stream;delete $(image).dataset.pointerReady;$(image).hidden=true;$(empty).hidden=false;}
+function clearVisionImage(image,empty){if(image==='vision-result')cancelVisionPointer();$(image).removeAttribute('src');delete $(image).dataset.stream;delete $(image).dataset.pointerReady;$(image).hidden=true;$(empty).hidden=false;}
 function visionNotice(message){robotText('vision-task-state',message);log(message,'info');}
 function boardHost(){return robotAddress($('vision-board-host').value)||(!$('vision-board-host').value.trim()?robotHost():'');}
 function boardStreamURL(host){if(isRobotFish())throw Error('此 RobotFish 未提供相机');const [address,port]=host.split(':');if(Number(port||80)>=65535)throw Error('相机HTTP端口需小于65535');return `http://${address}:${Number(port||80)+1}/stream`;}
@@ -38,7 +38,11 @@ function renderVisionControls(){
     if(button.dataset.visionTask==='SAMPLE_STOP')button.disabled||=!visionState.samples?.active;
     if(button.dataset.visionTask==='AUTO_START')button.disabled||=autoTrackingStarting||visionState.result?.tracking?.automatic===true||visionState.result?.replay===true||!visionState.result?.initial_heading?.imu_aligned||(visionState.result?.path_pixels?.length||0)<2;
     if(button.dataset.visionTask==='AUTO_STOP')button.disabled||=!autoTrackingStarting&&!visionState.result?.tracking?.automatic;
-    if(['EXP_UP','EXP_DOWN'].includes(button.dataset.visionTask)){button.disabled||=visionState.result?.replay===true;button.title=visionState.result?.replay?'录像不能调节相机曝光':'';}
+    if(['EXP_AUTO','EXP_UP','EXP_DOWN'].includes(button.dataset.visionTask)){
+      const exposure=visionState.result?.camera_exposure,mode=button.dataset.visionExposureMode;
+      button.disabled||=visionState.result?.replay===true||!exposure||(!mode&&exposure.mode!=='manual');
+      button.title=visionState.result?.replay?'录像不能调节相机曝光':!mode&&exposure?.mode!=='manual'?'先点击切换手动曝光；自动模式下不使用旧手动值步进':'';
+    }
     if(button.dataset.visionTask==='PREVIEW'){button.textContent=visionState.preview_enabled===false?'打开原图预览':'关闭原图预览';button.setAttribute('aria-pressed',String(visionState.preview_enabled!==false));}
     if(button.dataset.visionTask==='RECORD'){
       button.textContent=visionState.recording?.active?'停止录制':'录制视频';button.disabled||=!!recordingRequest||visionState.recording?.saving===true;
@@ -100,7 +104,7 @@ async function loadVisionConfiguration(){
     for(const profile of visionConfiguration.calibration){
       const value=profile.values||{};
       let text=profile.error?'文件无效：'+profile.error:profile.saved?'已保存标定':'尚未标定';
-      if(profile.key==='head')text='标定场地后点击鱼头，建立独立视觉 0°；实时相机将同步 IMU 控制零位，每次会话重新标定。';
+      if(profile.key==='head')text='从 YOLO 中心 P 指向你点击的鱼头，按实际连线建立 0°；箭头随鱼体平移和转向。实时相机同步 IMU 零位，每次会话重新标定。';
       if(profile.key==='tail')text='使用 YOLO 自动识别鱼体；需要时框选完整机器鱼。';
       if(profile.saved&&!profile.error){
         if(profile.key==='pool')text+=` · ${value.physical_width_m??'—'} × ${value.physical_height_m??'—'} m · ${value.frame_width??'—'}×${value.frame_height??'—'}`;
@@ -126,7 +130,7 @@ async function startVision(){
 }
 function queueAutomaticTask(task){const result=automaticActionQueue.then(()=>service('vision/action',{event:{task}}));automaticActionQueue=result.catch(()=>{});return result;}
 function cancelAutomaticTracking(force=false){const active=autoTrackingStarting||visionState.result?.tracking?.automatic;automaticRequest++;autoTrackingStarting=false;return force||active?queueAutomaticTask('AUTO_STOP'):Promise.resolve(null);}
-async function visionTask(task){
+async function visionTask(task,exposureMode){
   if(task==='AUTO_START')return startAutomaticTracking();
   if(task==='AUTO_STOP'){try{await cancelAutomaticTracking(true);await pollVision();}catch(error){visionNotice(error.message);}finally{renderVisionControls();}return;}
   if(task==='RECORD'&&recordingRequest)return;
@@ -134,7 +138,7 @@ async function visionTask(task){
   try{
     if(['MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','CLEAR_PATH'].includes(task))await cancelAutomaticTracking();
     if(task==='RECORD'){recordingRequest='pending';recordingTarget=!visionState.recording?.active;renderVisionControls();}
-    const result=await service('vision/action',{event:{task}});if(task==='RECORD')recordingRequest=result.id;
+    const result=await service('vision/action',{event:{task,...(exposureMode?{exposure_mode:exposureMode}:{})}});if(task==='RECORD')recordingRequest=result.id;
     visionNotice(`视觉操作已排队：${task} · ${result.id.slice(0,8)}`);await pollVision();
   }catch(error){if(task==='RECORD')recordingRequest='';visionNotice(error.message);toast(error.message);renderVisionControls();}
 }
@@ -226,7 +230,12 @@ function updateVisionImages(){
     const frozen=!!visionState.selection_id;
     // Frozen MJPEG has no next frame to finish loading; use the existing JPEG endpoint.
     const url=`/api/vision/${frozen?'frame':'stream'}?kind=${kind}&session=${visionState.process_id}&space=${kind==='result'?visionState.display_space||'image':'image'}&selection=${visionState.selection_id||''}${frozen?'&revision='+visionState.preview_revision:''}`;
-    if($(image).dataset.stream!==url){$(image).dataset.pointerReady='false';$(image).dataset.stream=url;$(image).src=url;}
+    if($(image).dataset.stream!==url){
+      const loaded=$(image).dataset.pointerReady==='true'&&$(image).dataset.selectionId===(visionState.selection_id||'')&&$(image).dataset.pointerSpace===(kind==='result'?visionState.display_space||'image':'image')&&$(image).dataset.processId===String(visionState.process_id);
+      if(image==='vision-result'&&visionGesture&&loaded)return;
+      if(!loaded)$(image).dataset.pointerReady='false';
+      $(image).dataset.stream=url;$(image).src=url;
+    }
     $(image).hidden=false;$(empty).hidden=true;
   }
   if(state.page==='vision'&&visionLayout!=='board'){
@@ -250,6 +259,7 @@ async function pollVision(){
       if(visionState.last_task.id!==lastCalibrationTask&&['MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','TURN_CALIB'].includes(visionState.last_task.task)){lastCalibrationTask=visionState.last_task.id;loadVisionConfiguration();}
     }
     if(visionState.last_task?.state==='error')robotText('vision-task-state','操作失败：'+visionState.last_task.status);
+    if(visionLocalSelection&&(visionLocalSelection.selection_id!==(visionState.selection_id||'')||visionLocalSelection.process_id!==visionState.process_id||visionState.last_task?.state==='error'))clearVisionSelection();
     const initial=visionState.result?.initial_heading||{};
     if(visionState.running&&/^\d+$/.test(visionState.source)&&initial.calibrated&&initial.imu_aligned&&initial.calibration_id!==syncedHeadingCalibration){
       syncedHeadingCalibration=initial.calibration_id;
@@ -261,12 +271,17 @@ async function pollVision(){
     const result=visionState.result||{},optical=result.optical||{},yaw=result.body_yaw||{},position=result.position||{},perf=result.performance||{};
     if(visionState.running&&!visionSpeedDirty&&document.activeElement!==$('vision-speed-target')&&Number.isFinite(visionState.cruise_speed_mps))$('vision-speed-target').value=String(visionState.cruise_speed_mps);
     const number=(value,digits=1)=>typeof value==='number'?value.toFixed(digits):'—';
-    robotText('vision-yaw-state',`独立视觉角度 ${optical.valid?number(optical.relative_deg)+'°':'无有效值（'+(optical.reason||'等待标定')+'）'} · IMU ${yaw.usable?number(yaw.yaw_deg)+'°':'未对齐'}${result.replay?' · 录像不与当前 IMU 配对':''}`);
-    robotText('vision-speed-state',`跟踪点 P · X ${number(position.x_m,3)} / Y ${number(position.y_m,3)} m · 速度 ${number(result.velocity?.speed_mps,3)} m/s · 视觉角度误差 ${number(result.vision_error_deg)}°${result.reference_aligned?'':'（等待同一零位和时间对齐）'}`);
-    robotText('vision-performance-state',`设备 ${perf.device===0?'CUDA GPU 0':perf.device||'—'} · 检测 ${number(perf.detect_ms)} / 光学角度 ${number(perf.optical_ms)} / 预览 ${number(perf.preview_ms)} ms · 预览最高 ${perf.preview_max_fps||15} fps · 丢弃过期采集帧 ${perf.dropped_capture_frames||0}`);
+    robotText('vision-yaw-state',`独立视觉角度 ${optical.valid?number(optical.relative_deg)+'°':'无有效值（'+(optical.reason||'等待标定')+'）'} · IMU ${yaw.usable?number(yaw.yaw_deg)+'°':result.imu?.source==='IMU_STALE'?'数据已过期':'未对齐'}${yaw.usable&&!result.reference_aligned?' · 等待画面时间对齐':''}${result.replay?' · 录像不与当前 IMU 配对':''}`);
+    const phase=result.tracking?.automatic?({RETURN_TO_PATH:'先回轨 · 目标保持',ALIGN_WITH_PATH:'沿轨回正 · 目标保持',TRACK:'沿轨前进'}[result.guidance?.phase]||''):'';
+    robotText('vision-speed-state',`跟踪点 P · X ${number(position.x_m,3)} / Y ${number(position.y_m,3)} m · 速度 ${number(result.velocity?.speed_mps,3)} m/s${phase?' · '+phase:''} · 视觉角度误差 ${number(result.vision_error_deg)}°${result.reference_aligned?'':'（等待同一零位和时间对齐）'}`);
+    robotText('vision-performance-state',`设备 ${perf.device===0?'CUDA GPU 0':perf.device||'—'} · 实测采集 ${number(perf.capture_fps)} / 处理 ${number(perf.processing_fps)} / 预览 ${number(perf.preview_fps)} fps · 源标称 ${number(perf.source_reported_fps)} fps · 检测 ${number(perf.detect_ms)} / 光学角度 ${number(perf.optical_ms)} / 预览 ${number(perf.preview_ms)} ms · 预览上限 ${perf.preview_max_fps||120} fps · 丢弃过期采集帧 ${perf.dropped_capture_frames||0}`);
+    const exposure=result.camera_exposure;
+    robotText('vision-exposure-state',result.replay?'录像回放不支持相机曝光调节':exposure
+      ?`${exposure.status} · 画面亮度 ${number(exposure.gray_mean)}/255${exposure.pending?` · 待执行 ${exposure.pending}`:''}${exposure.mode==='auto'?' · 自动模式下读回值不代表实时曝光时间':''}${result.interaction?' · 标定画面已冻结，结束标定后显示曝光变化':''}`
+      :'等待相机曝光状态');
     robotText('vision-view-state',visionState.display_space==='field'?'当前显示：透视校正图（按场地长宽比例）':result.interaction?'当前显示：完整原图（标定选择），完成后恢复所选视角':result.pool?.perspective?'当前显示：完整原图':'当前显示：完整原图，完成场地四点标定后显示透视图');
     if(document.activeElement!==$('vision-view'))$('vision-view').value=visionState.view_mode||'perspective';
-    if(document.activeElement!==$('vision-preview-fps'))$('vision-preview-fps').value=String(perf.preview_max_fps||15);
+    if(document.activeElement!==$('vision-preview-fps'))$('vision-preview-fps').value=String(perf.preview_max_fps||120);
     if(document.activeElement!==$('vision-threshold')&&typeof result.debug?.threshold==='number'){$('vision-threshold').value=result.debug.threshold;robotText('vision-threshold-value',result.debug.threshold);}
     const turn=result.turn_calibration||{};
     if(turn.active)robotText('vision-calibration-turn',`转弯采样中 · ${turn.samples} 点；人工控制转弯，再点击拟合`);
@@ -289,27 +304,79 @@ async function pollVision(){
   }catch(error){appendVisionTerminal(null,error.message);robotText('vision-service-state',error.message);}
   finally{visionPolling=false;}
 }
-function pointInImage(event,image,clip=false){
+function visionImageBounds(image){
   const box=image.getBoundingClientRect(),ratio=Math.min(box.width/image.naturalWidth,box.height/image.naturalHeight);
   const width=image.naturalWidth*ratio,height=image.naturalHeight*ratio;
-  const x=(event.clientX-box.left-(box.width-width)/2)/width,y=(event.clientY-box.top-(box.height-height)/2)/height;
+  return {left:box.left+(box.width-width)/2,top:box.top+(box.height-height)/2,width,height};
+}
+function pointInImage(event,image,clip=false,bounds=visionImageBounds(image)){
+  const x=(event.clientX-bounds.left)/bounds.width,y=(event.clientY-bounds.top)/bounds.height;
   if(!Number.isFinite(x)||!Number.isFinite(y))return null;
   return clip?{x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))}:x>=0&&x<=1&&y>=0&&y<=1?{x,y}:null;
 }
-let visionPointerQueue=Promise.resolve();
+let visionPointerQueue=[],visionPointerSending=false,visionGesture=null,visionLocalSelection=null;
+const visionSelectionOverlay=document.createElement('div');
+visionSelectionOverlay.className='vision-selection-overlay';visionSelectionOverlay.hidden=true;visionSelectionOverlay.setAttribute('aria-hidden','true');
+$('vision-result').parentElement.append(visionSelectionOverlay);
+function clearVisionSelection(){visionLocalSelection=null;visionSelectionOverlay.hidden=true;}
+function drawVisionSelection(gesture,point){
+  if(!['MARKER_ROI','HEAD_DIRECTION'].includes(gesture.task))return;
+  visionLocalSelection={...gesture,point};
+  const box=$('vision-result').parentElement.getBoundingClientRect(),bounds=gesture.bounds,head=gesture.task==='HEAD_DIRECTION';
+  const x=head?point.x:Math.min(gesture.start.x,point.x),y=head?point.y:Math.min(gesture.start.y,point.y);
+  Object.assign(visionSelectionOverlay.style,{left:(bounds.left-box.left+x*bounds.width-(head?6:0))+'px',top:(bounds.top-box.top+y*bounds.height-(head?6:0))+'px',width:(head?12:Math.abs(point.x-gesture.start.x)*bounds.width)+'px',height:(head?12:Math.abs(point.y-gesture.start.y)*bounds.height)+'px',borderRadius:head?'50%':'0'});
+  visionSelectionOverlay.hidden=false;
+}
+async function flushVisionPointers(){
+  if(visionPointerSending)return;visionPointerSending=true;
+  try{
+    while(visionPointerQueue.length){
+      const entry=visionPointerQueue.shift();
+      if(entry.process_id!==visionState.process_id||entry.event.selection_id!==(visionState.selection_id||''))continue;
+      try{await service('vision/action',{event:entry.event});}
+      catch(error){
+        visionPointerQueue=visionPointerQueue.filter(item=>item.gesture!==entry.gesture);
+        if(visionGesture===entry.gesture){visionGesture=null;pointerDown=false;}
+        clearVisionSelection();robotText('vision-task-state',error.message);
+      }
+      if(['up','right'].includes(entry.event.kind)||entry.gesture?.task==='HEAD_DIRECTION')pollVision();
+    }
+  }finally{visionPointerSending=false;}
+}
+function queueVisionPointer(gesture,input){
+  const entry={gesture,process_id:gesture.process_id,event:input},last=visionPointerQueue.at(-1);
+  if(input.kind==='move'&&last?.event.kind==='move'&&last.gesture===gesture)visionPointerQueue[visionPointerQueue.length-1]=entry;
+  else visionPointerQueue.push(entry);
+  flushVisionPointers();
+}
 function sendVisionPointer(event,kind){
   const image=$('vision-result'),selection=visionState.selection_id||'';
-  if(image.dataset.pointerReady!=='true'||image.dataset.selectionId!==selection){if(kind==='down')robotText('vision-task-state','标定画面正在加载，请等待图像加载后再选择');return false;}
-  const point=pointInImage(event,image,pointerDown||kind==='right');if(!point)return false;
-  const input={kind,...point,space:image.dataset.pointerSpace||'image',selection_id:selection};
-  visionPointerQueue=visionPointerQueue.then(()=>service('vision/action',{event:input})).catch(error=>robotText('vision-task-state',error.message));
+  let gesture=visionGesture;
+  if(!gesture){
+    if(image.dataset.pointerReady!=='true'||image.dataset.selectionId!==selection||image.dataset.processId!==String(visionState.process_id)){if(kind==='down')robotText('vision-task-state','标定画面正在加载，请等待图像加载后再选择');return false;}
+    if(!['down','right'].includes(kind))return false;
+    const point=pointInImage(event,image,kind==='right');if(!point)return false;
+    gesture={selection_id:selection,space:image.dataset.pointerSpace||'image',process_id:visionState.process_id,task:visionState.result?.interaction,bounds:visionImageBounds(image),start:point,point,pointerId:event.pointerId};
+    if(kind==='down')visionGesture=gesture;
+  }
+  if(gesture.process_id!==visionState.process_id||gesture.selection_id!==selection)return false;
+  const point=pointInImage(event,image,kind!=='down',gesture.bounds)||gesture.point;
+  gesture.point=point;drawVisionSelection(gesture,point);
+  // Frozen ROI/head selection needs only the endpoints; draw intermediate feedback locally.
+  if(kind==='move'&&['MARKER_ROI','HEAD_DIRECTION'].includes(gesture.task))return true;
+  queueVisionPointer(gesture,{kind,...point,space:gesture.space,selection_id:gesture.selection_id});
   return true;
 }
-$('vision-result').onload=()=>{const image=$('vision-result'),url=new URL(image.dataset.stream,location.href);image.dataset.pointerSpace=url.searchParams.get('space')||'image';image.dataset.selectionId=url.searchParams.get('selection')||'';image.dataset.pointerReady='true';};
-$('vision-result').onpointerdown=event=>{event.preventDefault();if(event.button===2){sendVisionPointer(event,'right');return;}if(sendVisionPointer(event,'down')){event.target.setPointerCapture(event.pointerId);pointerDown=true;}};
-$('vision-result').onpointermove=event=>{if(pointerDown&&Date.now()-lastPointerAt>40){lastPointerAt=Date.now();sendVisionPointer(event,'move');}};
-$('vision-result').onpointerup=event=>{if(pointerDown)sendVisionPointer(event,'up');pointerDown=false;};
-$('vision-result').onpointercancel=$('vision-result').onlostpointercapture=event=>{if(pointerDown)sendVisionPointer(event,'right');pointerDown=false;};$('vision-result').oncontextmenu=event=>event.preventDefault();
+function cancelVisionPointer(){
+  if(visionGesture)sendVisionPointer({clientX:NaN,clientY:NaN},'right');
+  visionGesture=null;pointerDown=false;clearVisionSelection();
+}
+$('vision-result').onload=()=>{const image=$('vision-result');if(!image.dataset.stream)return;const url=new URL(image.dataset.stream,location.href);image.dataset.pointerSpace=url.searchParams.get('space')||'image';image.dataset.selectionId=url.searchParams.get('selection')||'';image.dataset.processId=url.searchParams.get('session')||'';image.dataset.pointerReady='true';};
+$('vision-result').onpointerdown=event=>{event.preventDefault();if(event.button===2){sendVisionPointer(event,'right');visionGesture=null;pointerDown=false;clearVisionSelection();return;}if(event.button!==0||pointerDown)return;if(sendVisionPointer(event,'down')){event.target.setPointerCapture(event.pointerId);pointerDown=true;}};
+$('vision-result').onpointermove=event=>{if(pointerDown&&event.pointerId===visionGesture?.pointerId){if(['MARKER_ROI','HEAD_DIRECTION'].includes(visionGesture.task)||Date.now()-lastPointerAt>40){lastPointerAt=Date.now();sendVisionPointer(event,'move');}}};
+$('vision-result').onpointerup=event=>{if(pointerDown&&event.pointerId===visionGesture?.pointerId){sendVisionPointer(event,'up');visionGesture=null;pointerDown=false;}};
+$('vision-result').onpointercancel=$('vision-result').onlostpointercapture=event=>{if(pointerDown&&event.pointerId===visionGesture?.pointerId)cancelVisionPointer();};$('vision-result').oncontextmenu=event=>event.preventDefault();
+window.addEventListener('blur',cancelVisionPointer);
 $('vision-start').onclick=startVision;$('vision-stop').onclick=async()=>{try{await cancelAutomaticTracking();visionState=await service('vision/stop',{});await pollVision();}catch(error){toast(error.message);}};
 $('vision-speed-apply').onclick=async()=>{
   const input=$('vision-speed-target');if(!input.reportValidity())return;
@@ -324,7 +391,7 @@ $('vision-pool-apply').onclick=async()=>{
   const width=$('vision-pool-width'),height=$('vision-pool-height');if(!width.reportValidity()||!height.reportValidity())return;
   try{await cancelAutomaticTracking();await service('vision/action',{event:{task:'POOL_SIZE',width_m:Number(width.value),height_m:Number(height.value)}});visionNotice('尺寸已应用，请在画面中依次点击四角。');}catch(error){toast(error.message);}
 };
-document.querySelectorAll('[data-vision-task]').forEach(button=>button.onclick=()=>visionTask(button.dataset.visionTask));
+document.querySelectorAll('[data-vision-task]').forEach(button=>button.onclick=()=>visionTask(button.dataset.visionTask,button.dataset.visionExposureMode));
 document.querySelectorAll('[data-vision-layout]').forEach(button=>button.onclick=()=>applyVisionLayout(button.dataset.visionLayout));
 $('vision-config-link').onclick=event=>{event.preventDefault();$('vision-settings').open=true;$('vision-settings').scrollIntoView({block:'start',behavior:'smooth'});loadVisionConfiguration();};
 $('vision-open-output').onclick=async()=>{try{const result=await service('vision/open-output',{});toast('已打开采样与测试图目录：'+result.path);}catch(error){toast(error.message);}};

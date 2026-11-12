@@ -27,11 +27,11 @@ def verify_device_page(browser, target):
     assert page.locator('[data-axis]').count() == 6
     assert page.locator('[data-axis]').first.is_disabled()
     assert page.locator('#connect').is_visible()
-    assert '115200' not in page.locator('#imu').inner_text()  # No fabricated sensor metadata.
+    assert '115200' not in page.locator('#imu').text_content()  # No fabricated sensor metadata.
     fixture.Target.motion['imu'] = dict(uart_ready=True, baud=115200, frames=1,
         angles_deg=dict(valid=True, x=45, y=-45, z=90, age_ms=20))
     page.wait_for_function("document.getElementById('imu').textContent.includes('45.0, -45.0, 90.0')")
-    assert '115200' in page.locator('#imu').inner_text()
+    assert '115200' in page.locator('#imu').text_content()
     saved = page.locator('#outputs').inner_text()
     page.route('**/motion_status', lambda route: route.abort())
     page.wait_for_function("document.getElementById('connection').textContent.includes('状态读取失败')")

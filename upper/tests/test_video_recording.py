@@ -4,7 +4,9 @@ import importlib.util
 import sys
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 if importlib.util.find_spec('cv2') is None:raise unittest.SkipTest('Requires the installed YOLO/OpenCV Python')
 import cv2
@@ -15,6 +17,48 @@ from video_recorder import AsyncVideoRecorder
 
 
 class VideoRecordingTests(unittest.TestCase):
+    def test_queue_drops_do_not_shorten_the_recording_timeline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);entered=threading.Event();resume=threading.Event()
+            recorder=AsyncVideoRecorder(root/'drops.mp4',cv2.VideoWriter_fourcc(*'mp4v'),
+                                       120,(64,48),root/'drops.csv',fields=['source_frame'])
+            write=recorder._write
+            def paused(*args,**kwargs):
+                entered.set()
+                if not resume.wait(2):raise RuntimeError('Test writer timed out')
+                write(*args,**kwargs)
+            try:
+                with patch.object(recorder,'_write',side_effect=paused):
+                    image=np.zeros((48,64,3),np.uint8)
+                    recorder.submit(image,[0],timestamp=100.)
+                    self.assertTrue(entered.wait(1))
+                    for index in range(1,20):recorder.submit(image,[index],timestamp=100.+index/30)
+                    self.assertGreater(recorder.dropped_frames,0)
+                    resume.set();recorder.close()
+            finally:
+                resume.set();recorder.close()
+            self.assertTrue(recorder.status()['saved'],recorder.status())
+            self.assertEqual(recorder.frames,80)
+            with (root/'drops.csv').open(encoding='utf-8-sig',newline='') as file:
+                rows=list(csv.DictReader(file))
+            self.assertEqual(len(rows),80)
+            self.assertEqual([int(row['recording_frame']) for row in rows],list(range(80)))
+            self.assertEqual(sum(int(row['recording_repeated']) for row in rows),recorder.repeated_frames)
+
+    def test_invalid_or_unbounded_timestamps_never_produce_a_silent_fast_video(self):
+        for timestamps in ((10.,float('nan')),(10.,9.),(10.,16.),(10.,None)):
+            with self.subTest(timestamps=timestamps),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory)
+                recorder=AsyncVideoRecorder(root/'time.mp4',cv2.VideoWriter_fourcc(*'mp4v'),
+                                           120,(64,48),root/'time.csv',fields=['source_frame'])
+                try:
+                    for index,timestamp in enumerate(timestamps):
+                        recorder.submit(np.zeros((48,64,3),np.uint8),[index],timestamp=timestamp)
+                finally:recorder.close()
+                self.assertFalse(recorder.status()['saved'])
+                self.assertTrue(recorder.error)
+                self.assertLessEqual(recorder.frames,1)
+
     def test_invalid_codec_is_reported_before_recording(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

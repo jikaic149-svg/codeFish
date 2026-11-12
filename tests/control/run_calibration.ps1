@@ -1,5 +1,5 @@
-param([string]$Compiler = 'C:/msys64/ucrt64/bin/g++.exe',
-      [string]$JsonSource = 'D:/ESP32/ESP-IDF-v5.3.2/components/json/cJSON')
+param([string]$Compiler = $(if ($env:ROBOFISH_CXX) { $env:ROBOFISH_CXX } else { 'g++.exe' }),
+      [string]$JsonSource = $(Join-Path $env:IDF_PATH 'components/json/cJSON'))
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $output = Join-Path $project 'build/host-control'

@@ -8,9 +8,114 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'vision'))
 from path_guidance import PathGuidance, resample_polyline, round_polyline, wrap_to_pi
+from control_config import CONTROL
 
 
 class GuidanceTests(unittest.TestCase):
+    def test_return_updates_projection_without_chasing_old_point_backwards(self):
+        guide = PathGuidance(lookahead_m=.5,min_lookahead_m=.35,
+                             cruise_speed_mps=.12,min_speed_target_mps=.04)
+        guide.start([[0,0],[1,0],[1,-1]],[.5,0],1.,[1,0])
+        for stamp,position in [(1.1,[.6,.3]),(1.2,[.7,.25]),(1.3,[.8,.16])]:
+            result = guide.update(position,stamp,body_heading=[1,0],speed_mps=.12)
+            self.assertEqual(result['phase'],'RETURN_TO_PATH')
+            self.assertAlmostEqual(result['along_m'],position[0])
+            self.assertFalse(result['progress_held'])
+            self.assertTrue(result['lookahead_held'])
+            self.assertEqual(result['lookahead_m'],0.)
+            np.testing.assert_allclose(result['lookahead_point'],[position[0],0],atol=1e-8)
+            np.testing.assert_allclose(result['rejoin_point'],result['projection_point'])
+            self.assertEqual(result['curve_heading_feedforward_deg'],0.)
+            self.assertEqual(result['curve_feedforward'],0.)
+            self.assertLess(result['raw_psi_ref_rad'],math.pi/2)
+            self.assertGreater(result['raw_psi_ref_rad'],0.)
+            self.assertEqual(result['speed_target_mps'],.04)
+        # Return distance is measured from the CURRENT projection, not the old anchor.
+        result=guide.update([.95,.04],1.4,body_heading=[0,-1])
+        self.assertEqual(result['phase'],'ALIGN_WITH_PATH')
+        self.assertLess(result['rejoin_distance_m'],.05)
+        self.assertAlmostEqual(result['along_m'],.95)
+
+    def test_alignment_precedes_target_advance_and_lookahead_restores_gradually(self):
+        guide = PathGuidance(lookahead_m=.5,min_lookahead_m=.35,
+                             cruise_speed_mps=.12,min_speed_target_mps=.04)
+        guide.start([[0,0],[2,0]],[.5,.3],1.,[1,0])
+        held = guide.progress_m
+        result = guide.update([.5,.05],1.1,body_heading=[0,-1])
+        self.assertEqual(result['phase'],'ALIGN_WITH_PATH')
+        self.assertEqual(result['along_m'],held)
+        result = guide.update([.53,.04],1.2,body_heading=[0,-1])
+        self.assertAlmostEqual(result['along_m'],.53)
+        result = guide.update([.53,.04],1.3,body_heading=[1,0])
+        self.assertEqual(result['phase'],'TRACK')
+        self.assertGreater(result['along_m'],held)
+        self.assertGreater(result['lookahead_m'],0.)
+        self.assertLessEqual(result['lookahead_m'],.12*.1+1e-9)
+        result = guide.update([.54,.04],1.4,body_heading=[1,0])
+        self.assertLessEqual(result['lookahead_m'],.12*.2+1e-9)
+
+    def test_rejoin_hysteresis_and_heading_only_capture_do_not_chatter(self):
+        guide = PathGuidance()
+        guide.start([[0,0],[2,0]],[.5,0],1.,[0,-1])
+        for i,y in enumerate((.1,.13,.09,.11),1):
+            result = guide.update([.5,y],1+i*.1,body_heading=[0,-1])
+            self.assertEqual(result['phase'],'ALIGN_WITH_PATH')
+            self.assertAlmostEqual(result['along_m'],.5)
+        result = guide.update([.5,.16],1.5,body_heading=[0,-1])
+        self.assertEqual(result['phase'],'RETURN_TO_PATH')
+        result = guide.update([.5,.10],1.6,body_heading=[1,0])
+        self.assertEqual(result['phase'],'RETURN_TO_PATH')
+        self.assertEqual(result['lookahead_m'],0.)
+
+    def test_rejoin_closed_loop_with_synthetic_yaw_response(self):
+        # A bounded toy response tests sequencing, not real fish hydrodynamics.
+        for initial,yaw in (([.5,.4],0.),([.5,-.4],0.),([.5,0.],math.pi/2),([.5,.4],math.pi)):
+            with self.subTest(initial=initial,yaw=yaw):
+                guide = PathGuidance(lookahead_m=.5,min_lookahead_m=.35,
+                                     cruise_speed_mps=.12,min_speed_target_mps=.04)
+                position=np.array(initial,dtype=float);angle=yaw;dt=.05
+                guide.start([[0,0],[3,0]],position,0.,[math.cos(angle),-math.sin(angle)])
+                seen_track=False;previous=guide.progress_m
+                for step in range(1,1601):
+                    result=guide.update(position,step*dt,body_heading=[math.cos(angle),-math.sin(angle)])
+                    self.assertGreaterEqual(result['along_m']+1e-9,previous)
+                    previous=result['along_m']
+                    if not seen_track:
+                        if result['phase']=='TRACK':
+                            self.assertLessEqual(abs(position[1]),guide.rejoin_exit_m)
+                            self.assertLessEqual(abs(wrap_to_pi(angle)),guide.rejoin_heading_rad)
+                            self.assertLessEqual(result['lookahead_m'],guide.cruise_speed_mps*dt+1e-8)
+                            seen_track=True
+                        else:
+                            self.assertLess(abs(wrap_to_pi(result['raw_psi_ref_rad']-result['psi_path_rad'])),math.pi/2)
+                            self.assertEqual(result['lookahead_m'],0.)
+                    turn=np.clip(2*wrap_to_pi(result['psi_ref_rad']-angle),
+                                 -math.radians(60),math.radians(60))
+                    angle=wrap_to_pi(angle+float(turn)*dt)
+                    position+=result['speed_target_mps']*dt*np.array([math.cos(angle),-math.sin(angle)])
+                    if result['arrived']:break
+                self.assertTrue(seen_track)
+                self.assertTrue(result['arrived'],(position,result['phase']))
+                self.assertLess(abs(position[1]),.02)
+
+    def test_deployed_parameters_shorten_lookahead_and_strengthen_ten_cm_correction(self):
+        settings=CONTROL['guidance']
+        results=[]
+        for error in (0.,.05,.10):
+            guide=PathGuidance(lookahead_m=settings['lookahead_m'],
+                min_lookahead_m=settings['min_lookahead_m'],k_f=settings['cross_track_gain'],
+                full_attraction_error_m=settings['full_attraction_error_m'],
+                rejoin_enter_m=settings['rejoin_enter_m'],rejoin_exit_m=settings['rejoin_exit_m'])
+            result=guide.start([[0,0],[3,0]],[.5,error],0.,[1,0])
+            results.append(result)
+        self.assertGreater(results[0]['lookahead_m'],results[1]['lookahead_m'])
+        self.assertGreater(results[1]['lookahead_m'],results[2]['lookahead_m'])
+        self.assertAlmostEqual(results[2]['lookahead_m'],.20)
+        self.assertAlmostEqual(math.degrees(results[2]['cross_track_feedback']),30.9637565,places=5)
+        # The increased geometry gain must not bypass the heading slew limit.
+        result=guide.update([.5,.10],.1,body_heading=[1,0])
+        self.assertAlmostEqual(math.degrees(result['psi_ref_rad']),3.5)
+
     def test_mid_route_start_uses_nearby_branch_and_heading_at_intersection(self):
         guide = PathGuidance()
         result = guide.start([[0, 0], [2, 0], [2, 1], [0, 1]], [.8, 1], 10., [-1, 0])

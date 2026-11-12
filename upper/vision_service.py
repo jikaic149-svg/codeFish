@@ -13,7 +13,7 @@ from tooling import WORKSPACE
 
 TASKS={'MARKER_ROI','HEAD_DIRECTION','POOL_CALIB','POOL_SIZE','PREVIEW','AUTO_START','AUTO_STOP',
        'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','PERSPECTIVE_TEST','EXIT','VIEW','PREVIEW_FPS',
-       'CLEAR_PATH','TURN_CALIB','SPEED','RECORD','CLAHE','EXP_DOWN','EXP_UP','DEBUG','BINARY','THRESHOLD'}
+       'CLEAR_PATH','TURN_CALIB','SPEED','RECORD','CLAHE','EXP_AUTO','EXP_DOWN','EXP_UP','DEBUG','BINARY','THRESHOLD'}
 
 
 def vision_python():
@@ -24,7 +24,7 @@ def vision_python():
 
 class VisionService:
     def __init__(self):
-        self.guard=threading.Lock();self.process=None;self.port=None;self.token=None
+        self.guard=threading.RLock();self.process=None;self.port=None;self.token=None
         self.logs=deque(maxlen=40);self.source='';self.ready=threading.Event()
         self.model=''
         self.perspective_test={}
@@ -123,24 +123,36 @@ class VisionService:
         return self.state()
 
     def _reader(self,process):
+        fields={'ROBOFISH_VISION_RECORDING':'recording','ROBOFISH_PERSPECTIVE_TEST':'perspective_test',
+                'ROBOFISH_VISION_SAMPLES':'samples'}
         for line in process.stdout:
-            if line.startswith('ROBOFISH_VISION_READY '):
-                value=json.loads(line.split(' ',1)[1]);self.port=value['port'];self.ready.set()
-            elif line.startswith('ROBOFISH_VISION_RECORDING '):
-                self.recording=json.loads(line.split(' ',1)[1])
-            elif line.startswith('ROBOFISH_PERSPECTIVE_TEST '):
-                self.perspective_test=json.loads(line.split(' ',1)[1])
-            elif line.startswith('ROBOFISH_VISION_SAMPLES '):
-                self.samples=json.loads(line.split(' ',1)[1])
-            else:self.logs.append(line.rstrip())
+            with self.guard:
+                if process is not self.process:continue
+                prefix,_,payload=line.partition(' ')
+                if prefix not in fields and prefix!='ROBOFISH_VISION_READY':
+                    self.logs.append(line.rstrip());continue
+                try:
+                    value=json.loads(payload)
+                    if not isinstance(value,dict):raise ValueError('invalid vision status')
+                    if prefix=='ROBOFISH_VISION_READY':
+                        if type(value.get('port')) is not int or not 1<=value['port']<=65535:
+                            raise ValueError('invalid vision port')
+                        self.port=value['port'];self.ready.set()
+                    else:setattr(self,fields[prefix],value)
+                except (ValueError,TypeError,AttributeError):
+                    self.logs.append('视觉状态行无效，已忽略')
 
-    def call(self,path,body=None,binary=False):
-        if not self.process or self.process.poll() is not None or not self.port:
-            raise RuntimeError('视觉服务未启动或已退出：'+next(iter(reversed(self.logs)),'暂无日志'))
-        connection=http.client.HTTPConnection('127.0.0.1',self.port,timeout=2)
+    def call(self,path,body=None,binary=False,*,process=None):
+        with self.guard:
+            if process is not None and process is not self.process:
+                raise RuntimeError('视觉进程已变化')
+            if not self.process or self.process.poll() is not None or not self.port:
+                raise RuntimeError('视觉服务未启动或已退出：'+next(iter(reversed(self.logs)),'暂无日志'))
+            port,token=self.port,self.token
+        connection=http.client.HTTPConnection('127.0.0.1',port,timeout=2)
         try:
             connection.request('POST' if body is not None else 'GET',path,json.dumps(body) if body is not None else None,
-                {'Authorization':'Bearer '+self.token,'Content-Type':'application/json'})
+                {'Authorization':'Bearer '+token,'Content-Type':'application/json'})
             response=connection.getresponse();data=response.read(4*1024*1024+1)
             if len(data)>4*1024*1024:raise RuntimeError('视觉响应过大')
             if response.status not in (200,202):
@@ -150,7 +162,7 @@ class VisionService:
             return data if binary else json.loads(data)
         finally:connection.close()
 
-    def state(self):
+    def _snapshot(self):
         running=bool(self.process and self.process.poll() is None)
         result={'running':running,'ready':False,'source':self.source,'model':self.model,
                 'perspective_test':dict(self.perspective_test),'recording':dict(self.recording),
@@ -160,16 +172,27 @@ class VisionService:
             result['recording'].update(active=False,saved=False,error='视觉进程已退出，录像尚未确认保存')
         if not running and result['samples'].get('active'):
             result['samples'].update(active=False,saved=False,error='视觉进程异常退出，请从输出目录检查采样文件')
-        if running and self.port:
-            try:result.update(self.call('/state'))
-            except (RuntimeError,OSError):pass
         return result
 
+    def state(self):
+        with self.guard:
+            process=self.process;result=self._snapshot();port=self.port
+        if result['running'] and port:
+            try:
+                remote=self.call('/state',process=process)
+                with self.guard:
+                    if process is self.process:result.update(remote)
+            except (RuntimeError,OSError,http.client.HTTPException):pass
+        with self.guard:
+            return result if process is self.process else self._snapshot()
+
     def stream(self,kind):
-        if kind not in ('raw','result') or not self.port or not self.process or self.process.poll() is not None:
-            raise RuntimeError('视觉流未就绪')
-        connection=http.client.HTTPConnection('127.0.0.1',self.port,timeout=3)
-        connection.request('GET','/stream/'+kind,headers={'Authorization':'Bearer '+self.token})
+        with self.guard:
+            if kind not in ('raw','result') or not self.port or not self.process or self.process.poll() is not None:
+                raise RuntimeError('视觉流未就绪')
+            port,token=self.port,self.token
+        connection=http.client.HTTPConnection('127.0.0.1',port,timeout=3)
+        connection.request('GET','/stream/'+kind,headers={'Authorization':'Bearer '+token})
         response=connection.getresponse()
         if response.status!=200:
             connection.close();raise RuntimeError('视觉流未就绪')
@@ -206,14 +229,17 @@ class VisionService:
         return path.read_bytes(),('text/csv; charset=utf-8' if kind=='csv' else 'application/json; charset=utf-8'),path.name
 
     def stop(self):
-        if self.process and self.process.poll() is None:
-            try:self.action({'task':'EXIT'})
-            except (OSError,RuntimeError):pass
-            try:self.process.wait(timeout=8)
+        with self.guard:process,reader=self.process,self.reader
+        if process and process.poll() is None:
+            try:self.call('/action',{'task':'EXIT'},process=process)
+            except (OSError,RuntimeError,http.client.HTTPException):pass
+            try:process.wait(timeout=8)
             except subprocess.TimeoutExpired:
-                self.process.terminate();self.process.wait(timeout=3)
-        if self.reader and self.reader.is_alive():self.reader.join(timeout=1)
-        self.port=None
+                if process.poll() is None:process.terminate()
+                process.wait(timeout=3)
+        if reader and reader.is_alive():reader.join(timeout=1)
+        with self.guard:
+            if self.process is process:self.port=None
         return self.state()
 
 

@@ -31,7 +31,7 @@ class VisionServiceTests(unittest.TestCase):
         self.assertEqual(service.model_path(''),service.model_path(None))
         self.assertTrue((WORKSPACE/'vision/observer_runtime.py').is_file())
         self.assertFalse(service.configuration()['observation_only'])
-        self.assertTrue({'AUTO_START','AUTO_STOP','RECORD','BINARY','CLAHE','VIEW','THRESHOLD'}.issubset(service.configuration()['supported_tasks']))
+        self.assertTrue({'AUTO_START','AUTO_STOP','RECORD','BINARY','CLAHE','VIEW','THRESHOLD','EXP_AUTO'}.issubset(service.configuration()['supported_tasks']))
         self.assertFalse({'START','STOP'} & set(service.configuration()['supported_tasks']))
         for task in ('START','STOP'):
             with self.assertRaises(ValueError):service.action({'task':task})
@@ -40,7 +40,8 @@ class VisionServiceTests(unittest.TestCase):
     def test_reader_preserves_final_recording_status_after_process_exit(self):
         service=VisionService()
         saved={'active':False,'saved':True,'file':'record.mp4','frames':42,'error':''}
-        service._reader(SimpleNamespace(stdout=['ROBOFISH_VISION_RECORDING '+json.dumps(saved)]))
+        service.process=SimpleNamespace(poll=lambda:0,stdout=['ROBOFISH_VISION_RECORDING '+json.dumps(saved)])
+        service._reader(service.process)
         result=service.state()
         self.assertFalse(result['running'])
         self.assertEqual(result['recording'],saved)
@@ -53,6 +54,18 @@ class VisionServiceTests(unittest.TestCase):
         self.assertFalse(result['active'] or result['saved'])
         self.assertTrue(result['error'])
 
+    def test_malformed_status_does_not_prevent_later_ready_or_final_state(self):
+        service=VisionService()
+        service.process=SimpleNamespace(poll=lambda:0,stdout=[
+            'ROBOFISH_VISION_READY not-json','ROBOFISH_VISION_READY {"port":true}',
+            'ROBOFISH_VISION_RECORDING []',
+            'ROBOFISH_VISION_READY {"port":22222}',
+            'ROBOFISH_VISION_RECORDING {"active":false,"saved":true,"frames":2}'])
+        service._reader(service.process)
+        self.assertEqual(service.port,22222)
+        self.assertTrue(service.recording['saved'])
+        self.assertEqual(len(service.logs),3)
+
     def test_calibration_download_only_reads_the_output_directory(self):
         service=VisionService();service.perspective_test={'data_file':str(WORKSPACE/'upper/server.py')}
         with self.assertRaises(ValueError):service.test_file('json')
@@ -60,7 +73,8 @@ class VisionServiceTests(unittest.TestCase):
 
     def test_reader_preserves_calibration_test_file_after_exit(self):
         service=VisionService();saved={'image_file':'pool.png','data_file':'pool.json'}
-        service._reader(SimpleNamespace(stdout=['ROBOFISH_PERSPECTIVE_TEST '+json.dumps(saved)]))
+        service.process=SimpleNamespace(poll=lambda:0,stdout=['ROBOFISH_PERSPECTIVE_TEST '+json.dumps(saved)])
+        service._reader(service.process)
         self.assertEqual(service.state()['perspective_test'],saved)
 
     def test_samples_export_requires_a_complete_file_inside_the_output_directory(self):
@@ -68,7 +82,8 @@ class VisionServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             service.output=Path(folder);path=service.output/'heading.csv';path.write_text('frame,x_m\n1,2\n',encoding='utf-8-sig')
             saved={'active':False,'saved':True,'rows':1,'file':str(path),'error':''}
-            service._reader(SimpleNamespace(stdout=['ROBOFISH_VISION_SAMPLES '+json.dumps(saved)]))
+            service.process=SimpleNamespace(poll=lambda:0,stdout=['ROBOFISH_VISION_SAMPLES '+json.dumps(saved)])
+            service._reader(service.process)
             self.assertEqual(service.export_samples('csv')[0],path.read_bytes())
             service.samples['active']=True
             with self.assertRaises(ValueError):service.export_samples('csv')

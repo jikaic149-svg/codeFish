@@ -19,7 +19,7 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'upper'),str(ROOT/'vision')]
 from angle_observation import OpticalBodyAxis,AngleSamples
-from observer_runtime import ObserverSession
+from observer_runtime import LatestCamera,ObserverSession
 from pool_perspective import PoolPerspective,transform_points
 from web_runtime import WebBridge,WorkstationComm
 
@@ -37,6 +37,185 @@ def field_for(image):
 
 
 class ObserverTests(unittest.TestCase):
+    def test_camera_requests_120_but_records_the_negotiated_rate(self):
+        capture=Mock();capture.get.return_value=30.
+        with patch('observer_runtime.cv2.VideoCapture',return_value=capture), \
+                patch('observer_runtime.threading.Thread'):
+            camera=LatestCamera(0)
+            capture.set.assert_any_call(cv2.CAP_PROP_FPS,120)
+            capture.set.assert_any_call(cv2.CAP_PROP_AUTO_EXPOSURE,1.)
+            self.assertEqual(camera.reported_fps,30.)
+            self.assertEqual(camera.measured_fps,0.)
+            camera.close()
+
+    def camera_fixture(self):
+        values={cv2.CAP_PROP_EXPOSURE:-1.,cv2.CAP_PROP_AUTO_EXPOSURE:0.,cv2.CAP_PROP_FPS:60.}
+        capture=Mock();capture.get.side_effect=lambda prop:values.get(prop,0.)
+        def set_property(prop,value):
+            values[prop]=value
+            return True
+        capture.set.side_effect=set_property
+        with patch('observer_runtime.cv2.VideoCapture',return_value=capture),patch('observer_runtime.threading.Thread'):
+            camera=LatestCamera(0)
+        camera._exposure['gray_mean']=128.
+        capture.read.side_effect=lambda:(True,np.full((16,24,3),
+            128 if values[cv2.CAP_PROP_AUTO_EXPOSURE] else min(240,max(1,2**(values[cv2.CAP_PROP_EXPOSURE]+6))),np.uint8))
+        self.addCleanup(camera.close)
+        return camera,capture,values
+
+    def test_exposure_changes_are_queued_and_applied_before_read_on_camera_thread(self):
+        camera,capture,values=self.camera_fixture()
+        camera._exposure['mode']='manual'
+        calls=capture.set.call_count
+        camera.request_exposure(1)
+        self.assertEqual(capture.set.call_count,calls)
+        self.assertEqual(camera.exposure_status()['pending'],1)
+        image=np.full((16,24,3),80,np.uint8)
+        def read():
+            self.assertEqual(values[cv2.CAP_PROP_AUTO_EXPOSURE],0.)
+            self.assertEqual(values[cv2.CAP_PROP_EXPOSURE],0.)
+            camera.closed.set()
+            return True,image
+        capture.read.side_effect=read
+        camera._read()
+        status=camera.exposure_status()
+        self.assertEqual(status['mode'],'manual')
+        self.assertEqual(status['requested'],0.)
+        self.assertEqual(status['readback'],0.)
+        self.assertEqual(status['gray_mean'],80.)
+        self.assertEqual(status['pending'],0)
+        self.assertIsNone(status['error'])
+        self.assertIs(camera.read(0)[2],image,'Exposure must not be a hidden digital image multiplier')
+
+    def test_manual_exposure_has_no_invented_minus_one_upper_limit(self):
+        camera,capture,values=self.camera_fixture()
+        camera._exposure['mode']='manual'
+        for _ in range(3):camera._apply_exposure(1)
+        self.assertEqual(values[cv2.CAP_PROP_EXPOSURE],2.)
+        self.assertEqual(camera.exposure_status()['readback'],2.)
+        camera._apply_exposure(-1)
+        self.assertEqual(camera.exposure_status()['readback'],1.)
+        camera._apply_exposure(None)
+        self.assertEqual(camera.exposure_status()['mode'],'auto')
+        self.assertEqual(values[cv2.CAP_PROP_AUTO_EXPOSURE],1.)
+
+    def test_auto_mode_never_silently_switches_to_dark_stale_manual_value(self):
+        camera,capture,values=self.camera_fixture()
+        capture.set.reset_mock()
+        camera._apply_exposure(1)
+        self.assertEqual(camera.exposure_status()['mode'],'auto')
+        self.assertIn('先点击切换手动曝光',camera.exposure_status()['error'])
+        capture.set.assert_not_called()
+        camera._apply_exposure(0)
+        self.assertEqual(camera.exposure_status()['mode'],'manual')
+        self.assertIsNone(camera.exposure_status()['error'])
+        camera._apply_exposure(1)
+        self.assertEqual(camera.exposure_status()['readback'],0.)
+
+    def test_exposure_driver_clamping_is_an_error_and_restores_auto(self):
+        camera,capture,values=self.camera_fixture()
+        setter=capture.set.side_effect
+        capture.set.side_effect=lambda prop,value:True if prop==cv2.CAP_PROP_EXPOSURE else setter(prop,value)
+        camera._exposure['mode']='manual'
+        camera._apply_exposure(1)
+        status=camera.exposure_status()
+        self.assertEqual(status['mode'],'manual')
+        self.assertEqual(status['readback'],-1.)
+        self.assertIn('不一致',status['error'])
+        self.assertEqual(values[cv2.CAP_PROP_EXPOSURE],-1.)
+        camera._apply_exposure(None)
+        self.assertIsNone(camera.exposure_status()['error'])
+
+    def test_exposure_rejects_unsupported_mode_and_invalid_readback(self):
+        camera,capture,values=self.camera_fixture()
+        setter=capture.set.side_effect
+        capture.set.side_effect=lambda prop,value:False if prop==cv2.CAP_PROP_AUTO_EXPOSURE and value==0. else setter(prop,value)
+        capture.set.reset_mock()
+        camera._apply_exposure(0)
+        self.assertIn('拒绝手动曝光',camera.exposure_status()['error'])
+        self.assertFalse(any(call.args[0]==cv2.CAP_PROP_EXPOSURE for call in capture.set.call_args_list))
+        capture.set.side_effect=setter;values[cv2.CAP_PROP_EXPOSURE]=float('nan')
+        camera._apply_exposure(0)
+        self.assertIn('有效曝光读值',camera.exposure_status()['error'])
+        capture.set.return_value=False;capture.set.side_effect=None
+        camera._apply_exposure(None)
+        self.assertIn('拒绝自动曝光',camera.exposure_status()['error'])
+
+    def test_exposure_queue_is_bounded_without_touching_the_driver(self):
+        camera,capture,_=self.camera_fixture()
+        capture.set.reset_mock()
+        for _ in range(16):camera.request_exposure(1)
+        with self.assertRaisesRegex(ValueError,'操作过多'):camera.request_exposure(1)
+        capture.set.assert_not_called()
+
+    def test_exposure_actions_publish_hardware_state_and_never_request_motion(self):
+        camera,capture,_=self.camera_fixture()
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder);session.capture=camera
+            client=bridge.app.test_client();headers={'Authorization':'Bearer fixture'}
+            with patch.object(bridge,'parent',side_effect=AssertionError('Exposure must not actuate the fish')) as motion:
+                for action in ({'task':'EXP_UP','exposure_mode':'auto'},{'task':'EXP_UP','exposure_mode':'manual'},{'task':'EXP_UP'},{'task':'EXP_DOWN'}):
+                    self.assertEqual(client.post('/action',json=action,headers=headers).status_code,202)
+                    session.actions()
+                    self.assertEqual(bridge.last_task['state'],'processed')
+                session.publish()
+                self.assertEqual(bridge.result['camera_exposure']['pending'],4)
+                self.assertEqual(bridge.result['camera_exposure']['mode'],'auto')
+                self.assertEqual(bridge.result['debug']['exposure'],-1.)
+                self.assertEqual([camera.exposure_commands.get_nowait() for _ in range(4)],[None,0,1,-1])
+                self.assertEqual(client.post('/action',json={'task':'EXP_UP','exposure_mode':'bad'},headers=headers).status_code,400)
+                session.replay=True
+                self.assertEqual(client.post('/action',json={'task':'EXP_AUTO'},headers=headers).status_code,202)
+                session.actions()
+                self.assertEqual(bridge.last_task['state'],'error')
+                self.assertIn('录像',bridge.last_task['status'])
+                motion.assert_not_called()
+
+    def test_120fps_preview_is_validated_applied_and_published(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder,'fixture.mp4')
+            self.assertEqual(session.preview_fps,120)
+            client=bridge.app.test_client();headers={'Authorization':'Bearer fixture'}
+            for value in (60,120):
+                self.assertEqual(client.post('/action',json={'task':'PREVIEW_FPS','value':value},headers=headers).status_code,202)
+                session.actions()
+                self.assertEqual(session.preview_fps,value)
+            for value in (0,121,True,'120',120.):
+                self.assertEqual(client.post('/action',json={'task':'PREVIEW_FPS','value':value},headers=headers).status_code,400)
+            image,_=fish()
+            session.accept_frame(1,time.time(),image,0.)
+            session.render_preview();session.publish()
+            self.assertEqual(bridge.result['performance']['preview_max_fps'],120)
+            self.assertEqual(bridge.metadata['preview_max_fps'],120)
+            self.assertIn('processing_fps',bridge.result['performance'])
+            self.assertIsNone(bridge.result['performance']['capture_requested_fps'])
+
+    def test_preview_schedule_does_not_halve_the_rate_with_small_capture_jitter(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder,'fixture.mp4')
+            image,_=fish();session.accept_frame(1,time.time(),image,0.)
+            for index,stamp in enumerate((1000.004,1000.0124,1000.0208,1000.0291),1):
+                session.index=index
+                with patch('observer_runtime.time.monotonic',return_value=stamp):
+                    session.render_preview()
+            self.assertEqual(session.preview_revision,4)
+
+    def test_stream_sends_only_the_latest_frame_without_a_polling_sleep(self):
+        with patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            bridge=WebBridge(observer=True);bridge.frames={'result':b'first'}
+            with patch('web_runtime.time.sleep',side_effect=AssertionError('stream must wait for new frames')):
+                response=bridge.app.test_client().get('/stream/result',headers={'Authorization':'Bearer fixture'},buffered=False)
+                self.assertIn(b'first',next(response.response))
+                with bridge.frame_ready:
+                    bridge.frames['result']=b'skipped'
+                    bridge.frames['result']=b'latest'
+                    bridge.frame_ready.notify_all()
+                data=next(response.response)
+                self.assertIn(b'latest',data);self.assertNotIn(b'skipped',data)
+                bridge.close()
+                with self.assertRaises(StopIteration):next(response.response)
+                response.close()
+
     def test_full_body_mask_has_finite_distance_weights(self):
         image=np.zeros((80,240,3),np.uint8)
         with np.errstate(over='raise',invalid='raise'):
@@ -109,6 +288,64 @@ class ObserverTests(unittest.TestCase):
         angle=pose['world_deg'];error=min(abs((angle-55+180)%360-180),abs((angle+180-55+180)%360-180))
         self.assertLess(error,1.5)
 
+    def test_head_click_sets_exact_yolo_to_click_heading_not_just_axis_sign(self):
+        image,bbox=fish();field=field_for(image);axis=OpticalBodyAxis()
+        pose=axis.update(image,bbox,1.,field,1)
+        body=[480,260];head=[555,210]
+        delta=np.diff(field.transform([body,head]),axis=0)[0]
+        expected=math.degrees(math.atan2(-delta[1],delta[0]))
+        zero=axis.calibrate(head,pose,field,body)
+        self.assertAlmostEqual(zero,expected)
+        self.assertAlmostEqual(axis.latest['world_deg'],expected)
+        self.assertAlmostEqual(axis.latest['relative_deg'],0.)
+        image,bbox=fish(30.)
+        measured=axis.update(image,bbox,1.1,field,1)
+        self.assertAlmostEqual(measured['world_deg'],expected+30.,delta=.8)
+        self.assertAlmostEqual(measured['relative_deg'],30.,delta=.8)
+        # Recalibration uses the raw axis, without accumulating the previous offset.
+        centre=measured['centre_px'];point=[centre[0]-70,centre[1]+40]
+        delta=np.diff(field.transform([centre,point]),axis=0)[0]
+        zero=axis.calibrate(point,measured,field,centre)
+        self.assertAlmostEqual(zero,math.degrees(math.atan2(-delta[1],delta[0])))
+        self.assertAlmostEqual(axis.latest['world_deg'],zero)
+
+    def test_head_calibration_imu_arrow_ends_at_exact_click_in_raw_and_perspective(self):
+        for view in ('raw','perspective'):
+            with self.subTest(view=view),tempfile.TemporaryDirectory() as folder,patch.dict(
+                    os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+                session,bridge=self.make_session(folder);image,_=fish()
+                session.field=PoolPerspective(4.,2.).calibrate(
+                    [[100,50],[900,20],[940,470],[60,440]],image.shape)
+                session.accept_frame(1,time.time(),image)
+                session.detection.position=(480,260)
+                session.view_mode=view;session.compose_preview()
+                imu={'valid':True,'yaw_cw_deg':42.,'source_id':100}
+                with patch.object(bridge,'get_yaw_sample_at',return_value=imu), \
+                        patch.object(bridge,'get_yaw_sample',return_value=imu), \
+                        patch.object(bridge,'parent',side_effect=AssertionError('no motion')):
+                    bridge.events.put({'id':'freeze','task':'HEAD_DIRECTION'});session.actions()
+                    point=[555,210]
+                    if view=='raw':x,y=np.asarray(point)/[999,499];space='image'
+                    else:
+                        width,height=session.field_size()
+                        x,y=session.field.transform([point])[0]/[4.,2.]*[width/(width-1),height/(height-1)]
+                        space='field'
+                    bridge.events.put({'id':'click','kind':'down','x':float(x),'y':float(y),'space':space})
+                    session.actions()
+                    self.assertEqual(bridge.last_task['state'],'processed',bridge.last_task)
+                    np.testing.assert_allclose(session.head['body_pixel'],[480,260])
+                    np.testing.assert_allclose(session.head['head_pixel'],point,atol=1e-7)
+                    aligned=dict(imu,heading_reference={'valid':True,'zero_cw_deg':42.,
+                        'calibration_id':session.head['calibration_id']})
+                    with patch.object(bridge,'get_yaw_sample_at',return_value=aligned), \
+                            patch('observer_runtime.cv2.arrowedLine') as arrows:
+                        session.raw_overlay()
+                        self.assertEqual(arrows.call_count,1)
+                        for call in arrows.call_args_list:
+                            self.assertEqual(call.args[1],(480,260))
+                            self.assertEqual(call.args[2],(555,210))
+                            self.assertEqual(call.args[3],(0,220,0))
+
     def test_loss_invalidates_axis_and_old_frozen_head_cannot_restore_a_new_track(self):
         image,bbox=fish();field=field_for(image);axis=OpticalBodyAxis()
         snapshot=axis.update(image,bbox,1.,field,1);axis.calibrate([580,250],snapshot,field)
@@ -123,6 +360,62 @@ class ObserverTests(unittest.TestCase):
                                                      position=(500,250),confidence=.9))
         session=ObserverSession(source,'fixture.pt',bridge,detector=detector,output=folder,calibration=Path(folder)/'pool.json')
         return session,bridge
+
+    def test_heading_arrows_and_debug_point_share_p_not_optical_centroid(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder);image,_=fish()
+            session.field=field_for(image);session.accept_frame(1,time.time(),image)
+            session.pose.update(centre_px=[650,280],centre_world=[2.6,1.12],world_deg=0.)
+            session.head={'calibration_id':'head','visual_zero_world_deg':0.}
+            aligned={'valid':True,'yaw_cw_deg':10.,
+                'heading_reference':{'valid':True,'zero_cw_deg':0.,'calibration_id':'head'},
+                'onboard':{'heading_target_cw_deg':20.}}
+            session.debug=True;session.tracker._flow_points=np.float32([[[600,300]]])
+            with patch.object(bridge,'get_yaw_sample_at',return_value=aligned),patch('observer_runtime.cv2.arrowedLine') as arrows:
+                rendered=session.raw_overlay()
+                self.assertEqual(arrows.call_count,2)
+                self.assertTrue(all(call.args[1]==(500,250) for call in arrows.call_args_list))
+                self.assertEqual([call.args[3] for call in arrows.call_args_list],[(0,220,0),(0,180,255)])
+                np.testing.assert_array_equal(rendered[250,500],[0,0,255])
+                frozen=session.snapshot()
+            session.detection.position=(520,260)
+            with patch.object(bridge,'get_yaw_sample_at',side_effect=AssertionError('frozen IMU must not be re-fetched')),patch('observer_runtime.cv2.arrowedLine') as arrows:
+                session.raw_overlay(frozen)
+                self.assertEqual(arrows.call_count,2)
+                self.assertTrue(all(call.args[1]==(500,250) for call in arrows.call_args_list))
+                self.assertEqual([call.args[3] for call in arrows.call_args_list],[(0,220,0),(0,180,255)])
+
+    def test_valid_imu_survives_optical_failure_but_invalid_imu_stays_hidden(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder);image,_=fish()
+            session.field=field_for(image);session.accept_frame(1,time.time(),image)
+            session.pose={'valid':False,'reason':'BODY_MASK_UNAVAILABLE'}
+            session.head={'calibration_id':'head','visual_zero_world_deg':0.}
+            aligned={'valid':True,'yaw_cw_deg':10.,
+                'heading_reference':{'valid':True,'zero_cw_deg':0.,'calibration_id':'head'}}
+            with patch.object(bridge,'get_yaw_sample_at',return_value=aligned),patch('observer_runtime.cv2.arrowedLine') as arrows:
+                session.raw_overlay()
+                self.assertEqual(arrows.call_count,1)
+                self.assertEqual(arrows.call_args.args[1],(500,250))
+                self.assertEqual(arrows.call_args.args[3],(0,220,0))
+                for invalid in ({'valid':False},dict(aligned,heading_reference={'valid':False}),
+                                dict(aligned,heading_reference={'valid':True,'calibration_id':'other'})):
+                    arrows.reset_mock()
+                    with patch.object(bridge,'get_yaw_sample_at',return_value=invalid):session.raw_overlay()
+                    arrows.assert_not_called()
+                session.detection.position=None;arrows.reset_mock();session.raw_overlay();arrows.assert_not_called()
+
+    def test_old_selection_events_cannot_change_new_frozen_selection(self):
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
+            session,bridge=self.make_session(folder);image,_=fish()
+            session.field=field_for(image);session.accept_frame(1,time.time(),image)
+            session.interaction='POOL_CALIB';session.frozen=session.snapshot()
+            frozen=session.frozen;last_task=bridge.last_task
+            for kind in ('down','move','up','right'):
+                bridge.events.put({'id':kind,'kind':kind,'x':.5,'y':.5,'space':'image','selection_id':'old'})
+            session.actions()
+            self.assertIs(session.frozen,frozen);self.assertEqual(session.interaction,'POOL_CALIB')
+            self.assertEqual(session.points,[]);self.assertEqual(bridge.last_task,last_task)
 
     def test_csv_has_independent_optical_and_aligned_imu_and_trajectory_without_motion(self):
         with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):

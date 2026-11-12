@@ -1139,7 +1139,10 @@ def main():
         k_f=CONTROL['guidance']['cross_track_gain'],
         cruise_speed_mps=CONTROL['guidance']['cruise_speed_mps'],
         min_speed_target_mps=CONTROL['guidance']['min_speed_mps'],
-        full_attraction_error_m=0.18,
+        rejoin_enter_m=CONTROL['guidance']['rejoin_enter_m'],
+        rejoin_exit_m=CONTROL['guidance']['rejoin_exit_m'],
+        rejoin_heading_deg=CONTROL['guidance']['rejoin_heading_deg'],
+        full_attraction_error_m=CONTROL['guidance']['full_attraction_error_m'],
         curve_preview_m=0.32,
         estimated_min_turn_radius_m=0.20,
         left_turn_radius_m=(
@@ -2700,7 +2703,7 @@ def main():
                     body_yaw_state['detector_head_distance_to_white_px']
                     if body_yaw_state['detector_head_distance_to_white_px'] is not None else "",
                 ]
-                if not recorder.submit(img_show, csv_row) and recorder.error:
+                if not recorder.submit(img_show, csv_row, timestamp=frame_time) and recorder.error:
                     print('[RECORD ERROR] '+recorder.error, flush=True)
                     is_recording = False
                     recorder.close()

@@ -1,9 +1,11 @@
 """Bounded video recording with explicit encoder and finalized-file status."""
 import csv
+from collections import deque
 import json
 import math
 from pathlib import Path
 import queue
+from statistics import median
 import threading
 import time
 
@@ -29,6 +31,8 @@ class AsyncVideoRecorder:
         self.queue = queue.Queue(maxsize=8)
         self.stopped = self.closed = False
         self.frames = self.dropped_frames = 0
+        self.repeated_frames=0
+        self.timestamped=None;self.last_timestamp=None
         self.error = ''
         self.started = time.monotonic()
         self.finished = None
@@ -43,7 +47,8 @@ class AsyncVideoRecorder:
                 raise RuntimeError('Video encoder could not open the output file')
             self.csv_file = open(self.csv_path, 'w', newline='', encoding='utf-8-sig')
             self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(CSV_FIELDS if fields is None else fields)
+            self.csv_writer.writerow(list(CSV_FIELDS if fields is None else fields)+
+                ['recording_frame','recording_time_s','recording_repeated'])
         except Exception as error:
             self.error = str(error)
             self.stopped = self.closed = True
@@ -63,12 +68,14 @@ class AsyncVideoRecorder:
                 'path': self.path, 'file': Path(self.path).name, 'csv_path': self.csv_path,
                 'fps': self.fps, 'width': self.width, 'height': self.height,
                 'frames': self.frames, 'dropped_frames': self.dropped_frames,
+                'repeated_frames':self.repeated_frames,'duration_s':self.frames/self.fps if self.fps>0 else 0,
+                'timing_source':'observation timestamps' if self.timestamped else 'frame count',
                 'elapsed_s': round((self.finished or time.monotonic()) - self.started, 1), 'error': self.error}
 
     def _publish(self):
         print('ROBOFISH_VISION_RECORDING ' + json.dumps(self.status(), ensure_ascii=False), flush=True)
 
-    def submit(self, frame, csv_row):
+    def submit(self, frame, csv_row, *, timestamp=None):
         if self.stopped: return False
         if frame is None or frame.ndim != 3 or frame.shape[2] != 3:
             with self.guard:
@@ -77,21 +84,58 @@ class AsyncVideoRecorder:
             return False
         if frame.shape[:2] != (self.height, self.width):
             frame = cv2.resize(frame, (self.width, self.height))
-        try:
-            self.queue.put_nowait((frame.copy(), tuple(csv_row) if csv_row is not None else None))
-            return True
-        except queue.Full:
-            with self.guard: self.dropped_frames += 1
-            return False
+        with self.guard:
+            if self.stopped:return False
+            timestamped=timestamp is not None
+            if (self.timestamped is not None and timestamped!=self.timestamped or timestamped and
+                    (type(timestamp) not in (int,float) or not math.isfinite(timestamp) or
+                     self.last_timestamp is not None and timestamp<self.last_timestamp)):
+                self.error='Recording timestamps must be finite, nondecreasing and use one clock'
+                self.stopped=True
+                return False
+            self.timestamped=timestamped
+            self.last_timestamp=timestamp
+            try:
+                self.queue.put_nowait((frame.copy(),tuple(csv_row) if csv_row is not None else None,timestamp))
+                return True
+            except queue.Full:
+                self.dropped_frames+=1
+                return False
+
+    def _write(self,frame,row,*,repeated=False):
+        self.video_out.write(frame)
+        if row is not None:
+            self.csv_writer.writerow((*row,self.frames,self.frames/self.fps,int(repeated)))
+        with self.guard:
+            self.frames+=1
+            self.repeated_frames+=int(repeated)
 
     def _writer_loop(self):
+        origin=previous_time=None;previous=None;intervals=deque(maxlen=8)
         try:
             while not (self.stopped and self.queue.empty()):
-                try: frame, row = self.queue.get(timeout=.05)
+                try: frame,row,timestamp=self.queue.get(timeout=.05)
                 except queue.Empty: continue
-                self.video_out.write(frame)
-                if row is not None: self.csv_writer.writerow(row)
-                with self.guard: self.frames += 1
+                if timestamp is None:
+                    self._write(frame,row)
+                    continue
+                if origin is None:origin=timestamp
+                if previous_time is not None:
+                    gap=timestamp-previous_time
+                    # Bounded recovery: never encode an unbounded stall or clock jump.
+                    if gap>5:raise ValueError('Recording interrupted: observation gap exceeds 5 seconds')
+                    if gap>0:intervals.append(gap)
+                slot=round((timestamp-origin)*self.fps)
+                while self.frames<slot:self._write(*previous,repeated=True)
+                if self.frames==slot:self._write(frame,row)
+                else:
+                    with self.guard:self.dropped_frames+=1
+                previous=(frame,row);previous_time=timestamp
+            if previous is not None and not self.error:
+                tail=median(intervals) if intervals else 1/self.fps
+                end=max(previous_time,self.last_timestamp)+tail
+                if end-previous_time>5:raise ValueError('Recording interrupted: observation gap exceeds 5 seconds')
+                while self.frames<round((end-origin)*self.fps):self._write(*previous,repeated=True)
         except Exception as error:
             with self.guard:
                 self.error = str(error)
@@ -106,7 +150,7 @@ class AsyncVideoRecorder:
             self._publish()
 
     def close(self):
-        self.stopped = True
+        with self.guard:self.stopped = True
         if self.thread and self.thread.is_alive(): self.thread.join(timeout=5)
         if self.thread and self.thread.is_alive():
             with self.guard: self.error = 'Timed out while saving the video'

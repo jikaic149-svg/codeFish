@@ -1,5 +1,6 @@
 """Fish identity from YOLO, brief gaps measured with existing optical flow."""
 import math
+import os
 import time
 from pathlib import Path
 
@@ -20,7 +21,10 @@ class YoloBodyTracker(WhiteBlackTracker):
             import torch
             from ultralytics import YOLO
             model_factory=YOLO
-            self.device=0 if torch.cuda.is_available() else 'cpu'
+            requested=os.environ.get('ROBOFISH_VISION_DEVICE','auto')
+            available=torch.cuda.is_available()
+            if requested=='cuda' and not available:raise RuntimeError('已要求 CUDA，但当前视觉环境无法使用 GPU')
+            self.device=0 if requested!='cpu' and available else 'cpu'
         else:self.device='cpu'
         self.model=model_factory(self.model_path)
         if self.model.task!='detect' or self.model.names!={0:'fish'}:
