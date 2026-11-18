@@ -23,6 +23,13 @@ def load_control_config():
             or data['guidance']['min_speed_mps']>data['guidance']['cruise_speed_mps']):
         raise ValueError('Invalid model or control ranges')
     curve=data.get('curve_speed',{})
+    tracking=data['tangent_tracking']
+    for key in ('capture_length_m','turn_budget_rps','fix_speed_mps','fix_slack_m',
+                'lateral_damping_s','curvature_lead_m'):
+        v=tracking.get(key)
+        if (type(v) not in (int,float) or not math.isfinite(v) or v<0
+                or (v==0 and key in ('capture_length_m','turn_budget_rps','fix_speed_mps'))):
+            raise ValueError('Invalid tangent tracking setting: '+key)
     validation=data.get('trace_validation',{})
     if type(curve.get('enabled',False)) is not bool or type(validation.get('enabled',False)) is not bool:
         raise ValueError('Feature enabled flags must be boolean')

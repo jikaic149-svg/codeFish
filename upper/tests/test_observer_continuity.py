@@ -51,6 +51,14 @@ class ObserverContinuityTests(unittest.TestCase):
             self.assertGreater(session.comm.speed_status['observation_age_ms'],290)
             self.assertLess(session.comm.speed_status['receipt_age_ms'],1)
             progress=session.guide.progress_m
+            stamp=session.guidance['position_sample_time']
+            with patch.object(session,'position',return_value=session.position()+[.32,.12]):
+                receive(True,1120)
+            self.assertFalse(session.guidance['position_accepted'])
+            self.assertEqual(session.guidance['position_sample_time'],stamp)
+            self.assertEqual(session.velocity._history[-1][0],stamp)
+            self.assertEqual(session.comm.speed_status['receipt_age_ms'],40)
+            self.assertEqual(session.guide.progress_m,progress)
             receive(False,1140)
             self.assertTrue(session.automatic and session.tracking and session.comm.authorized)
             self.assertTrue(session.comm.command_status['paused'])

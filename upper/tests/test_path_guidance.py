@@ -8,9 +8,52 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'vision'))
 from path_guidance import PathGuidance, resample_polyline, round_polyline, wrap_to_pi
+from control_config import CONTROL
 
 
 class GuidanceTests(unittest.TestCase):
+    def test_production_projection_stays_on_return_leg_and_can_move_back(self):
+        g = PathGuidance.from_config(CONTROL)
+        g.desired_turn_radius_m = 0.
+        path = [[.25,.8],[1.15,.8],[1.15,.85],[.25,.85]]
+        start = g.start(path, [1.05,.8], 10., [1,0])
+        for i in range(1, 11):
+            r = g.update([1.05,.8+.0035*i],10.+i*.1,body_heading=[1,0])
+            self.assertTrue(r['position_accepted'])
+            self.assertAlmostEqual(r['along_m'], start['along_m'])
+        r = g.update([1.04,.835],11.1,body_heading=[1,0],speed_mps=.08)
+        self.assertLess(r['along_m'], start['along_m'])
+        self.assertGreaterEqual(r['along_m'], start['along_m']-.007)
+        for t in (11.1, 11., 11.2):
+            held = g.update([1.4,.95],t,body_heading=[1,0],velocity=[0,.8])
+            self.assertFalse(held['position_accepted'])
+            for key in ('psi_ref_rad','along_m','position_sample_time','speed_target_mps'):
+                self.assertEqual(held[key], r[key])
+
+    def test_production_uses_signed_lateral_velocity_and_unslewed_alignment(self):
+        g = PathGuidance.from_config(CONTROL)
+        path = [[0,0],[2,0]]
+        for sign in (-1, 1):
+            g.start(path, [.4,.10*sign], 10., [1,0])
+            away = g.update([.4,.10*sign],10.1,body_heading=[1,0],velocity=[0,.08*sign])
+            back = g.update([.4,.10*sign],10.2,body_heading=[1,0],velocity=[0,-.08*sign])
+            self.assertGreater(sign*away['raw_psi_ref_rad'], sign*back['raw_psi_ref_rad'])
+            self.assertGreater(sign*back['raw_psi_ref_rad'], 0.)
+        r = g.start(path,[0,0],20.,[0,-1])
+        self.assertAlmostEqual(r['heading_error_deg'], 0.)
+        self.assertAlmostEqual(r['speed_target_mps'], .45*g.cruise_speed_mps)
+        r = g.start(path,[2,0],21.,[1,0])
+        self.assertTrue(r['arrived'] and r['brake_request'])
+
+    def test_preserved_sharp_vertex_uses_chord_only_near_corner(self):
+        g = PathGuidance.from_config(CONTROL)
+        path = [[0,0],[1,0],[1,.8],[2,.8]]
+        for position, policy in [([0,0], 'tangent'), ([.8,0], 'corner_chord'), ([1.5,.8], 'tangent')]:
+            r = g.start(path, position, 10., [1,0], initial_speed_mps=.45)
+            self.assertEqual(r['path_geometry']['status'], 'unachievable')
+            self.assertEqual(r['heading_policy'], policy)
+            self.assertTrue(g.accepts_position(np.asarray(position)+[.045,0],10.1))
+
     def test_mid_route_start_uses_nearby_branch_and_heading_at_intersection(self):
         guide = PathGuidance()
         result = guide.start([[0, 0], [2, 0], [2, 1], [0, 1]], [.8, 1], 10., [-1, 0])

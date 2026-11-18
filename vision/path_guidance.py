@@ -226,7 +226,14 @@ class VelocityEstimator:
 
 
 class PathGuidance:
-    """等距路径、单向进度和曲率前馈循迹的统一 owner。"""
+    """Metric path association, heading reference and forward-speed target."""
+
+    @classmethod
+    def from_config(cls, control, **options):
+        settings = dict(control['guidance'])
+        return cls(k_f=settings.pop('cross_track_gain'),
+                   min_speed_target_mps=settings.pop('min_speed_mps'),
+                   tangent_tracking=control['tangent_tracking'], **settings, **options)
 
     def __init__(
         self,
@@ -258,6 +265,7 @@ class PathGuidance:
         desired_turn_radius_m=0.0,
         path_smoothing_offset_m=0.15,
         curve_speed_ratio=0.68,
+        tangent_tracking=None,
     ):
         self.spacing_m = float(spacing_m)
         self.lookahead_m = float(lookahead_m)
@@ -306,6 +314,7 @@ class PathGuidance:
         self.desired_turn_radius_m = max(0., float(desired_turn_radius_m))
         self.path_smoothing_offset_m = max(0., float(path_smoothing_offset_m))
         self.curve_speed_ratio = float(np.clip(curve_speed_ratio, 0., 1.))
+        self.tangent_tracking = tangent_tracking
         self.clear()
 
     @staticmethod
@@ -348,13 +357,15 @@ class PathGuidance:
         self._filtered_cross_track = None
         self._reference_timestamp = None
         self._heading_reference = None
+        self._accepted_position = None
+        self._accepted_speed = 0.
         self.path_geometry = dict(source="GEOMETRIC", rounded=False)
 
     @property
     def prepared(self):
         return self.path is not None
 
-    def start(self, path_points, position, timestamp, initial_heading):
+    def start(self, path_points, position, timestamp, initial_heading, *, initial_speed_mps=None):
         previous_path, previous_progress = self.path, self.progress_m
         self.path_geometry = dict(source="GEOMETRIC", rounded=False)
         if self.curve_speed_planner is None or self.curve_speed_planner.profile is None:
@@ -364,8 +375,15 @@ class PathGuidance:
         if self.curve_speed_planner is not None:
             path_points=self.curve_speed_planner.round_path(path_points,self.spacing_m,self.cruise_speed_mps)
         self.path = resample_polyline(path_points, self.spacing_m)
-        lengths = np.linalg.norm(np.diff(self.path, axis=0), axis=1)
+        segments = np.diff(self.path, axis=0)
+        lengths = np.linalg.norm(segments, axis=1)
         self.cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+        if self.tangent_tracking is not None:
+            self._arc_mid = .5*(self.cumulative[:-1]+self.cumulative[1:])
+            self._path_angles = np.unwrap(np.arctan2(-segments[:, 1], segments[:, 0]))
+            # A preserved hard vertex has no physical tangent radius.
+            jumps = np.abs(np.diff(self._path_angles)) > math.radians(30)
+            self._sharp_vertices = self.cumulative[1:-1][jumps]
         if self.curve_speed_planner is not None:
             self.curve_speed_planner.prepare(self.path,self.cumulative,self.cruise_speed_mps)
         self.progress_m = 0.0
@@ -381,9 +399,22 @@ class PathGuidance:
                     <= np.linalg.norm(np.asarray(position) - self._point_at(self.progress_m)) + self.spacing_m):
             self.progress_m = previous_progress
         self._filtered_cross_track = None
+        self._accepted_position = None
+        self._accepted_speed = 0.
         self._reference_timestamp = float(timestamp)
         self._heading_reference = math.atan2(-float(self.body_heading[1]), float(self.body_heading[0]))
-        return self.update(position,timestamp,body_heading=self.body_heading)
+        return self.update(position,timestamp,body_heading=self.body_heading,speed_mps=initial_speed_mps)
+
+    def accepts_position(self, position, timestamp):
+        """Pure check against the last accepted fix, before fitting velocity."""
+        if self.tangent_tracking is None or self._accepted_position is None:
+            return True
+        dt = timestamp - self._reference_timestamp
+        # The low-speed trial bound must not impose a new cruise-speed limit.
+        limit = max(self.tangent_tracking['fix_speed_mps'], 2*self.cruise_speed_mps,
+                    self._accepted_speed + .04)
+        return dt > 0 and np.linalg.norm(position-self._accepted_position) <= (
+            self.tangent_tracking['fix_slack_m'] + dt*limit)
 
     def update(
         self,
@@ -394,7 +425,7 @@ class PathGuidance:
         body_heading=None,
         body_yaw_rate_rps=0.0,
     ):
-        """LOS outer loop using current, explicitly supplied IMU heading."""
+        """Use a fresh metric position and explicitly supplied IMU heading."""
         if not self.prepared:
             raise RuntimeError("轨迹尚未准备")
         current = np.asarray(position, dtype=np.float64).reshape(2)
@@ -403,9 +434,22 @@ class PathGuidance:
         now = float(timestamp)
         if not math.isfinite(now):
             raise ValueError("采样时间无效")
+        if body_heading is None:
+            raise RuntimeError("IMU yaw is unavailable; position course is not a heading")
+        heading = _unit(body_heading)
+        if not self.accepts_position(current, now):
+            return dict(self.last_result, position_accepted=False)
         dt = max(0., now - self._reference_timestamp) if self._reference_timestamp is not None else 0.
-
-        self._advance_progress(current)
+        measured_speed_mps=max(0.,float(speed_mps)) if speed_mps is not None and math.isfinite(float(speed_mps)) else 0.
+        tuning = self.tangent_tracking
+        if tuning is None:
+            self._advance_progress(current)
+        else:
+            speed_cap = max(.18, 2*self.cruise_speed_mps, self._accepted_speed)
+            step = min(self.search_ahead_m, dt*(min(measured_speed_mps, speed_cap)+.05))
+            self._project_connected(current, step)
+            self._accepted_position = current.copy()
+            self._accepted_speed = measured_speed_mps
         closest = self._point_at(self.progress_m)
         cross_track_m = float(np.linalg.norm(current - closest))
         off_path_ratio = float(np.clip(
@@ -416,29 +460,28 @@ class PathGuidance:
         # 的像素锯齿被放大成连续左右修舵。默认分别观察 4~12 cm 和
         # 20~32 cm 两个区间；临近终点时自动退化为末段切向。
         total_path_m = float(self.cumulative[-1])
-        near_start_m = min(total_path_m, self.progress_m + 0.04)
-        near_end_m = min(total_path_m, self.progress_m + 0.12)
-        far_end_m = min(total_path_m, self.progress_m + self.curve_preview_m)
-        far_start_m = min(
-            far_end_m,
-            max(self.progress_m + 0.12, far_end_m - 0.12),
-        )
-        near_tangent = self._chord_direction(near_start_m, near_end_m)
-        far_tangent = self._chord_direction(far_start_m, far_end_m)
-        tangent_dot = float(np.clip(
-            np.dot(near_tangent, far_tangent), -1.0, 1.0
-        ))
-        # y 向下坐标中取“左转为正”的有符号预览角。
-        path_curve_angle_rad = float(math.atan2(
-            near_tangent[1] * far_tangent[0]
-            - near_tangent[0] * far_tangent[1],
-            tangent_dot,
-        ))
-        near_centre_m = 0.5 * (near_start_m + near_end_m)
-        far_centre_m = 0.5 * (far_start_m + far_end_m)
-        curve_measure_span_m = max(
-            self.spacing_m, far_centre_m - near_centre_m
-        )
+        sharp_corner = tuning is not None and np.any(
+            (self._sharp_vertices >= self.progress_m-.20) &
+            (self._sharp_vertices <= self.progress_m+self.curve_preview_m))
+        use_tangent = tuning is not None and not sharp_corner
+        if use_tangent:
+            curve_measure_span_m = .12
+            angles = np.interp(self.progress_m + np.array([0., .01, .13, .25, .37]),
+                               self._arc_mid, self._path_angles)
+            near_tangent = np.array((math.cos(angles[0]), -math.sin(angles[0])))
+            turns = np.diff(angles[1:])
+            path_curve_angle_rad = float(turns[0])
+            preview_curvature = float(np.max(np.abs(turns))) / curve_measure_span_m
+        else:
+            near_start_m = min(total_path_m, self.progress_m + 0.04)
+            near_end_m = min(total_path_m, self.progress_m + 0.12)
+            far_end_m = min(total_path_m, self.progress_m + self.curve_preview_m)
+            far_start_m = min(far_end_m, max(self.progress_m + 0.12, far_end_m - 0.12))
+            near_tangent = self._chord_direction(near_start_m, near_end_m)
+            far_tangent = self._chord_direction(far_start_m, far_end_m)
+            path_curve_angle_rad = math.atan2(near_tangent[1]*far_tangent[0]-near_tangent[0]*far_tangent[1],
+                                              np.dot(near_tangent, far_tangent))
+            curve_measure_span_m = max(self.spacing_m, .5*(far_start_m+far_end_m-near_start_m-near_end_m))
         path_curvature_per_m = path_curve_angle_rad / curve_measure_span_m
         turn_radius_m, turn_radius_source = self._turn_radius_for_curvature(
             path_curvature_per_m
@@ -460,9 +503,6 @@ class PathGuidance:
             total_path_m, self.progress_m + active_lookahead_m
         )
         lookahead = self._point_at(lookahead_distance)
-        if body_heading is None:
-            raise RuntimeError("IMU yaw is unavailable; position course is not a heading")
-        heading = _unit(body_heading)
         self.body_heading=heading.copy()
         heading_source="IMU_YAW"
         target=lookahead-current
@@ -489,11 +529,15 @@ class PathGuidance:
         alpha = 1. if self.cross_track_filter_s <= 0 else -math.expm1(-dt/self.cross_track_filter_s)
         self._filtered_cross_track += alpha * (signed_cross_track_error_m - self._filtered_cross_track)
         cross_track_rate_mps = (self._filtered_cross_track - previous_cross) / dt if dt > 1e-6 else 0.
-        cross_track_feedback=math.atan2(self.k_f*self._filtered_cross_track,active_lookahead_m)
-        # Advance the actual heading target, not only an unused diagnostic yaw-rate demand.
-        curve_heading = float(np.clip(self.curve_heading_gain*path_curve_angle_rad,
-                                      -self.max_curve_heading_rad, self.max_curve_heading_rad))
-        raw_psi_ref=wrap_to_pi(psi_path+curve_heading+cross_track_feedback)
+        if use_tangent:
+            correction = math.atan2(signed_cross_track_error_m + tuning['lateral_damping_s']*(v_cross_mps or 0.),
+                                    tuning['capture_length_m'])
+            cross_track_feedback = float(np.clip(correction, -.9, .9))
+            curve_heading = float(np.clip(tuning['curvature_lead_m']*path_curvature_per_m, -.48, .48))
+            raw_psi_ref = wrap_to_pi(psi_path+curve_heading+cross_track_feedback)
+        else:
+            raw_psi_ref,curve_heading,cross_track_feedback = self._chord_reference(
+                psi_path, path_curve_angle_rad, active_lookahead_m)
         change=wrap_to_pi(raw_psi_ref-self._heading_reference)
         allowed_change=self.heading_reference_rate_rps*dt
         psi_ref=wrap_to_pi(self._heading_reference+float(np.clip(change,-allowed_change,allowed_change)))
@@ -502,16 +546,20 @@ class PathGuidance:
         self._reference_timestamp=max(now,self._reference_timestamp)
         heading_error_rad=wrap_to_pi(psi_ref-psi_body)
         heading_feedback=self.k_psi*heading_error_rad
-        measured_speed_mps=max(0.,float(speed_mps)) if speed_mps is not None and math.isfinite(float(speed_mps)) else 0.
         curve_term=self.k_kappa*measured_speed_mps*path_curvature_per_m
         curve_feedforward=float(np.clip(curve_term/self.r_max_rps,-1.,1.))
         r_cmd=heading_feedback+curve_term
         steering_demand=float(np.clip(r_cmd/self.r_max_rps,-1.,1.))
         # Speed and angle share the same curvature and heading error.
-        alignment=max(0.,math.cos(heading_error_rad))
-        speed_target_mps=min(self.cruise_speed_mps,max(
-            self.min_speed_target_mps,
-            self.cruise_speed_mps*(1.-(1.-self.curve_speed_ratio)*path_curve_severity)*(.25+.75*alignment*alignment)))
+        if use_tangent:
+            alignment = max(0., math.cos(raw_psi_ref-psi_body))
+            curve_cap = min(self.cruise_speed_mps, tuning['turn_budget_rps']/max(.01, preview_curvature))
+            speed_target_mps = curve_cap*(.45+.55*alignment**2)
+        else:
+            alignment=max(0.,math.cos(heading_error_rad))
+            speed_target_mps=min(self.cruise_speed_mps,max(
+                self.min_speed_target_mps,
+                self.cruise_speed_mps*(1.-(1.-self.curve_speed_ratio)*path_curve_severity)*(.25+.75*alignment*alignment)))
         x_error_m = steering_demand * self.max_x_error_m
         control_severity = abs(steering_demand)
         endpoint_distance = float(np.linalg.norm(current - self.path[-1]))
@@ -531,6 +579,9 @@ class PathGuidance:
             speed_target_mps,curve_speed=self.curve_speed_planner.limit(self.progress_m,speed_target_mps,self.cruise_speed_mps)
         brake_request=arrived
         result = {
+            "heading_policy": "tangent" if use_tangent else "corner_chord" if sharp_corner else "legacy",
+            "position_accepted": True,
+            "position_sample_time": now,
             "curve_speed": curve_speed,
             "path_geometry": self.path_geometry,
             "cross_m": x_error_m,
@@ -597,6 +648,22 @@ class PathGuidance:
         }
         self.last_result = result
         return result
+
+    def _project_connected(self, position, step):
+        """Score only points *inside* the reachable, connected arc interval."""
+        lo = max(0., self.progress_m - .5*step)
+        hi = min(self.cumulative[-1], self.progress_m + step)
+        i = min(len(self.path)-2, max(0, int(np.searchsorted(self.cumulative, lo, 'right'))-1))
+        j = min(len(self.path)-1, int(np.searchsorted(self.cumulative, hi, 'right')))
+        arc = self.cumulative[i:j]
+        lengths = np.diff(self.cumulative[i:j+1])
+        units = (self.path[i+1:j+1]-self.path[i:j])/lengths[:, None]
+        s = np.clip(arc+np.sum((position-self.path[i:j])*units, axis=1),
+                    np.maximum(lo, arc), np.minimum(hi, self.cumulative[i+1:j+1]))
+        residual = self.path[i:j] + (s-arc)[:, None]*units - position
+        nearest = int(np.argmin(np.sum(residual**2, axis=1)))
+        self.progress_m = float(s[nearest])
+        self.segment_index = i+nearest
 
     def _initial_progress(self, position, heading):
         """Acquire the nearby path branch when starting/resuming in mid-route."""
@@ -682,6 +749,12 @@ class PathGuidance:
         )
         tangent = self.path[index + 1] - self.path[index]
         return _unit(tangent)
+
+    def _chord_reference(self, psi_path, curve_angle, lookahead):
+        correction = math.atan2(self.k_f*self._filtered_cross_track, lookahead)
+        lead = float(np.clip(self.curve_heading_gain*curve_angle,
+                             -self.max_curve_heading_rad, self.max_curve_heading_rad))
+        return wrap_to_pi(psi_path+lead+correction), lead, correction
 
     def _chord_direction(self, start_m, end_m):
         total = float(self.cumulative[-1])

@@ -22,7 +22,6 @@ from fixed_reference_tracker import ReferenceSource
 from path_guidance import (
     PathGuidance,
     VelocityEstimator,
-    compensate_camera_latency,
 )
 from turn_calibration import (
     TurnCalibrationError,
@@ -1058,8 +1057,7 @@ def main():
     print(f"工作目录: {os.path.abspath(WORK_DIR)}")
     print(f"目标捕获: {TARGET_WIDTH}x{TARGET_HEIGHT} @ {TARGET_FPS}FPS")
     print(
-        f"相机延迟补偿: {CAMERA_LATENCY_S * 1000:.0f} ms "
-        f"(最大预测 {CAMERA_LATENCY_MAX_PREDICTION_M:.2f} m)"
+        f"图像/IMU 配对延迟: {CAMERA_LATENCY_S * 1000:.0f} ms；循迹使用实测中心"
     )
     print(
         "场地尺寸须经实测确认；等待已确认的标定或网页输入。"
@@ -1132,15 +1130,8 @@ def main():
         print(f"转圈标定文件无法使用，将回退 0.20m 估计半径：{error}")
     left_turn_fit = turn_calibration_results.get("LEFT")
     right_turn_fit = turn_calibration_results.get("RIGHT")
-    path_guidance = PathGuidance(
-        spacing_m=0.03,
-        lookahead_m=CONTROL['guidance']['lookahead_m'],
-        min_lookahead_m=CONTROL['guidance']['min_lookahead_m'],
-        k_f=CONTROL['guidance']['cross_track_gain'],
-        cruise_speed_mps=CONTROL['guidance']['cruise_speed_mps'],
-        min_speed_target_mps=CONTROL['guidance']['min_speed_mps'],
-        full_attraction_error_m=0.18,
-        curve_preview_m=0.32,
+    path_guidance = PathGuidance.from_config(
+        CONTROL,
         estimated_min_turn_radius_m=0.20,
         left_turn_radius_m=(
             left_turn_fit.radius_m if left_turn_fit is not None else None
@@ -2050,12 +2041,17 @@ def main():
             speed = None
             direction_deg = None
             velocity = None
+            # Control uses the measured centre, as in observer_runtime and the SIL.
+            # Smoothed/predicted coordinates remain available for display only.
+            control_x, control_y = (direct_marker_world_position if direct_marker_world_position is not None
+                                    else (current_x, current_y))
             if (current_x is not None and current_y is not None and
                     reference_observation.usable_for_pwm_speed and
                     reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY)):
-                velocity = velocity_estimator.update(
-                    (current_x, current_y), frame_time
-                )
+                if not drawn_path_state['active'] or path_guidance.accepts_position(np.array((control_x,control_y)),frame_time):
+                    velocity = velocity_estimator.update((control_x, control_y), frame_time)
+                else:
+                    velocity = velocity_estimator.velocity
                 if velocity is not None:
                     velocity_state['vx_smooth'] = float(velocity[0])
                     velocity_state['vy_smooth'] = float(velocity[1])
@@ -2065,17 +2061,6 @@ def main():
                 velocity_estimator.reset()
                 velocity_state['vx_smooth'] = 0.0
                 velocity_state['vy_smooth'] = 0.0
-
-            control_x, control_y = current_x, current_y
-            if current_x is not None and current_y is not None and velocity is not None:
-                compensated_position = compensate_camera_latency(
-                    (current_x, current_y),
-                    velocity,
-                    CAMERA_LATENCY_S,
-                    CAMERA_LATENCY_MAX_PREDICTION_M,
-                )
-                control_x = float(compensated_position[0])
-                control_y = float(compensated_position[1])
 
             # ------------------------------------------------------------------
             # 1. 处理 UI 传来的控制指令 (急停/停止)
@@ -2163,7 +2148,7 @@ def main():
                         velocity=velocity,
                         body_heading=body_heading,
                         body_yaw_rate_rps=body_yaw_rate,
-                    )
+                    ) if direct_marker_world_position is not None else dict(path_guidance.last_result, position_accepted=False)
                     # Preserve the actual IMU source in the runtime record.
                     local_path_error['control_heading_source'] = (
                         body_heading_source
@@ -2200,8 +2185,7 @@ def main():
                             dtype=np.float32,
                         )
                         # Draw the reference from the observed fish, using one
-                        # origin for both endpoints. control_x/y include latency
-                        # compensation and cannot be mixed with a raw pixel tail.
+                        # origin for both endpoints.
                         display_origin=cv2.perspectiveTransform(
                             np.float32([[reference_observation.position]]),calib_state['H'])[0,0]
                         target_arrow=heading_arrow(inv_h,display_origin,psi_ref_rad)
@@ -2277,7 +2261,7 @@ def main():
                             yaw_observed_at=body_yaw_state.get('sample_time'),
                             curve_feedforward=local_path_error['curve_feedforward'],
                             speed_target_mps=local_path_error['speed_target_mps'],
-                            observed_at=float(frame_time),
+                            observed_at=local_path_error['position_sample_time'],
                             feedback_valid=(calib_state['H'] is not None and speed is not None and
                                 reference_observation.usable_for_pwm_speed and
                                 reference_observation.source in (ReferenceSource.RIGID_BODY, ReferenceSource.YOLO_BODY)),
@@ -2779,7 +2763,7 @@ def main():
                     elif len(drawn_path_state['pixels']) < 2:
                         current_status_text = "NO PATH"
                         print("无法启动：请先用鼠标左键拖动画出轨迹。")
-                    elif current_x is None or current_y is None:
+                    elif direct_marker_world_position is None:
                         current_status_text = "TARGET LOST"
                         reasons = ','.join(reference_observation.gate_reasons) or '无'
                         print(
@@ -2816,6 +2800,7 @@ def main():
                                 (control_x, control_y),
                                 frame_time,
                                 startup_heading,
+                                initial_speed_mps=speed,
                             )
                         except (ValueError, RuntimeError) as error:
                             current_status_text = "PATH INVALID"

@@ -81,12 +81,7 @@ class ObserverSession:
         self.trace_validation_enabled=CONTROL['trace_validation']['enabled']
         self.speed_check=DisplacementSpeedCheck() if self.trace_validation_enabled else None
         self.speed_1s_mps=None
-        settings=CONTROL['guidance']
-        self.guide=PathGuidance(lookahead_m=settings['lookahead_m'],min_lookahead_m=settings['min_lookahead_m'],
-            full_attraction_error_m=settings['full_attraction_error_m'],curve_preview_m=settings['curve_preview_m'],
-            **{key:settings[key] for key in ('curve_heading_gain','max_curve_heading_deg','cross_track_filter_s',
-                'heading_reference_rate_deg_s','desired_turn_radius_m','path_smoothing_offset_m','curve_speed_ratio')},
-            k_f=settings['cross_track_gain'],cruise_speed_mps=settings['cruise_speed_mps'],min_speed_target_mps=settings['min_speed_mps'],curve_speed_planner=self.curve_speed_planner)
+        self.guide=PathGuidance.from_config(CONTROL,curve_speed_planner=self.curve_speed_planner)
         self.guidance={};self.tracking=False
         self.comm=None;self.automatic=False
         self.turn=TurnCalibrationSession();self.turn_result={}
@@ -113,7 +108,9 @@ class ObserverSession:
         if self.speed_check is not None:
             self.speed_1s_mps=self.speed_check.update(position,self.track_time,(self.pool_id,metrics.get('track_id')))
         if position is not None:
-            self.history.append(position.tolist());self.velocity.update(position,self.track_time)
+            self.history.append(position.tolist())
+            if not self.automatic or self.guide.accepts_position(position,self.track_time):
+                self.velocity.update(position,self.track_time)
             self.speed_mps=float(np.linalg.norm(self.velocity.velocity)) if self.velocity.velocity is not None else None
             if self.turn.active:self.turn.add(position,self.track_time)
             if self.automatic:
@@ -131,7 +128,9 @@ class ObserverSession:
                         was_paused=bool(getattr(self.comm,'command_status',{}).get('paused'))
                         self.comm.process_tracking_error(0.,self.guidance['along_m'],self.guidance['dist_m'],
                             speed_mps=self.speed_mps,speed_target_mps=self.guidance['speed_target_mps'],
-                            observed_at=self.sample_time,received_at=self.received_at,feedback_valid=self.speed_mps is not None,
+                            observed_at=self.guidance['position_sample_time'],
+                            received_at=self.guidance['position_sample_time']+self.camera_latency_s,
+                            feedback_valid=self.speed_mps is not None,
                             target_heading_cw_deg=target,yaw_observed_at=getattr(self,'control_yaw_time',None))
                         if getattr(self.comm,'command_status',{}).get('paused'):
                             self.status='反馈短暂缺样，暂停输出并保留当前路径进度'
@@ -273,7 +272,8 @@ class ObserverSession:
                     position=self.position();heading,source=self.control_heading()
                     if self.field.matrix is None or len(self.path_px)<2:raise ValueError('请先标定场地，并在画面中拖动绘制路径')
                     if position is None or heading is None:raise ValueError('请先标定鱼头，并等待有效鱼体与方向')
-                    self.guidance=self.guide.start(self.field.transform(self.path_px),position,self.track_time,heading)
+                    self.guidance=self.guide.start(self.field.transform(self.path_px),position,self.track_time,heading,
+                                                   initial_speed_mps=self.speed_mps)
                     self.guidance['heading_source']=source
                     if self.replay or source!='IMU_YAW' or not self.head.get('imu_aligned'):raise ValueError('自动循迹需要实时相机和已对齐的 IMU 鱼头零位')
                     if self.comm is None:self.comm=WorkstationComm(self.bridge)
@@ -558,7 +558,8 @@ class ObserverSession:
                 'preview_ms':self.preview_ms,'processing_ms':self.processing_ms,
                 **{'yolo_'+key+'_ms':speed.get(key) for key in ('preprocess','inference','postprocess')}}
             row.update({key:self.guidance.get(key) for key in ('v_along_mps','v_cross_mps','course_error_deg','sideslip_deg',
-                'path_curvature_per_m','curve_heading_feedforward_deg','reference_rate_limited','along_m','seg_index')})
+                'path_curvature_per_m','curve_heading_feedforward_deg','reference_rate_limited','along_m','seg_index',
+                'position_accepted','position_sample_time','signed_cross_track_error_m','speed_target_mps','heading_policy')})
             row.update({key:result['tracking'].get(key) for key in ('paused','pause_reason','pause_count','target_ack_age_ms','stop_reason')})
             if self.trace_validation_enabled:
                 row.update({key:validation.get(key) for key in

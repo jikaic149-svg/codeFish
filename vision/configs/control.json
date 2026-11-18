@@ -1,6 +1,6 @@
 {
   "units": "World x right/y down; heading CCW positive; raw body IMU yaw CW positive. Speed m/s; PID outputs percent.",
-  "guidance_basis": "Experimental initial settings, not an identified hydrodynamic model. Straight 0.12 m/s; full curve-severity base speed 0.05 m/s. Hybrid tail gait and common propeller command are 1:1; yaw shifts tail bias only. New static-tail angle-radius trials are references, not a matched oscillating-tail model. Desired radius is a geometric request, not verified fish capability.",
+  "guidance_basis": "Experimental SIL tuning, not a measured turning envelope. Tangent tracking limits forward speed by preview curvature and alignment; 0.04 m/s is not a tracking floor. Hybrid tail and common propeller remain 1:1 commands, not thrust shares. Desired rounding radius is a geometric request.",
   "model": {
     "imgsz": 960,
     "confidence": 0.25
@@ -29,7 +29,7 @@
     "desired_turn_radius_m": 0.6,
     "path_smoothing_offset_m": 0.15,
     "curve_speed_ratio": 0.4166666666666667,
-    "cruise_speed_mps": 0.12,
+    "cruise_speed_mps": 0.08,
     "min_speed_mps": 0.04
   },
   "curve_speed": {
@@ -39,6 +39,14 @@
     "tight_speed_mps": 0.045,
     "simplify_tolerance_m": 0.02,
     "max_rounding_offset_m": 0.15
+  },
+  "tangent_tracking": {
+    "capture_length_m": 0.26,
+    "lateral_damping_s": 0.85,
+    "curvature_lead_m": 0.15,
+    "turn_budget_rps": 0.17,
+    "fix_speed_mps": 0.19,
+    "fix_slack_m": 0.014
   },
   "trace_validation": {
     "enabled": true

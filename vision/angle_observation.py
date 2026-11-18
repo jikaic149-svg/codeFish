@@ -104,7 +104,8 @@ SAMPLE_FIELDS=('utc','source','replay','frame','video_s','camera_receipt_time','
     'curve_speed_limit_mps','curve_distance_m','curve_radius_m','curve_speed_status','curve_profile_id',
     'v_along_mps','v_cross_mps','course_error_deg','sideslip_deg','path_curvature_per_m',
     'curve_heading_feedforward_deg','reference_rate_limited','paused','pause_reason','pause_count','target_ack_age_ms','stop_reason',
-    'along_m','seg_index','output_effective_tail_bias_deg','output_effective_tail_amplitude_deg')
+    'along_m','seg_index','output_effective_tail_bias_deg','output_effective_tail_amplitude_deg',
+    'position_accepted','position_sample_time','signed_cross_track_error_m','speed_target_mps','heading_policy')
 
 
 class AngleSamples:
