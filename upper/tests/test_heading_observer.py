@@ -212,7 +212,9 @@ class ObserverTests(unittest.TestCase):
     def test_automatic_tracking_still_sends_targets_and_stops_without_preview_actions(self):
         with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
             session,bridge=self.make_session(folder);now=time.time();image,_=fish()
-            session.field=field_for(image);session.accept_frame(1,now,image)
+            session.field=field_for(image)
+            cv2.ellipse(image,(581,250),(11,13),0,0,360,(182,215,215),-1)
+            for i in range(6):session.accept_frame(i+1,now-.20+(i-5)*.04,image)
             session.path_px=[(500,250),(800,250)]
             session.head={'imu_aligned':True,'imu_zero_cw_deg':0.,'visual_zero_world_deg':0.}
             session.comm=SimpleNamespace(authorized=True,last_error='',last_round_trip_ms=None,speed_status={},
@@ -221,14 +223,16 @@ class ObserverTests(unittest.TestCase):
             client=bridge.app.test_client();headers={'Authorization':'Bearer fixture'}
             for task in ('START','STOP'):
                 self.assertEqual(client.post('/action',json={'task':task},headers=headers).status_code,400)
-            with patch.object(session,'control_heading',return_value=([1.,0.],'IMU_YAW')),                  patch.object(bridge,'get_yaw_sample',return_value={'valid':True,'sample_time':now,'yaw_cw_deg':0.}):
+            with patch('observer_runtime.time.time',return_value=now), \
+                 patch.object(session,'control_heading',return_value=([1.,0.],'IMU_YAW')), \
+                 patch.object(bridge,'get_yaw_sample',return_value={'valid':True,'sample_time':now,'yaw_cw_deg':0.}):
                 self.assertEqual(client.post('/action',json={'task':'AUTO_START'},headers=headers).status_code,202)
                 session.actions()
-                self.assertEqual(bridge.last_task['state'],'processed')
+                self.assertEqual(bridge.last_task['state'],'processed',bridge.last_task)
                 self.assertTrue(session.automatic and session.tracking and bridge.control_enabled)
-                session.accept_frame(2,now+.05,image)
+                session.accept_frame(7,now-.04,image)
                 command=session.comm.process_tracking_error.call_args.kwargs
-                self.assertAlmostEqual(command['target_heading_cw_deg'],0.)
+                self.assertAlmostEqual(command['target_heading_cw_deg'],0.,delta=.05)
                 self.assertGreater(command['speed_target_mps'],0.)
                 session.publish();self.assertTrue(bridge.result['tracking']['automatic'])
                 self.assertNotIn('preview_only',bridge.result['tracking'])
@@ -239,7 +243,7 @@ class ObserverTests(unittest.TestCase):
                 session.actions()
                 lost=SimpleNamespace(metrics={},position=None,confidence=0.)
                 with patch.object(session.tracker,'update',return_value=lost):
-                    session.accept_frame(3,now+.1,image)
+                    session.accept_frame(8,now,image)
                 self.assertFalse(session.automatic or session.tracking)
                 self.assertEqual(session.comm.stop_now.call_count,2)
 

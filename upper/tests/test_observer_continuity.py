@@ -20,14 +20,16 @@ class ObserverContinuityTests(unittest.TestCase):
     def test_brief_gap_preserves_path_and_epoch_change_stops(self):
         clock=[1000.]
         with patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}), \
+             patch('observer_runtime.WhiteHeadPoint.measure',side_effect=AssertionError('white head must not run')), \
              patch('observer_runtime.time.time',side_effect=lambda:clock[0]), \
              patch('web_runtime.time.monotonic',side_effect=lambda:clock[0]):
             bridge=WebBridge(observer=True)
-            bridge.parent=Mock(return_value={'accepted':True})
+            bridge.parent=Mock(return_value={'accepted':True,'ready':True,'mode':3,'yaw_owner':'S3'})
             tracker=SimpleNamespace(device='cpu',last_speed={},update=lambda *_:SimpleNamespace(
                 position=(500,250),confidence=.99,metrics={'body_bbox':(400,150,600,350),'track_id':1}))
             folder=ROOT/'build/host-continuity-check'
             session=ObserverSession('0','fixture.pt',bridge,detector=tracker,output=folder,calibration=folder/'unused.json')
+            self.assertEqual(session.speed_source,'body_center')
             frame=np.full((500,1000,3),200,np.uint8)
             cv2.ellipse(frame,(500,250),(80,23),0,0,360,(20,20,20),-1)
             for index in range(6):
@@ -36,9 +38,10 @@ class ObserverContinuityTests(unittest.TestCase):
                 if index==0:session.field=PoolPerspective(3.,1.6).calibrate([[0,0],[999,0],[999,499],[0,499]],frame.shape)
             session.head={'imu_zero_cw_deg':0.,'visual_zero_world_deg':0.,'source_id':1000,'imu_aligned':True}
             session.comm=WorkstationComm(bridge,start_sender=False)
-            session.comm.authorized=True
-            session.automatic=session.tracking=bridge.control_enabled=True
-            session.guide.start([[1.5,.8],[2.7,.8]],session.position(),session.track_time,[1,0])
+            session.path_px=[(500,250),(900,250)]
+            bridge.yaw_sample={'valid':True,'yaw_cw_deg':0.,'sample_time':clock[0]-.02,'source_id':1000}
+            bridge.events.put({'id':1,'task':'AUTO_START'});session.actions()
+            self.assertTrue(session.automatic and session.comm.authorized)
 
             def receive(valid,uptime):
                 clock[0]+=.04
@@ -48,6 +51,8 @@ class ObserverContinuityTests(unittest.TestCase):
 
             receive(True,1100)
             self.assertEqual(bridge.parent.call_args.args[0]['task'],'heading')
+            self.assertGreater(bridge.parent.call_args.args[0]['surge_pct'],0.)
+            self.assertIsNone(session.nose_px)
             self.assertGreater(session.comm.speed_status['observation_age_ms'],290)
             self.assertLess(session.comm.speed_status['receipt_age_ms'],1)
             progress=session.guide.progress_m

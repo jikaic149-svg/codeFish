@@ -262,7 +262,9 @@ async function pollVision(){
     if(visionState.running&&!visionSpeedDirty&&document.activeElement!==$('vision-speed-target')&&Number.isFinite(visionState.cruise_speed_mps))$('vision-speed-target').value=String(visionState.cruise_speed_mps);
     const number=(value,digits=1)=>typeof value==='number'?value.toFixed(digits):'—';
     robotText('vision-yaw-state',`独立视觉角度 ${optical.valid?number(optical.relative_deg)+'°':'无有效值（'+(optical.reason||'等待标定')+'）'} · IMU ${yaw.usable?number(yaw.yaw_deg)+'°':'未对齐'}${result.replay?' · 录像不与当前 IMU 配对':''}`);
-    robotText('vision-speed-state',`跟踪点 P · X ${number(position.x_m,3)} / Y ${number(position.y_m,3)} m · 速度 ${number(result.velocity?.speed_mps,3)} m/s · 视觉角度误差 ${number(result.vision_error_deg)}°${result.reference_aligned?'':'（等待同一零位和时间对齐）'}`);
+    const v=result.velocity||{},headStatus={TRACKING:'实测',HELD:'短时沿用上次测速',WARMUP:'收集样本',MISSING:'缺测',REJECTED:'跳点',POSITION_REJECTED:'位置未通过',INVALID:'无效',STALE:'过期'};
+    const speedLabel=v.source==='white_head_forward'?`白头前速（${headStatus[v.head_state]||'等待'}）`:'YOLO 鱼框中心对地速度';
+    robotText('vision-speed-state',`跟踪点 P · X ${number(position.x_m,3)} / Y ${number(position.y_m,3)} m · ${speedLabel} ${number(v.speed_mps,3)} m/s · 视觉角度误差 ${number(result.vision_error_deg)}°${result.reference_aligned?'':'（等待同一零位和时间对齐）'}`);
     robotText('vision-performance-state',`设备 ${perf.device===0?'CUDA GPU 0':perf.device||'—'} · 检测 ${number(perf.detect_ms)} / 光学角度 ${number(perf.optical_ms)} / 预览 ${number(perf.preview_ms)} ms · 预览最高 ${perf.preview_max_fps||15} fps · 丢弃过期采集帧 ${perf.dropped_capture_frames||0}`);
     robotText('vision-view-state',visionState.display_space==='field'?'当前显示：透视校正图（按场地长宽比例）':result.interaction?'当前显示：完整原图（标定选择），完成后恢复所选视角':result.pool?.perspective?'当前显示：完整原图':'当前显示：完整原图，完成场地四点标定后显示透视图');
     if(document.activeElement!==$('vision-view'))$('vision-view').value=visionState.view_mode||'perspective';

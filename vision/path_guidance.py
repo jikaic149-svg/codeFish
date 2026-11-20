@@ -163,12 +163,16 @@ class VelocityEstimator:
         min_samples=3,
         blend=0.45,
         max_speed_mps=0.80,
+        reject_overspeed=False,
+        robust_floor_m=0.,
     ):
         self.history_seconds = float(history_seconds)
         self.min_span_seconds = float(min_span_seconds)
         self.min_samples = int(min_samples)
         self.blend = float(np.clip(blend, 0.0, 1.0))
         self.max_speed_mps = float(max_speed_mps)
+        self.reject_overspeed = reject_overspeed
+        self.robust_floor_m = robust_floor_m
         self.reset()
 
     def reset(self, position=None, timestamp=None):
@@ -206,12 +210,24 @@ class VelocityEstimator:
         raw_velocity = np.sum(
             centred_t[:, None] * positions, axis=0
         ) / denominator
+        if self.robust_floor_m and len(times)>=5:
+            # One Huber re-fit: de-weight isolated position spikes without
+            # lengthening the window or imposing an acceleration limit.
+            residual=positions-positions.mean(axis=0)-centred_t[:,None]*raw_velocity
+            errors=np.linalg.norm(residual-np.median(residual,axis=0),axis=1)
+            cutoff=max(self.robust_floor_m,2.5*float(np.median(errors)))
+            weights=cutoff/np.maximum(cutoff,errors)
+            dt=times-np.average(times,weights=weights)
+            raw_velocity=(weights*dt) @ positions / np.dot(weights,dt*dt)
         raw_speed = float(np.linalg.norm(raw_velocity))
         if not np.isfinite(raw_velocity).all():
             return None if self.velocity is None else self.velocity.copy()
 
         # 超过机器鱼物理可能范围的结果来自色块跳变；不让它污染制动判断。
         if raw_speed > self.max_speed_mps:
+            if self.reject_overspeed:
+                self.reset(current, now)
+                return None
             if self.velocity is not None:
                 return self.velocity.copy()
             raw_velocity *= self.max_speed_mps / max(raw_speed, 1e-9)

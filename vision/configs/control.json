@@ -6,6 +6,7 @@
     "confidence": 0.25
   },
   "feedback_max_age_s": 0.35,
+  "speed_feedback_source": "body_center",
   "camera_latency_s": 0.3,
   "speed": {
     "profile_file": "measured_hybrid_dynamics_20261025.json",
@@ -43,7 +44,7 @@
   "tangent_tracking": {
     "capture_length_m": 0.26,
     "lateral_damping_s": 0.85,
-    "curvature_lead_m": 0.15,
+    "curvature_lead_m": 0.20,
     "turn_budget_rps": 0.17,
     "fix_speed_mps": 0.19,
     "fix_slack_m": 0.014

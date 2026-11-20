@@ -6,6 +6,8 @@ from pathlib import Path
 
 def load_control_config():
     data = json.loads((Path(__file__).parent/'configs/control.json').read_text(encoding='utf-8'))
+    if data.get('speed_feedback_source','body_center') not in ('white_head_forward','body_center'):
+        raise ValueError('Unknown speed feedback source')
     for group in ('model','speed','guidance'):
         for key,value in data[group].items():
             if group=='speed' and key=='profile_file':

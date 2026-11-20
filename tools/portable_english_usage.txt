@@ -1,0 +1,109 @@
+ROBOTFISH PORTABLE WORKSTATION - ENGLISH EDITION
+Windows 10/11 x64 | Firmware 2.7.7-steering-priority
+
+QUICK START
+1. Extract the entire ZIP to a writable folder, preferably a short path such as
+   C:\RobotFish-Dev-English. Keep all subfolders together.
+2. Double-click Editor.cmd. The included VS Code opens the portable workspace.
+3. Open Run and Debug (Ctrl+Shift+D), select Check and Repair Environment,
+   then press F5 or Ctrl+F5. Wait for the final Success or Failed conclusion.
+4. Select Start Workstation and run it. The browser opens automatically at
+   http://127.0.0.1:8768/. The English edition uses port 8768 so that it can
+   coexist with the Chinese edition on port 8767.
+5. Close the backend using Exit Workstation in the page header. Export any
+   experiment data you need before confirming exit.
+
+THE FIVE RUN ENTRIES
+- Start Workstation: starts the local backend and opens the web interface.
+- Build Firmware: builds the current source without flashing hardware.
+- USB Flash (Auto Port): detects ESP32 native USB or common USB serial adapters.
+  A unique candidate is selected automatically. If several are found, select
+  the actual target by number; an empty selection cancels the operation.
+- OTA Update (Auto Detect): discovers RobotFish on the current network,
+  builds the current source, uploads it and waits for a version match,
+  an application-slot change and confirmed healthy startup.
+- Check and Repair Environment: verifies the bundled offline backup, restores
+  missing or empty Python dependency files, refreshes portable paths and
+  performs software environment and CPU model-inference checks.
+
+CONNECTING AND CONTROLLING THE FISH
+- For Wi-Fi telemetry and OTA, connect Windows to the RobotFishLOAR1 hotspot.
+  Current firmware is an access point; connecting only to an arbitrary router
+  is not enough. Network switching remains under your control.
+- RobotFish is normally discovered at 192.168.4.1. Use Device Settings if you
+  need to enter an address or custom control password.
+- LoRa manual control uses the USB-to-TTL adapter connected to the transmitter.
+  Select its serial port under the workstation connection settings.
+- Hold W/S or Up/Down for forward/reverse, A/D or Left/Right for steering,
+  and R/F for ascend/descend. Keys can be combined. Release ordinary controls
+  to send zero targets. Press Space or Stop All to request a full stop.
+- A transmitted or queued command does not prove that the fish executed it.
+  Read the acknowledgement and telemetry status shown on the page.
+
+VISION AND CALIBRATION
+1. Open Vision, select the external camera and delivered .pt model, and start
+   video. Use a live camera for control; recorded videos are for replay only.
+2. Enter physically measured field dimensions. Select the field corners in
+   order: top-left, top-right, bottom-right, bottom-left.
+3. Select the entire fish if automatic detection needs help. Keep the white
+   head and dark body visible, then use Head Direction to establish visual
+   heading and, with fresh IMU telemetry, the shared control zero.
+4. Recalibrate after moving the camera or changing its resolution.
+5. Drawing a path or starting video alone does not start motion. Automatic
+   tracking requires an explicit Start Automatic Tracking action.
+
+USB FLASHING
+- Connect the ESP32-S3 with a USB data cable. The recipient PC must already
+  have the appropriate USB/serial driver; the package does not install drivers.
+- Run USB Flash (Auto Port). The tool targets ESP32-S3 and builds before writing.
+- Success means the tool confirmed writing and verification of all images.
+  It does not certify physical motion, sensors, wiring or in-water behavior.
+- Do not disconnect power or USB while writing. A serial adapter in use by
+  another application may need to be released before flashing.
+
+OTA UPDATING
+- Connect to the fish hotspot first, stop all motion, then run OTA Update.
+- Default firmware authentication is used unless you set the process-only
+  ROBOFISH_OTA_PASSWORD environment variable before opening Editor.cmd.
+- Upload completion alone is not upgrade success. The conclusion must also
+  confirm the expected version, a new active slot and healthy startup.
+- If confirmation is missing, inspect the log and device state. Do not assume
+  that the new firmware is running.
+
+OUTPUTS AND RESULTS
+- state/results/: machine-readable conclusions for each operation.
+- state/logs/: build, flash, OTA and browser logs.
+- state/check.json: latest software-environment check.
+- state/build/firmware/: firmware build directory.
+- firmware/*-rebuilt.*: newly built BIN, ELF and MAP files.
+- Experiment files use the package-local output directories reported by the UI.
+- The original 2.7.7 firmware binaries are preserved. Localized onboard-page
+  source takes effect when you build and flash it; existing device firmware
+  and the preserved original binaries are not changed by UI translation.
+
+PORTABILITY AND TROUBLESHOOTING
+- No separate Python, ESP-IDF, CUDA or VS Code installation is required.
+- Initialization, application configuration, caches and project outputs stay
+  inside the package. No system PATH, registry, firewall or drivers are changed.
+- Keep the offline directory: it supplies environment repair. Existing nonempty
+  dependency files are not overwritten. Missing SDK/compiler files require
+  copying the affected tool directory or extracting a clean package again.
+- If the page does not open, visit http://127.0.0.1:8768/ and read the operation
+  conclusion plus the package-local browser/backend logs.
+- The dedicated Edge instance uses software rendering for unknown GPUs and is
+  opened by the Windows desktop so that it is independent of the launcher.
+- Each operation ends with Success, Failed, Cancelled or Completion Unconfirmed.
+  Read its conclusion and output paths before proceeding.
+
+ENVIRONMENT VERSIONS
+ESP-IDF 5.3.2 | Python 3.13.14 | PyTorch 2.11.0+cpu
+torchvision 0.26.0+cpu | Ultralytics 8.4.118 | OpenCV 5.0.0
+NumPy 2.5.2 | VS Code 1.143.1 | CMake 3.30.2 | Ninja 1.12.1
+Full tool, extension and dependency versions: environment-versions.json.
+
+LANGUAGE AND VALIDATION BOUNDARIES
+The workstation UI, operation names and runtime messages are localized.
+Existing project documents, history and report-generation prose stay in their
+original language. The existing firmware binaries, model weights, control
+algorithms and numerical parameters are preserved. Software and loopback tests
+do not replace real USB, OTA, camera, serial-driver or in-water validation.

@@ -328,7 +328,7 @@ class WorkstationComm:
 
     def process_tracking_error(self,cross_m,along_m,dist_m,speed_mps=None,brake_request=False,
             speed_target_mps=0.,observed_at=None,feedback_valid=False,target_heading_cw_deg=None,
-            yaw_observed_at=None,now=None,received_at=None,**unused):
+            yaw_observed_at=None,now=None,received_at=None,speed_held=False,**unused):
         if not self.authorized:self.speed_loop.reset('not_authorized');return None
         now=time.time() if now is None else now
         yaw_fresh=(type(yaw_observed_at) in (int,float) and math.isfinite(yaw_observed_at)
@@ -352,7 +352,10 @@ class WorkstationComm:
         with self._udp_lock:
             if not self.authorized:return None
             self.pause_reason='';self.paused_at=None;self._pause_stop_sent=False
-            self._udp_latest=command;self._udp_latest_t=time.monotonic()
+            self._udp_latest=command
+            # A repeated speed sample must not buy another sender timeout if the camera freezes.
+            anchor=observed_at if received_at is None else received_at
+            self._udp_latest_t=time.monotonic()-(now-anchor if speed_held and not stopped else 0.)
         return command
 
     def pause_tracking(self,reason):

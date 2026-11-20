@@ -24,6 +24,12 @@ CASES = ('straight', 'yaw75', 'right25', 'right40', 'right62', 'left40', 's_bend
          'straight_push+', 'straight_push-', 'arc_push+', 'arc_push-', 'camera_jump')
 CORNER_CASES = ('s_mirror', 'corner_l', 'corner_l_mirror')
 CORNER_PROBES = ('corner_chord', 'corner_blend', 'corner_point')
+COAST_PROBES = ('coast_profile', 'coast_cut')
+TUNING_PROBES = {'capture22': ('capture_length_m', .22), 'capture24': ('capture_length_m', .24),
+                 'budget14': ('turn_budget_rps', .14), 'damping12': ('lateral_damping_s', 1.2),
+                 'damping15': ('lateral_damping_s', 1.5), 'lead15': ('curvature_lead_m', .15)}
+FIELD_CASE = 'sampled_bend_1119'
+SCREEN_CASE = 'screen_upper_171622'
 # 'current' is the frozen pre-fix policy used by the original comparison CSV.
 VARIANTS = ('production', 'current', 'angle_only', 'no_projection_guard', 'forward_first', 'zero_to_turn',
             'balanced', 'share_travel', 'prop_heavy', 'tail_heavy', 'adaptive',
@@ -101,7 +107,41 @@ def references(dynamics):
     return sorted(best), (min(taus),max(taus))
 
 
+@functools.cache
+def sampled_bend():
+    # Reconstruct the reference, not the fish's XY trail. The logged 12 cm secant
+    # is centred 7 cm ahead of along_m. This single bend has no original waypoints.
+    data=rows(ROOT/'build/vision/heading-20261119-062520-603956.csv')
+    s,k=np.array([(float(r['along_m'])+.07,float(r['path_curvature_per_m'])) for r in data
+                  if not r['stop_reason'] and r['paused']=='False' and r['position_accepted']=='True'
+                  and r['native_target_active']=='True' and r['heading_policy']=='tangent']).T
+    grid=np.arange(.30,3.10,.03)
+    curvature=np.array([np.median(k[np.abs(s-p)<=.02]) for p in grid])
+    assert np.isfinite(curvature).all()
+    # Integrate heading on each 3 cm interval using its midpoint direction.
+    delta=curvature*.03
+    psi=np.cumsum(delta)-.5*delta
+    steps=.03*np.column_stack((np.cos(psi),-np.sin(psi)))
+    path=np.array((.18,.12))+np.vstack((np.zeros(2),np.cumsum(steps,axis=0)))
+    direction=float(np.sum(delta))
+    # A synthetic tangent extension gives all policies the same post-bend recovery space.
+    path=np.vstack((path,path[-1]+1.0*np.array((math.cos(direction),-math.sin(direction)))))
+    tight=np.flatnonzero((grid>=1.8)&(np.abs(curvature)>=2.5))
+    return path,(int(tight[0])*.03,(int(tight[-1])+1)*.03)
+
+
 def route(name):
+    if name==SCREEN_CASE:
+        # Topmost persistent magenta stroke from the 17:16:22 recording (19..22 s),
+        # every 16 px after a 38 px box average. These are reference points, not fish poses.
+        y=[112,101,92,86,81,76,71,68,66,65,65,65,67,69,70,71,74,78,83,91,
+           101,114,131,151,173,199,229,260,288,310,330,347,362,376,390,405,418,429,437]
+        pts=(np.column_stack((248+16*np.arange(len(y)),y))-[32,10])*[3/1200,1.6/639]
+        d=pts[-1]-pts[-2]
+        # Synthetic straight continuation only for run-out; outside the scored bend.
+        return np.vstack((pts,pts[-1]+.60*d/np.linalg.norm(d))),math.atan2(pts[0,1]-pts[1,1],pts[1,0]-pts[0,0])
+    if name==FIELD_CASE:
+        return sampled_bend()[0],0.
     if name.startswith(('right','left','arc_push')):
         r=.48 if name.startswith('arc') else float(name[-2:])*.01
         th=np.linspace(0.,math.pi,97)
@@ -165,12 +205,36 @@ def truth_projection(p,guide,seg,lensq,last):
     return index,guide.cumulative[index]+w[k]*norm,math.hypot(*res[k]),tangent,err
 
 
+def coast_profile(mid, psi, cruise, turn_budget, tau=9.0):
+    """Offline candidate: d=tau*(v_in-v_out) for exponential zero-drive coasting."""
+    curvature=np.abs(np.interp(mid+.06,mid,psi)-np.interp(mid-.06,mid,psi))/.12
+    local=np.minimum(cruise,turn_budget/np.maximum(.01,curvature))
+    envelope=local.copy()
+    for i in range(len(mid)-2,-1,-1):
+        envelope[i]=min(local[i],envelope[i+1]+(mid[i+1]-mid[i])/tau)
+    return local,envelope
+
+
+def check_coast_profile():
+    mid=np.arange(.015,2.,.03)
+    flat=np.zeros_like(mid)
+    for heading in (flat,4*np.clip(mid-1.,0.,.4),-4*np.clip(mid-1.,0.,.4)):
+        local,env=coast_profile(mid,heading,.08,.17)
+        assert np.all((env>0)&(env<=local)) and np.all(np.diff(env)>=-.03/9.-1e-12)
+        if heading.any():
+            assert np.any(env[mid<.90]<local[mid<.90]) and abs(env[-1]-.08)<1e-12
+        else: assert np.all(env==.08)
+
+
 def run(job):
-    case,variant,cap,tau,coast,tail_share,turn_effect,configured_geometry=job
+    case,variant,cap,tau,coast,tail_share,turn_effect,configured_geometry,course_tau=job
     lib=native(); lib.reset_run()
     pts,yaw=route(case); pos=pts[0].copy()
-    production=variant=='production' or variant in CORNER_PROBES
+    production=variant=='production' or variant in CORNER_PROBES+COAST_PROBES or variant in TUNING_PROBES
     guide=PathGuidance.from_config(CONTROL) if production else make_guide()
+    if variant in TUNING_PROBES:
+        param,value=TUNING_PROBES[variant]
+        guide.tangent_tracking={**guide.tangent_tracking,param:value}
     if variant in ('corner_point','corner_blend'):
         chord_reference=guide._chord_reference
         def probe_heading(*args):
@@ -194,24 +258,33 @@ def run(job):
     geom=guide.path_geometry['status']; L=float(guide.cumulative[-1])
     mid=.5*(guide.cumulative[1:]+guide.cumulative[:-1])
     psi=np.unwrap(np.arctan2(-seg[:,1],seg[:,0]))
+    if variant in COAST_PROBES:
+        local,env=coast_profile(mid,psi,guide.cruise_speed_mps,guide.tangent_tracking['turn_budget_rps'])
     assert configured_geometry or geom!='unachievable', (case,geom)
     loop=VisualSpeedLoop(**CONTROL['speed'],max_age_s=CONTROL['feedback_max_age_s'])
     speeds=[0.,*[v for v,_ in loop.feedforward_samples]]
     cmds=[0.,*[c for _,c in loop.feedforward_samples]]
     vel=VelocityEstimator(); last_obs=pos.copy(); accepted_at=99.7
     history=[]; log=[]; last_ref=yaw; u=r=0.
+    course=yaw
+    course_alpha=-math.expm1(-.02/course_tau) if course_tau else 1.
     rejected=boundary=0; jumped=False; prev_s=0.; index=0; onset=None
     dwell=0; recovered=None; recovered_s=None; release_s=None; recovery_at=None; opposite=0.
     push=case.startswith(('straight_push','arc_push')); sign=1 if case.endswith('+') else -1
     curved=case.startswith(('right','left','arc_push'))
     radius=.48 if case.startswith('arc_push') else float(case[-2:])*.01 if curved else 0.
-    normal=np.zeros(2); truth_s=0.
+    bend=(1.1,1.1+radius*math.pi) if curved else sampled_bend()[1] if case==FIELD_CASE else None
+    if case==SCREEN_CASE:
+        # Monotone x: score only the measured descent between screen x=504 and 808.
+        bend=tuple(np.interp((np.array([504,808])-32)*3/1200,guide.path[:,0],guide.cumulative))
+    normal=np.zeros(2); truth_s=0.; coast_ticks=0
     split={'prop_heavy':.7,'tail_heavy':1.3}.get(variant,1.)
     for k in range(math.ceil((L/.044+19)/DT)):
         t=k*DT; now=100.+t; observed_at=now-.3
         index,truth_s,distance,tangent,signed=truth_projection(pos,guide,seg,lensq,index)
         yaw_error=abs(wrap_to_pi(yaw-tangent))/RAD
         if truth_s>=L-.43: break  # Finish process scoring BEFORE the approach or arrival layer.
+        entry_u=u  # Same instant as the independently projected true position.
         if push and onset is None and truth_s >= (1.22 if curved else .53):
             onset=k
             normal=sign*np.array((math.sin(tangent), math.cos(tangent)))
@@ -281,8 +354,19 @@ def run(job):
                 if abs(wrap_to_pi(raw_ref-yaw))>35*RAD: target=0.
             elif variant!='forward_first':
                 target=curve_cap*(.45+.55*align**2)
+        cut=False
+        if variant in COAST_PROBES and g['heading_policy']=='tangent':
+            # Use only controller observations; neither the plant tau nor truth_s is available.
+            at=g['along_m']+max(0.,g['v_along_mps'] or 0.)*CONTROL['camera_latency_s']
+            ceiling=float(np.interp(at,mid,env))
+            target=min(target,ceiling)
+            # Remove residual surge only on the approach, not during a steady turn.
+            cut=(variant=='coast_cut' and np.interp(at,mid,local)-ceiling>.003 and sp>ceiling+.003)
         power=loop.update(float(target),None if production and vector is None else sp,
                           accepted_at,received_at=accepted_at+.3,now=now)
+        if cut:
+            power=0.  # Still send active heading; never use the stop command for coasting.
+            coast_ticks+=1
         boundary|=int(any(pos<0.) or any(pos>POOL))
         clipped=0
         for sub in range(5):
@@ -302,25 +386,42 @@ def run(job):
             r+=(cap*RAD*b*min(1.5,flow)*(1. if b>=0 else .86)-r)*(-math.expm1(-.02/tau))
             yaw=wrap_to_pi(yaw+.02*(r-(sign*15*RAD/1.2 if forcing else 0.)))
             slip=min(.18,max(-.18,.30*r))
-            pos=pos+.02*(u*unit(yaw-slip)+(.15*normal if forcing else 0.))
-        log.append((t,distance,u,ds,truth_s,clipped/5.,power,yaw_error,g['along_m']-truth_s))
+            # Sensitivity only: the displacement direction need not follow body yaw instantly.
+            course=wrap_to_pi(course+course_alpha*wrap_to_pi(yaw-slip-course)) if course_tau else yaw-slip
+            pos=pos+.02*(u*unit(course)+(.15*normal if forcing else 0.))
+        log.append((t,distance,u,ds,truth_s,clipped/5.,power,yaw_error,g['along_m']-truth_s,entry_u,signed))
     a=np.array(log)
     assert np.isfinite(a).all()
     def quant(mask,col):
         if not np.any(mask): return None
         return float(np.quantile(a[mask,col],.95))
     complete=truth_s>=L-.43
-    arc=(a[:,4]>=1.1)&(a[:,4]<=1.1+radius*math.pi) if curved else np.zeros(len(a),bool)
+    arc=(a[:,4]>=bend[0])&(a[:,4]<=bend[1]) if bend else np.zeros(len(a),bool)
     # Equal spacing along true progress: stalling does not win with lots of near-identical samples.
     markers=np.arange(.03,min(max(a[:,4]),L-.43),.025)
     ids=np.searchsorted(np.maximum.accumulate(a[:,4]),markers)
     p95=float(np.quantile(a[ids,1],.95)) if len(ids) else None
     arc95=quant(arc,1)
-    return dict(route=case,variant=variant,yaw_cap=cap,yaw_tau_s=tau,coast_s=coast,
+    inward=a[arc,10]*(-1. if case.startswith('left') else 1.) if curved and arc.any() else None
+    entry=np.flatnonzero(a[:,4]>=bend[0]) if bend else []
+    exit_i=np.flatnonzero(a[:,4]>=bend[1]) if bend else []
+    settled=None
+    if len(exit_i):
+        # First continuous second within 4 cm and 12 degrees after exiting the arc.
+        post=a[exit_i[0]:]; ok=(post[:,1]<=.04)&(post[:,7]<=12)
+        if len(ok)>=10:
+            windows=np.flatnonzero(np.convolve(ok.astype(int),np.ones(10,dtype=int),'valid')==10)
+            if len(windows): settled=round((windows[0]+9)*DT,2)
+    return dict(route=case,variant=variant,yaw_cap=cap,yaw_tau_s=tau,coast_s=coast,course_lag_s=course_tau,
                 tail_surge_share_assumed=tail_share,turn_surge_assumed=turn_effect,geometry=geom,
                 process_complete=int(complete),exit_pool=int(boundary),
                 p95_path_cm=100*p95 if p95 is not None else None,peak_path_cm=100*max(a[:,1]),
                 arc_p95_cm=100*arc95 if arc95 is not None else None,arc_yaw_p95_deg=quant(arc,7),
+                arc_peak_cm=100*max(a[arc,1]) if arc.any() else None,
+                arc_inward_peak_cm=100*max(0.,max(inward)) if inward is not None else None,
+                arc_outward_peak_cm=100*max(0.,-min(inward)) if inward is not None else None,
+                entry_speed_mps=a[entry[0],9] if len(entry) else None,exit_reached=int(bool(len(exit_i))) if bend else None,
+                exit_settled_s=settled,coast_cut_s=round(coast_ticks*DT,2),
                 push_delivered=int(onset is not None),recovery_s=recovered,recovery_travel_m=recovered_s,
                 recovered_in_arc=(int(recovery_at is not None and recovery_at<1.1+radius*math.pi)
                                   if curved and push else None),
@@ -335,21 +436,25 @@ def main():
     parser.add_argument('--dynamics',type=Path,default=Path.home()/'Desktop/RobotFish-Dynamics')
     parser.add_argument('--quick',action='store_true')
     parser.add_argument('--workers',type=int,default=6)
-    parser.add_argument('--variants',nargs='+',choices=VARIANTS+CORNER_PROBES,default=VARIANTS)
-    parser.add_argument('--cases',nargs='+',choices=CASES+CORNER_CASES,default=CASES)
+    parser.add_argument('--variants',nargs='+',choices=VARIANTS+CORNER_PROBES+COAST_PROBES+tuple(TUNING_PROBES),default=VARIANTS)
+    parser.add_argument('--cases',nargs='+',choices=CASES+CORNER_CASES+(FIELD_CASE,SCREEN_CASE),default=CASES)
     parser.add_argument('--configured-geometry',action='store_true',
                         help='Use the deployed rounding request even when it cannot fit the drawn path')
+    parser.add_argument('--course-lag-s',type=float,default=0.,
+                        help='Hypothetical extra lag of displacement direction behind body heading; 0 keeps original plant')
     parser.add_argument('--csv',type=Path)
     opts=parser.parse_args()
+    if not math.isfinite(opts.course_lag_s) or opts.course_lag_s<0: parser.error('course lag must be finite and nonnegative')
     if opts.csv and opts.csv.exists(): parser.error('output already exists')
+    if any(v in COAST_PROBES for v in opts.variants): check_coast_profile()
     build()
     branch_probe()
     fits,coasts=references(opts.dynamics)
     mix=itertools.product(fits,coasts,(.2,.65),(-.25,.1))
     plants=[(*f,c,w,h) for f,c,w,h in mix]
     if opts.quick: plants=plants[:1]
-    jobs=[(case,v,*p,opts.configured_geometry) for case in opts.cases for v in opts.variants for p in plants
-          if v in ('production','current','balanced','adaptive')+CORNER_PROBES or v.startswith('tangent_')
+    jobs=[(case,v,*p,opts.configured_geometry,opts.course_lag_s) for case in opts.cases for v in opts.variants for p in plants
+          if v in ('production','current','balanced','adaptive')+CORNER_PROBES+COAST_PROBES or v in TUNING_PROBES or v.startswith('tangent_')
           or case in ('right25','right40','arc_push+','straight_push+','yaw75','camera_jump')]
     with ProcessPoolExecutor(opts.workers) as pool: results=list(pool.map(run,jobs,chunksize=4))
     for variant in opts.variants:

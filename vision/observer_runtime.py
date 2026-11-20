@@ -24,6 +24,7 @@ from turn_calibration import TurnCalibrationSession
 from video_recorder import AsyncVideoRecorder,recording_status
 from web_runtime import WebBridge,WorkstationComm
 from yolo_tracker import YoloBodyTracker
+from white_head_point import HEAD_GAP_S,WhiteHeadPoint,WhiteHeadSpeed
 
 TASKS={'POOL_CALIB','POOL_SIZE','HEAD_DIRECTION','MARKER_ROI','PREVIEW','AUTO_START','AUTO_STOP',
        'SAMPLE_START','SAMPLE_STOP','SNAPSHOT','PERSPECTIVE_TEST','EXIT','VIEW','PREVIEW_FPS',
@@ -77,6 +78,11 @@ class ObserverSession:
         self.exposure=None;self.capture=None;self.source_fps=30.;self.recorder=None
         self.path_px=[];self.drawing=False;self.history=deque(maxlen=1200)
         self.velocity=VelocityEstimator();self.speed_mps=None
+        self.speed_source=CONTROL.get('speed_feedback_source','body_center')
+        self.nose=WhiteHeadPoint()
+        self.head_speed=WhiteHeadSpeed(CONTROL['speed']['max_speed_mps'],
+            CONTROL['tangent_tracking']['fix_slack_m'],HEAD_GAP_S)
+        self.motion_id=None;self.nose_px=None;self.speed_time=None
         self.curve_speed_planner=CurveSpeedPlanner(CONTROL['curve_speed'],configs)
         self.trace_validation_enabled=CONTROL['trace_validation']['enabled']
         self.speed_check=DisplacementSpeedCheck() if self.trace_validation_enabled else None
@@ -105,13 +111,38 @@ class ObserverSession:
         metrics=self.detection.metrics
         self.pose=self.optical.update(frame,metrics.get('body_bbox'),self.track_time,self.field,metrics.get('track_id'),self.threshold)
         position=self.position()
+        identity=(self.pool_id,metrics.get('track_id'))
+        if identity!=self.motion_id:
+            if self.automatic and self.motion_id is not None and position is not None:
+                self.stop_auto('track_changed');self.status='鱼体身份已变，已退出自动循迹'
+            self.reset_velocity()
+            self.motion_id=identity
+        self.nose_px=(self.nose.measure(frame,metrics.get('body_bbox') if self.detection.position is not None else None,self.track_time)
+                      if self.speed_source=='white_head_forward' else None)
         if self.speed_check is not None:
-            self.speed_1s_mps=self.speed_check.update(position,self.track_time,(self.pool_id,metrics.get('track_id')))
+            self.speed_1s_mps=self.speed_check.update(position,self.track_time,identity)
+        accepted=position is not None and (not self.automatic or self.guide.accepts_position(position,self.track_time))
+        if accepted:
+            self.velocity.update(position,self.track_time)
+        elif position is None:
+            self.velocity.reset()
+        if self.speed_source=='white_head_forward':
+            if position is None:
+                self.speed_mps=self.head_speed.update(None,position,self.track_time,identity)
+            elif accepted:
+                head_world=self.field.transform([self.nose_px])[0] if self.nose_px is not None else None
+                self.speed_mps=self.head_speed.update(head_world,position,self.track_time,identity)
+        elif position is None:
+            self.speed_mps=None
+        elif accepted:
+            self.speed_mps=float(np.linalg.norm(self.velocity.velocity)) if self.velocity.velocity is not None else None
+        if self.speed_mps is None:self.speed_time=None
+        elif accepted:
+            self.speed_time=self.head_speed.last[2] if self.speed_source=='white_head_forward' else self.track_time
+        elif self.speed_time is None or not 0<=self.track_time-self.speed_time<=HEAD_GAP_S:
+            self.speed_mps=self.speed_time=None
         if position is not None:
             self.history.append(position.tolist())
-            if not self.automatic or self.guide.accepts_position(position,self.track_time):
-                self.velocity.update(position,self.track_time)
-            self.speed_mps=float(np.linalg.norm(self.velocity.velocity)) if self.velocity.velocity is not None else None
             if self.turn.active:self.turn.add(position,self.track_time)
             if self.automatic:
                 heading,source=self.control_heading()
@@ -128,9 +159,10 @@ class ObserverSession:
                         was_paused=bool(getattr(self.comm,'command_status',{}).get('paused'))
                         self.comm.process_tracking_error(0.,self.guidance['along_m'],self.guidance['dist_m'],
                             speed_mps=self.speed_mps,speed_target_mps=self.guidance['speed_target_mps'],
-                            observed_at=self.guidance['position_sample_time'],
-                            received_at=self.guidance['position_sample_time']+self.camera_latency_s,
+                            observed_at=self.speed_time,
+                            received_at=self.speed_time+self.camera_latency_s if self.speed_time is not None else None,
                             feedback_valid=self.speed_mps is not None,
+                            speed_held=self.speed_source=='white_head_forward' and self.speed_time!=self.track_time,
                             target_heading_cw_deg=target,yaw_observed_at=getattr(self,'control_yaw_time',None))
                         if getattr(self.comm,'command_status',{}).get('paused'):
                             self.status='反馈短暂缺样，暂停输出并保留当前路径进度'
@@ -156,13 +188,13 @@ class ObserverSession:
         if self.frame is None:raise ValueError('等待第一帧图像')
         aligned=self.bridge.get_yaw_sample_at(self.sample_time) if not self.replay else {'valid':False}
         return {'image':self.frame.copy(),'pose':dict(self.pose),'sample_time':self.sample_time,
-                'point_px':self.detection.position if self.detection else None,
+                'point_px':self.detection.position if self.detection else None,'nose_px':self.nose_px,
                 'display_space':self.display_space,
                 'selection_id':uuid.uuid4().hex,'track_time':self.track_time,
                 'receipt_time':self.received_at,'index':self.index,'imu':aligned}
 
     def position(self):
-        """Use one detector/flow box centre for all positional measurements."""
+        """Box centre remains the path/trajectory position, not the nose."""
         if self.field.matrix is not None and self.detection is not None and self.detection.position is not None:
             return self.field.transform([self.detection.position])[0]
         return None
@@ -185,9 +217,15 @@ class ObserverSession:
         angle=math.radians(self.head['visual_zero_world_deg']+wrap_degrees(self.head['imu_zero_cw_deg']-yaw))
         return [math.cos(angle),-math.sin(angle)],'IMU_YAW'
 
+    def reset_velocity(self):
+        self.nose=WhiteHeadPoint()
+        self.head_speed.reset()
+        self.nose_px=self.speed_time=self.speed_mps=None
+        self.velocity.reset()
+
     def clear_path(self):
         self.stop_auto()
-        self.path_px=[];self.drawing=False;self.history.clear();self.velocity.reset();self.speed_mps=None
+        self.path_px=[];self.drawing=False;self.history.clear();self.reset_velocity()
         self.guide.clear();self.guidance={};self.tracking=False;self.turn.cancel()
 
     def stop_auto(self,reason='user_stop'):
@@ -272,6 +310,9 @@ class ObserverSession:
                     position=self.position();heading,source=self.control_heading()
                     if self.field.matrix is None or len(self.path_px)<2:raise ValueError('请先标定场地，并在画面中拖动绘制路径')
                     if position is None or heading is None:raise ValueError('请先标定鱼头，并等待有效鱼体与方向')
+                    if self.speed_source=='white_head_forward' and (self.speed_time is None or
+                        not 0<=time.time()-(self.speed_time+self.camera_latency_s)<=HEAD_GAP_S):
+                        raise ValueError('请等待白头测速就绪；不要求每帧可见')
                     self.guidance=self.guide.start(self.field.transform(self.path_px),position,self.track_time,heading,
                                                    initial_speed_mps=self.speed_mps)
                     self.guidance['heading_source']=source
@@ -357,6 +398,7 @@ class ObserverSession:
                         elif self.roi_start:
                             x,y=self.roi_start;a,b=point
                             self.tracker.select(self.frozen['image'],(min(x,a),min(y,b),max(x,a),max(y,b)),self.frozen['track_time'])
+                            self.reset_velocity()
                             self.optical.reset();self.head={};self.pose={};self.detection=None;self.frozen=None;self.interaction=None
                             self.status='已选择鱼体，保持完整全局画面；等待新帧后标定鱼头'
                 elif task in ('down','move','up') and self.frame is not None:
@@ -399,8 +441,6 @@ class ObserverSession:
         if self.debug and bbox and not frozen:
             a,b,c,d=map(round,bbox);cv2.rectangle(image,(a,b),(c,d),(0,220,0),1)
         if pose.get('centre_px'):
-            cv2.arrowedLine(image,tuple(map(round,pose['centre_px'])),tuple(map(round,pose['front_px'])),(220,60,220),2)
-            cv2.putText(image,'VISION',tuple(map(round,pose['front_px'])),0,.45,(220,60,220),1)
             stamp=frozen['sample_time'] if frozen else self.sample_time
             aligned=self.bridge.get_yaw_sample_at(stamp) if stamp is not None else {}
             reference=aligned.get('heading_reference') or {};native=aligned.get('onboard') or {}
@@ -423,6 +463,8 @@ class ObserverSession:
             cv2.circle(image,pixel,7,(255,255,255),-1)
             cv2.circle(image,pixel,4,(0,0,255),-1)
             cv2.putText(image,'P',(pixel[0]+10,pixel[1]-10),0,.55,(0,0,255),2,cv2.LINE_AA)
+        nose=frozen.get('nose_px') if frozen else self.nose_px
+        if nose is not None:cv2.circle(image,tuple(map(round,nose)),6,(100,255,70),2,cv2.LINE_AA)
         return image
 
     def compose_preview(self):
@@ -490,6 +532,14 @@ class ObserverSession:
         epoch_ok=not(type(old_id) is int and type(new_id) is int and ((new_id-old_id)&0xffffffff)>=0x80000000)
         if latest.get('valid') and epoch_ok and self.head.get('imu_zero_cw_deg') is not None:
             body_yaw=wrap_degrees(self.head['imu_zero_cw_deg']-latest['yaw_cw_deg'])
+        speed_fresh=self.speed_time is not None and (self.replay or
+            0<=time.time()-(self.speed_time+self.camera_latency_s)<=HEAD_GAP_S)
+        head_state=head_point_source='DISABLED'
+        if self.speed_source=='white_head_forward':
+            head_state=self.head_speed.state
+            head_point_source=self.nose.source if fresh else 'STALE'
+            if head_state in ('TRACKING','HELD') and self.automatic and self.guidance.get('position_accepted') is False:head_state='POSITION_REJECTED'
+            if not fresh or (self.speed_time is not None and not speed_fresh):head_state='STALE'
         result={'observer_only':not self.automatic,'replay':self.replay,'status':self.status,'frame':self.index,'video_s':self.video_s,
             'camera_receipt_time':self.received_at,'camera_sample_time':self.sample_time,'aligned_imu':aligned,
             'pool':{'width_m':self.field.width_m,'height_m':self.field.height_m,'calibrating':self.interaction=='POOL_CALIB',
@@ -502,7 +552,11 @@ class ObserverSession:
                 'sample_time':self.track_time if pixel is not None else None},
             'vision_error_deg':vision_error,'reference_aligned':reference_aligned,'performance':performance,
             'interaction':self.interaction,'eof':self.eof,'samples':dict(self.samples.status),
-            'velocity':{'speed_mps':self.speed_mps},'path_pixels':self.path_px,'tracking':{'active':self.tracking,'automatic':self.automatic,'transport':'wifi' if self.automatic else None,
+            'velocity':{'speed_mps':self.speed_mps if speed_fresh else None,'source':self.speed_source,
+                'sample_time':self.speed_time if speed_fresh else None,
+                'head_px':self.nose_px if fresh else None,
+                'head_state':head_state,'head_point_source':head_point_source},
+            'path_pixels':self.path_px,'tracking':{'active':self.tracking,'automatic':self.automatic,'transport':'wifi' if self.automatic else None,
                 'command_rtt_ms':self.comm.last_round_trip_ms if self.comm else None,'sent_targets':self.comm.sent_targets if self.comm else 0,
                 'last_target_at':self.comm.last_target_at if self.comm else None,'stop_reason':self.comm.last_stop_reason if self.comm else '',
                 **(getattr(self.comm,'command_status',{}) if self.comm else {})},
@@ -553,7 +607,14 @@ class ObserverSession:
                 'tail1_deg':act.get('tail1'),'tail2_deg':act.get('tail2'),'left_esc_pct':act.get('left_esc'),
                 'right_esc_pct':act.get('right_esc'),'uptime_ms':aligned.get('source_id'),
                 'native_telemetry_time':aligned.get('native_telemetry_time'),'native_source_id':aligned.get('native_source_id'),
-                'vision_threshold':self.threshold,'speed_mps':self.speed_mps,
+                'vision_threshold':self.threshold,'speed_mps':result['velocity']['speed_mps'],
+                'speed_source':self.speed_source,'speed_sample_time':result['velocity']['sample_time'],
+                'head_speed_state':result['velocity']['head_state'],
+                'head_point_source':result['velocity']['head_point_source'],
+                'head_speed_epoch':self.head_speed.epoch,
+                'head_signed_mps':self.head_speed.signed_mps if result['velocity']['head_state']=='TRACKING' else None,
+                'head_x_px':self.nose_px[0] if fresh and self.nose_px else None,
+                'head_y_px':self.nose_px[1] if fresh and self.nose_px else None,
                 'lora_sequence':control.get('lora_sequence'),'detect_ms':self.detect_ms,'optical_ms':self.optical_ms,
                 'preview_ms':self.preview_ms,'processing_ms':self.processing_ms,
                 **{'yolo_'+key+'_ms':speed.get(key) for key in ('preprocess','inference','postprocess')}}
