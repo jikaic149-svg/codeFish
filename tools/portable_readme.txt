@@ -38,5 +38,5 @@ USB/串口/JTAG驱动需要对方电脑已有，本包不会安装驱动。CPU�
 
 firmware/ 保留原2.7.7交付镜像；重新编译的文件独立命名为 *-rebuilt.*。
 编译保留原工程 ROBOTFISH_USB_DIAGNOSTICS=ON 的只读USB诊断开关。
-旧 tests/attitude/regression.cpp 仍假定 Kp=5 和小于现有死区的收敛精度；
-当前固件为 Kp=2.5、1°死区。该历史测试保留原文、在清单中标注，并排除于默认关键回归集合。
+根目录旧固件 tests/ 已按用户要求移除；离线检查保留 upper/tests 的 Python／JavaScript 回归。
+当前固件为 Kp=2.5、1°死区，历史固件检查结果不代表当前已重新验证。

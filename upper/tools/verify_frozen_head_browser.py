@@ -10,7 +10,7 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT/'vision')]
+sys.path[:0] = [str(ROOT/'vision/src')]
 sys.path.append(str(Path(sys.base_prefix)/'Lib/site-packages'))
 import cv2
 import numpy as np
@@ -22,7 +22,7 @@ from web_runtime import WebBridge
 
 
 def main():
-    output = ROOT/'build/host-vision/frozen-head'
+    output = ROOT/'build/checks/host-vision/frozen-head'
     output.mkdir(parents=True, exist_ok=True)
     with patch.dict(os.environ, {'ROBOFISH_PARENT_TOKEN':'fixture', 'ROBOFISH_VISION_TOKEN':'fixture'}):
         bridge = WebBridge(observer=True)
@@ -44,7 +44,7 @@ def main():
                 session.render_preview();session.publish()
         except Exception as error:
             errors.append(repr(error));bridge.closed.set()
-    bridge.app.add_url_rule('/', 'page', lambda:send_from_directory(ROOT/'upper', 'index.html'))
+    bridge.app.add_url_rule('/', 'page', lambda:send_from_directory(ROOT/'upper/web', 'index.html'))
     bridge.app.add_url_rule('/<path:name>', 'assets', lambda name:send_from_directory(ROOT/'upper', name))
     for kind in ('frame','stream'):
         bridge.app.add_url_rule('/api/vision/'+kind, 'proxy_'+kind,

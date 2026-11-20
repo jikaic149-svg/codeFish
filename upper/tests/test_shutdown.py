@@ -13,6 +13,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import device_client
 import launch
@@ -28,7 +29,7 @@ class ShutdownTests(unittest.TestCase):
                 patch.object(subprocess,'run') as stop:
             launch.legacy_stop()
             self.assertEqual(stop.call_args.kwargs['env']['ROBOTFISH_STOP_PID'],'333')
-            self.assertEqual(stop.call_args.kwargs['env']['ROBOTFISH_SERVER_SCRIPT'],str(launch.ROOT/'server.py'))
+            self.assertEqual(stop.call_args.kwargs['env']['ROBOTFISH_SERVER_SCRIPT'],str(launch.ROOT/'src/server.py'))
             self.assertIn('Get-CimInstance',stop.call_args.args[0][-1])
         with patch.object(launch,'local_request',return_value={}), \
                 patch.object(subprocess,'check_output',return_value=b'TCP 127.0.0.1:1 0.0.0.0:0 LISTENING 999'), \
@@ -94,7 +95,7 @@ class ShutdownTests(unittest.TestCase):
         script="from http.server import ThreadingHTTPServer; import server; web=ThreadingHTTPServer(('127.0.0.1',server.PORT),server.Handler)\ntry: web.serve_forever()\nfinally: web.server_close()"
         env=dict(os.environ,ROBOFISH_HOST_PORT=str(port))
         def start():
-            return subprocess.Popen([sys.executable,'-B','-c',script],cwd=launch.ROOT,env=env,
+            return subprocess.Popen([sys.executable,'-B','-c',script],cwd=launch.ROOT/'src',env=env,
                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         with patch.object(launch,'PORT',port), patch.object(launch,'URL',url):

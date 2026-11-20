@@ -4,13 +4,13 @@
 
 当前源码版本 **2.7.7-steering-priority**，运行于单块 XIAO ESP32-S3。手动命令以 **LoRa 为主、认证 Wi-Fi 为备用**，画线自动循迹使用 **Wi-Fi**，命令结果、执行器状态和 JY61P 数据通过 **Wi-Fi HTTP 回传**；OTA 继续使用 Wi-Fi。S3 本地 yaw PID 支持指定航向、静止和前进保持，默认 Kp/Ki/Kd 为 **2.5 / 0.02 / 0.1**，死区 **±1°**，角度环转向分配增益 **1.5**，纠偏范围 **±100%**，保留用户最终确认正确的原极性 **+1**。闭环上电默认关闭，pitch／roll 仅预览。完整参数与行为见[姿态控制说明](docs/guides/attitude-control.md)。
 
-当前编译产物：[robotfish.bin](build/robotfish.bin)，版本 `2.7.7-steering-priority`，961600 字节，SHA256：`20f9f9b30a8958f76242afb09858262b198db965f78295bbe6da05498c612e59`。用户已于2026-10-26要求删除 `archive/` 和 `artifacts/`，命名固件及历史备份已清理；现有构建产物保持不变。`2.6.4-yaw-sign` 反向对照版已按用户确认撤回。
+当前编译产物：[robotfish.bin](build/firmware/robotfish.bin)，版本 `2.7.7-steering-priority`，961600 字节，SHA256：`20f9f9b30a8958f76242afb09858262b198db965f78295bbe6da05498c612e59`。2026-11-20 目录整理后当前固件集中在 `build/firmware/`，原构建缓存留在 `build/archive/firmware-cache/`，不直接复用旧绝对路径；未覆盖现有镜像。`2.6.4-yaw-sign` 反向对照版已按用户确认撤回。最新进度与待办先读 [process.md](process.md)，详细经过按日期保存在 [docs/history/](docs/history/README.md)。
 
-上位机入口为 `upper/start.cmd`；视觉默认加载 [黑色机器鱼 best.pt](vision/fish_body_yolo/best.pt)，检测与数据来源见[模型说明](vision/fish_body_yolo/README.md)。仓库保留源码、测试、模型和当前应用固件，本地录像、日志、训练中间文件、旧固件／硬件备份及个人运行数据不随本次提交上传。
+上位机入口为 `upper/start.cmd`；视觉默认加载 [黑色机器鱼 best.pt](vision/models/fish_body_yolo/best.pt)，检测与数据来源见[模型说明](vision/models/fish_body_yolo/README.md)。仓库保留源码、测试、模型和当前应用固件，本地录像、日志、训练中间文件、旧固件／硬件备份及个人运行数据不随本次提交上传。
 
-当前上位机为 `workstation-36-steering-priority`：画线循迹默认0.08m/s，前向量同时给双桨和摆尾（1∶1指令比例，不代表推力份额）；IMU角度PID只叠加尾偏置，差动保持0，收油时周期摆尾归零。保留2.7.6的1.5倍目标摆幅；2.7.7在关节行程不足时优先保留转向偏置，剩余行程用于摆动，避免大摆幅挤掉转向量。推进20%、满转向时，前节名义偏置24°、半摆幅8°，仍受原速率约束。原角度PID、死区和尾偏置增益保持。速度前馈使用10+10／15+15／20+20三段混合推进参考，并保留速度反馈；该数据来自加大摆幅之前，新版仍需水测。须更新2.7.7固件并重开 `upper/start.cmd`。动力测试页顶部直接提供摆尾联合推进和静态尾角对照入口，内含实时画面、选鱼与鱼头自动置零。完整操作和边界见[循迹说明](docs/guides/vision-control.md)与[动力测试说明](docs/guides/dynamics-calibration.md)。
+当前上位机为 `workstation-37-layout`（目录迁移修订，控制算法不变）：画线循迹默认0.08m/s，前向量同时给双桨和摆尾（1∶1指令比例，不代表推力份额）；IMU角度PID只叠加尾偏置，差动保持0，收油时周期摆尾归零。保留2.7.6的1.5倍目标摆幅；2.7.7在关节行程不足时优先保留转向偏置，剩余行程用于摆动，避免大摆幅挤掉转向量。推进20%、满转向时，前节名义偏置24°、半摆幅8°，仍受原速率约束。原角度PID、死区和尾偏置增益保持。速度前馈使用10+10／15+15／20+20三段混合推进参考，并保留速度反馈；该数据来自加大摆幅之前，新版仍需水测。须更新2.7.7固件并重开 `upper/start.cmd`。动力测试页顶部直接提供摆尾联合推进和静态尾角对照入口，内含实时画面、选鱼与鱼头自动置零。完整操作和边界见[循迹说明](docs/guides/vision-control.md)与[动力测试说明](docs/guides/dynamics-calibration.md)。
 
-早期 USB 实机记录的固件为 **2.3.2-lora-imu**，目标为 COM26（MAC `e8:f6:0a:8b:38:e4`），当时按用户要求仅使用 Type-C 串口做实机测试，不更换电脑 Wi-Fi。JY61P 已按实际 **115200/8N1** 接入，三轴有效输出及手动转动响应已确认；LoRa 已在软件内交换 TX/RX 分配以适配现有接线，定点接收 10/10 通过。历史记录见 `validation/lora-imu-usb-20261022.json`，对应诊断镜像为 `artifacts/RobotFish-ESP32S3-OTA-20261022-200659.bin`。这些结果不代表新版姿态控制已经上板验收。
+早期 USB 实机记录的固件为 **2.3.2-lora-imu**，当时按用户要求仅使用 Type-C 串口做实机测试，不更换电脑 Wi-Fi。JY61P 已按实际 **115200/8N1** 接入，三轴有效输出及手动转动响应已确认；LoRa 已在软件内交换 TX/RX 分配以适配现有接线，定点接收 10/10 通过。原 validation 日志的有效结论已摘入 [2026-11-20 历史记录](docs/history/2026-11-20/process.md)，随后原目录移入回收站；旧诊断镜像不再作为当前交付入口。这些结果不代表新版姿态控制已经上板验收。
 
 USB 观察仅在 `ROBOTFISH_USB_DIAGNOSTICS=ON` 时编译，Type-C COM26 每 100ms 输出一行 `USBSTAT {...}`，包含 roll/pitch/yaw、数据年龄、CRC/接收错误、LoRa 接收计数和最后命令。此构建选项默认 OFF，当前测试缓存已启用；关闭时以 `-DROBOTFISH_USB_DIAGNOSTICS=OFF` 重新构建。
 
@@ -33,7 +33,7 @@ USB 观察仅在 `ROBOTFISH_USB_DIAGNOSTICS=ON` 时编译，Type-C COM26 每 100
 
 JY61P 接收器校验 WIT 的 11 字节数据帧，提供加速度（g）、角速度（deg/s）和欧拉角（deg），各组独立显示有效标志和数据年龄。原始遥测保留传感器坐标；新增反馈只使用明确配置后的鱼体坐标，不自动写模块配置或校准。帧格式参考 [WIT 官方通信协议](https://wit-motion.gitbook.io/witmotion-sdk/wit-standard-protocol/wit-standard-communication-protocol)。
 
-2.3.0 初版历史构建：`artifacts/RobotFish-ESP32S3-OTA-20261022-162704.bin`，880656 字节，SHA256 `25af76c9ab815c660bbee8d24aec85913f253dc9fa8e61215b8f476ecc289df6`。验证记录见 `validation/lora-wifi-imu-20261022.json`。该历史版本使用 3 秒指令租约；当前版本按用户新要求改为保持最后指令，普通缓启停、急停、输出故障分级和 OTA 中立屏障继续沿用。
+2.3.0 初版构建与验证仅作历史证据，见 [历史索引](docs/history/README.md)。该历史版本使用 3 秒指令租约；当前版本按用户新要求改为保持最后指令，普通缓启停、急停、输出故障分级和 OTA 中立屏障继续沿用。
 
 当前 `main/config/AppConfig.h` 的 `kLeaseMs=0` 表示运动目标持续有效，直到新目标、全停或原有输出故障／OTA 等明确停止事件；长时间没有新指令不会自行停桨或清除鱼鳍状态。遥测以 `motion_timeout_ms=0` 声明这一策略。LoRa 的 3000 ms 健康判断只用于主备控制权选择，不取消已接受的目标；Wi-Fi 接管已有 LoRa 动作时仍先经过成功中立输出，再接收新的目标。上位机仍采用按住操作、松开发送零目标。
 
@@ -53,38 +53,39 @@ JY61P 接收器校验 WIT 的 11 字节数据帧，提供加速度（g）、角�
 
 LoRa v2 开关命令为 23／24，PID 参数命令为25；Wi-Fi 动作为 `attitude_on`／`attitude_off`／`yaw_pid`。单独调参不启用闭环；开启会授权静止纠偏。设备身份声明能力与标定状态，`/motion_status` 的 `attitude_control` 报告各轴状态、鱼体姿态、修正量、航向目标和数据年龄，并回读 `yaw_command_sign=+1`。上位机在安装映射未确认、旧固件或旧后台时禁用开启入口；上电默认关闭。
 
-离线检查入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tests/attitude/run.ps1`、`tests/control/run.ps1`、`tests/wifi_http/run.ps1` 和 `python -B tests/wifi_http/telemetry.py`；上位机模拟验证见 `upper/README.md`。这些验证不连接实鱼，不等同于真实运动验收。
+根目录旧固件 `tests/` 已按用户要求移除，不再提供其回归脚本入口；保留的上位机／视觉检查见下文与 `upper/README.md`。主机软件验证不等同于真实运动验收。
 
 ## 代码目录与入口
 
 | 路径 | 用途 |
 | --- | --- |
 | `main/` | ESP32-S3 固件：BSP、Device、Algorithm、Mode、通信服务和集中配置 |
-| `upper/` | PC 上位机后台及网页；双击 `upper/start.cmd` 启动 |
-| `vision/` | 视觉观测、路径引导、录像、配置及已交付模型 |
-| `tests/` | 固件控制、运动、姿态、通信和网页离线测试 |
+| `upper/src/`、`upper/web/` | 上位机后台、网页；启动器仍在 `upper/` |
+| `vision/src/`、`vision/configs/` | 视觉观测、引导、录像源码与配置 |
+| `vision/models/`、`vision/experiments/` | 部署模型与本机训练／评估数据分离 |
 | `upper/tests/`、`upper/tools/` | 上位机及视觉回归测试、开发验证工具 |
 | `docs/` | 当前说明、按日期归档的开发记录和正式报告 |
-| `validation/` | 本机历史验证证据 |
-| `materials/` | 参考材料 |
-| `build/`、`build-host/` | 可重建构建与分析产物 |
+| `process.md`、`docs/history/` | 精简当前进度、按日期归档的详细过程 |
+| `build/firmware/`、`build/releases/` | 当前固件构建、未来编译导出的应用副本 |
+| `build/records/` | 实测录像、CSV 和标定结果，不是可随意删除的缓存 |
+| `build/checks/`、`build/analysis/` | 主机检查输出、离线分析／仿真 |
+| `build/archive/`、`build/workstation/` | 旧缓存／发布材料、本机工作站产物 |
 
-生产视觉入口为 `vision/observer_runtime.py`，由上位机启动。录像测试统一到 `upper/tests/test_video_recording.py`。代码的生产目录与运行入口保持原有约定。
+生产视觉入口为 `vision/src/observer_runtime.py`，由上位机启动。录像测试统一到 `upper/tests/test_video_recording.py`。根目录 `tests/`、`materials/`、`build-host/`、`artifacts/`、`validation/` 已按授权移入 Windows 回收站；不影响保留的 `upper/tests/`。
 
 ## 编译、升级与离线验证
 
-在 ESP-IDF **5.3.2** 环境中，从工程根目录执行 `idf.py build`。
+在 ESP-IDF **5.3.2** 环境中，从工程根目录执行 `idf.py -B build/firmware build`。中文路径下需为当前进程启用 Python UTF-8（PowerShell：`$env:PYTHONUTF8='1'`）；`build.ps1` 已在构建子进程中设置，不改变系统配置。
 
-也可使用 `build.ps1`；当前脚本仍引用本机 `D:/ESP32`、`D:/CMAKE` 和 `D:/Ninja`，换电脑前需要适配。脚本成功编译后会重新创建 `artifacts/` 并导出本次应用 BIN，不会恢复已删除的旧版固件或实机备份。编译不自动烧录。首次安装使用 `idf.py -p COM端口 flash`，OTA 使用匹配的应用 BIN；单个应用 BIN 不是完整 Flash 镜像。
+也可使用 `build.ps1`；当前脚本仍引用本机 `D:/ESP32`、`D:/CMAKE` 和 `D:/Ninja`，换电脑前需要适配。脚本成功编译后将本次应用 BIN 导出至 `build/releases/`，不重建根 `artifacts/`。编译不自动烧录。首次安装使用 `idf.py -B build/firmware -p COM端口 flash`，OTA 使用匹配的应用 BIN；单个应用 BIN 不是完整 Flash 镜像。
 
 现有离线检查入口：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/control/run.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/wifi_http/run.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/radio_board/run.ps1
 python -B -m unittest discover -s upper/tests -v
 python -B upper/tests/test_video_recording.py
+python -B tools/test_portable_actions.py
+node upper/tests/test_dynamics_steps.js
 ```
 
 视觉检查需使用具有 OpenCV、NumPy 等依赖的 Python。现有测试有各自工具链及版本前提；入口列表不表示本次全部重跑通过。软件回归、驱动指令和历史通信试验不能替代当前配方的水中运动验收。
@@ -93,7 +94,7 @@ python -B upper/tests/test_video_recording.py
 
 - [完整文档与时间索引](docs/README.md)
 - [上位机操作说明](upper/README.md)
-- [完整开发历史](docs/history/README.md)与[后续过程记录](process.md)
+- [当前项目进度](process.md)与[按日期归档的详细历史](docs/history/README.md)
 - [2026-10-22 LoRa／IMU 实机记录](docs/history/2026-10-22/lora-imu-setup-and-test.md)
 - [2026-10-25 运动性能报告](docs/reports/2026-10-25-motion-performance/机器鱼运动性能与循迹问题评估报告.html)
 - [整理前完整工程说明](docs/history/2026-10-26/project-readme.md)：保留旧版协议、接线、升级和验证描述，历史说明按各自版本理解。

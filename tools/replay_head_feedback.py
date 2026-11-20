@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 from observer_runtime import ObserverSession
 from pool_perspective import PoolPerspective
 from control_config import CONTROL
@@ -33,7 +33,7 @@ def main():
     bridge=WebBridge(observer=True)  # never started
     bridge.parent=Mock(side_effect=AssertionError('Device access in replay'))
     args.output.parent.mkdir(parents=True,exist_ok=True)
-    session=ObserverSession(str(args.video.resolve()),ROOT/'vision/fish_body_yolo/best.pt',bridge,
+    session=ObserverSession(str(args.video.resolve()),ROOT/'vision/models/fish_body_yolo/best.pt',bridge,
                             output=args.output.parent,calibration=args.output.parent/'unused-replay-pool.json')
     session.speed_source='white_head_forward'
     loop=VisualSpeedLoop(**CONTROL['speed'],max_age_s=CONTROL['feedback_max_age_s'])

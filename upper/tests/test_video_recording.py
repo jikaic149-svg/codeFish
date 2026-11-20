@@ -10,7 +10,7 @@ if importlib.util.find_spec('cv2') is None:raise unittest.SkipTest('Requires the
 import cv2
 import numpy as np
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 from video_recorder import AsyncVideoRecorder
 
 

@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / 'vision'))
+sys.path.insert(0, str(ROOT / 'vision/src'))
 from control_config import CONTROL
 from vision_speed import VisualSpeedLoop
 

@@ -17,9 +17,9 @@ import webbrowser
 ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get('ROBOFISH_HOST_PORT', '8766'))
 URL = f'http://127.0.0.1:{PORT}'
-LOG = ROOT / 'server.log'
+LOG = ROOT / 'logs/server.log'
 SERVICE_ID = 'robotfish-local'
-REVISION = 'workstation-36-steering-priority'
+REVISION = 'workstation-37-layout'
 BOOT_TIMEOUT_SECONDS = 20.0
 
 
@@ -49,12 +49,13 @@ def log_tail(lines=8):
 
 
 def spawn():
+    LOG.parent.mkdir(parents=True,exist_ok=True)
     LOG.touch(exist_ok=True)
     # sys.executable is pythonw.exe when started from start.cmd, so the child
     # inherits a windowless interpreter. File handles keep it alive after exit.
     with LOG.open('a', encoding='utf-8') as sink:
         return subprocess.Popen(
-            [sys.executable, str(ROOT / 'server.py')], cwd=ROOT,
+            [sys.executable, str(ROOT / 'src/server.py')], cwd=ROOT,
             stdout=sink, stderr=sink,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
@@ -104,7 +105,7 @@ if ($taskProcess.Name -notin @('python.exe','pythonw.exe') -or
     $taskProcess.CommandLine -notmatch $taskExpected) { throw 'Process is not this RobotFish server.py' }
 Stop-Process -Id ([int]$env:ROBOTFISH_STOP_PID) -ErrorAction Stop
 '''
-    env = dict(os.environ, ROBOTFISH_STOP_PID=str(pids.pop()), ROBOTFISH_SERVER_SCRIPT=str(ROOT / 'server.py'))
+    env = dict(os.environ, ROBOTFISH_STOP_PID=str(pids.pop()), ROBOTFISH_SERVER_SCRIPT=str(ROOT / 'src/server.py'))
     subprocess.run(['powershell.exe', '-NoProfile', '-Command', script], env=env,
         check=True, timeout=10, capture_output=True,
         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))

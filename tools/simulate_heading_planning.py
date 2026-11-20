@@ -11,7 +11,7 @@ from simulate_path_planning import CAMERA_DELAY, DT, make_guide
 from path_guidance import wrap_to_pi
 
 
-TRACE_DIR = Path(__file__).resolve().parents[1] / 'build/host-vision/motion-performance-report'
+TRACE_DIR = Path(__file__).resolve().parents[1] / 'build/checks/host-vision/motion-performance-report'
 VARIANTS = ('current', 'no_curve_angle', 'point_14', 'point_24', 'point_35', 'by_geometry')
 ROUTES = {
     'straight_offset': (((.35, .8), (2.55, .8)), (.35, 1.0), 0., .30),

@@ -12,7 +12,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path[:0]=[str(ROOT),str(ROOT/'tests')]
+sys.path[:0]=[str(ROOT/'src'),str(ROOT/'tests')]
 import device_client
 from credentials import KeyStore
 from lora_link import LoRaLink
@@ -104,7 +104,7 @@ def main():
                     page.wait_for_function("$('lora-port').options.length === 3 && !radioPortsBusy")
                     page.locator('#lora-port').select_option('COM119')
                     assert client.lora.serial is None, 'Selecting a port opened it automatically'
-                    output=ROOT.parent/'build'/'host-lora'
+                    output=ROOT.parent/'build/checks/host-lora'
                     output.mkdir(parents=True,exist_ok=True)
                     page.screenshot(path=str(output/'port-picker-desktop.png'),full_page=True)
                     page.set_viewport_size({'width':390,'height':844})

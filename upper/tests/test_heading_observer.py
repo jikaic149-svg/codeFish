@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path[:0]=[str(ROOT/'upper'),str(ROOT/'vision')]
+sys.path[:0]=[str(ROOT/'upper/src'),str(ROOT/'vision/src')]
 from angle_observation import OpticalBodyAxis,AngleSamples
 from observer_runtime import ObserverSession
 from pool_perspective import PoolPerspective,transform_points

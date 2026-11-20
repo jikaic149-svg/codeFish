@@ -13,7 +13,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
+sys.path[:0] = [str(ROOT/'src'), str(ROOT / 'tests')]
 import diagnostics
 import robotfish
 import server
@@ -147,7 +147,7 @@ def main():
                 page.wait_for_function('chartHover === 1')
                 page.evaluate('chartFrozen=null;chartHover=-1;drawChart()')
                 page.locator('[data-page=data]').click()
-                output = ROOT.parent / 'build/host-data'
+                output = ROOT.parent / 'build/checks/host-data'
                 output.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(output / 'data-desktop.png'), full_page=True)
                 page.set_viewport_size({'width': 390, 'height': 844})

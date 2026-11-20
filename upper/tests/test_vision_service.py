@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1] / 'src'))
 from vision_service import VisionService, WORKSPACE
 
 
@@ -26,10 +26,10 @@ class VisionServiceTests(unittest.TestCase):
     def test_runtime_requires_and_selects_the_delivered_yolo_model(self):
         service=VisionService()
         self.assertTrue(service.configuration()['model_required'])
-        self.assertEqual(service.configuration()['default_model'],'vision/fish_body_yolo/best.pt')
-        self.assertEqual(service.model_path(None),WORKSPACE/'vision/fish_body_yolo/best.pt')
+        self.assertEqual(service.configuration()['default_model'],'vision/models/fish_body_yolo/best.pt')
+        self.assertEqual(service.model_path(None),WORKSPACE/'vision/models/fish_body_yolo/best.pt')
         self.assertEqual(service.model_path(''),service.model_path(None))
-        self.assertTrue((WORKSPACE/'vision/observer_runtime.py').is_file())
+        self.assertTrue((WORKSPACE/'vision/src/observer_runtime.py').is_file())
         self.assertFalse(service.configuration()['observation_only'])
         self.assertTrue({'AUTO_START','AUTO_STOP','RECORD','BINARY','CLAHE','VIEW','THRESHOLD'}.issubset(service.configuration()['supported_tasks']))
         self.assertFalse({'START','STOP'} & set(service.configuration()['supported_tasks']))
@@ -54,7 +54,7 @@ class VisionServiceTests(unittest.TestCase):
         self.assertTrue(result['error'])
 
     def test_calibration_download_only_reads_the_output_directory(self):
-        service=VisionService();service.perspective_test={'data_file':str(WORKSPACE/'upper/server.py')}
+        service=VisionService();service.perspective_test={'data_file':str(WORKSPACE/'upper/src/server.py')}
         with self.assertRaises(ValueError):service.test_file('json')
         with self.assertRaises(ValueError):service.test_file('other')
 
@@ -72,7 +72,7 @@ class VisionServiceTests(unittest.TestCase):
             self.assertEqual(service.export_samples('csv')[0],path.read_bytes())
             service.samples['active']=True
             with self.assertRaises(ValueError):service.export_samples('csv')
-            service.samples.update(active=False,file=str(WORKSPACE/'upper/server.py'))
+            service.samples.update(active=False,file=str(WORKSPACE/'upper/src/server.py'))
             with self.assertRaises(ValueError):service.export_samples('csv')
             service.samples.update(active=True,saved=False)
             status=service.state()['samples']

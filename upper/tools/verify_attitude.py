@@ -10,7 +10,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
+sys.path[:0] = [str(ROOT/'src'), str(ROOT / 'tests')]
 import diagnostics
 import robotfish
 import server
@@ -142,7 +142,7 @@ def main():
                 page.wait_for_function('robotState?.control?.axes?.yaw === 0')
                 toggle.uncheck()
                 page.wait_for_function('!robotState?.attitude_control?.enabled && !controlConfigPending')
-                output=ROOT.parent/'build/analysis/yaw-pid-20261024';output.mkdir(parents=True,exist_ok=True)
+                output=ROOT.parent/'build/analysis/references/yaw-pid-20261024';output.mkdir(parents=True,exist_ok=True)
                 page.locator('#robot-attitude-settings').screenshot(path=str(output/'pid-ui.png'))
                 page.set_viewport_size({'width':390,'height':844})
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),'PID form overflows mobile viewport'

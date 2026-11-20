@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
-const source=fs.readFileSync(path.join(__dirname,'../dynamics.js'),'utf8');
+const source=fs.readFileSync(path.join(__dirname,'../web/dynamics.js'),'utf8');
 const fn=source.slice(source.indexOf('function stepTailBias('),source.indexOf('function release('));
 const fields={bias:{value:'0'},surge:{value:'8'},tail:{value:'0'},diff:{value:'0'}},sent=[];
 const context={held:true,mode:3,recipe:'static',driveRequest:null,motion:'left',generation:7,staticBiasLevel:0,

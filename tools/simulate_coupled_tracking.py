@@ -18,7 +18,7 @@ from path_guidance import PathGuidance, VelocityEstimator, wrap_to_pi
 from vision_speed import VisualSpeedLoop
 
 ROOT = Path(__file__).resolve().parents[1]
-DLL = ROOT / 'build/coupled-tracking-host.dll'
+DLL = ROOT / 'build/checks/native/coupled-tracking-host.dll'
 CC = Path(os.environ.get('ROBOFISH_CXX', 'C:/msys64/ucrt64/bin/g++.exe'))
 CASES = ('straight', 'yaw75', 'right25', 'right40', 'right62', 'left40', 's_bend', 'crossing',
          'straight_push+', 'straight_push-', 'arc_push+', 'arc_push-', 'camera_jump')
@@ -40,7 +40,7 @@ PREVIEW = .24
 
 
 def build():
-    DLL.parent.mkdir(exist_ok=True)
+    DLL.parent.mkdir(parents=True,exist_ok=True)
     files = ['tools/coupled_tracking_host.cpp', 'main/Mode/Motion/MotionMode.cpp',
              *[f'main/Device/Actuator/{a}Motion.cpp' for a in ('Tail', 'Propulsion', 'Pectoral')]]
     subprocess.run([str(CC), '-std=c++17', '-O2', '-shared', '-Wall', '-Wextra', '-Werror',
@@ -111,7 +111,7 @@ def references(dynamics):
 def sampled_bend():
     # Reconstruct the reference, not the fish's XY trail. The logged 12 cm secant
     # is centred 7 cm ahead of along_m. This single bend has no original waypoints.
-    data=rows(ROOT/'build/vision/heading-20261119-062520-603956.csv')
+    data=rows(ROOT/'build/records/vision/heading-20261119-062520-603956.csv')
     s,k=np.array([(float(r['along_m'])+.07,float(r['path_curvature_per_m'])) for r in data
                   if not r['stop_reason'] and r['paused']=='False' and r['position_accepted']=='True'
                   and r['native_target_active']=='True' and r['heading_policy']=='tangent']).T

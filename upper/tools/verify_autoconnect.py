@@ -10,7 +10,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
+sys.path[:0] = [str(ROOT/'src'), str(ROOT / 'tests')]
 import diagnostics
 import robotfish
 import server

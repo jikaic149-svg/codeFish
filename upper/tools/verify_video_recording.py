@@ -14,12 +14,12 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'upper'))
+sys.path.insert(0,str(ROOT/'upper/src'))
 from vision_service import VisionService
 
 
 def main():
-    work=ROOT/'build/host-vision'
+    work=ROOT/'build/checks/host-vision'
     work.mkdir(parents=True,exist_ok=True)
     source=work/'auv_record_synthetic.mp4'
     writer=cv2.VideoWriter(str(source),cv2.CAP_FFMPEG,cv2.VideoWriter_fourcc(*'mp4v'),20,(320,240))

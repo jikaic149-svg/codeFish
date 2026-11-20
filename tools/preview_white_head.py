@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'vision'))
+sys.path.insert(0, str(ROOT / 'vision/src'))
 from white_head_point import WhiteHeadPoint
 from yolo_tracker import YoloBodyTracker
 
@@ -42,13 +42,13 @@ def zoom_pair(frame, box, point):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('video', type=Path)
-    parser.add_argument('--output', type=Path, default=ROOT/'artifacts'/'white-head-preview')
+    parser.add_argument('--output', type=Path, default=ROOT/'build/analysis/white-head-preview')
     args = parser.parse_args()
     cap = cv2.VideoCapture(str(args.video))
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not cap.isOpened() or not fps > 0:
         raise SystemExit(f'Cannot open video: {args.video}')
-    body = YoloBodyTracker(ROOT/'vision'/'fish_body_yolo'/'best.pt')
+    body = YoloBodyTracker(ROOT/'vision'/'models'/'fish_body_yolo'/'best.pt')
     detector = WhiteHeadPoint()
     args.output.mkdir(exist_ok=True, parents=True)
     writer = cv2.VideoWriter(str(args.output/'preview.mp4'), cv2.VideoWriter_fourcc(*'mp4v'),

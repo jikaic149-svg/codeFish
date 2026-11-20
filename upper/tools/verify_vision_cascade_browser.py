@@ -14,7 +14,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path[:0]=[str(ROOT/'upper'),str(ROOT/'upper/tests')]
+sys.path[:0]=[str(ROOT/'upper/src'),str(ROOT/'upper/tests')]
 import device_client
 import robotfish
 import server
@@ -23,7 +23,7 @@ from vision_service import VisionService
 
 
 def main():
-    output=ROOT/'build/host-vision/heading-observer/browser';output.mkdir(parents=True,exist_ok=True)
+    output=ROOT/'build/checks/host-vision/heading-observer/browser';output.mkdir(parents=True,exist_ok=True)
     configs=output/('configs-'+str(time.time_ns()));configs.mkdir()
     service=VisionService();service.output=output/'exports'
     web=ThreadingHTTPServer(('127.0.0.1',0),server.Handler);server.PORT=web.server_port

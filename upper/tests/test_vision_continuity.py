@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 if importlib.util.find_spec('cv2') is None:
     raise unittest.SkipTest('Requires the installed YOLO/OpenCV Python')
-sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'vision'))
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'vision/src'))
 from web_runtime import WebBridge, WorkstationComm
 
 

@@ -8,7 +8,7 @@ import threading
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT/'src'))
 import server
 
 spec = importlib.util.spec_from_file_location('fixture', ROOT / 'tests/test_robotfish.py')
@@ -48,7 +48,7 @@ def verify_device_page(browser, target):
     assert '/api/v1/control' not in fixture.Target.paths
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     assert not errors, errors
-    page.screenshot(path=str(ROOT.parent / 'build-host' / 'device-wifi-verified.png'), full_page=True)
+    page.screenshot(path=str(ROOT.parent / 'build/checks/browser' / 'device-wifi-verified.png'), full_page=True)
     page.close()
     print('Device browser OK: actual telemetry HTML; valid/absent IMU; outage and recovery; simulated OTA; no motion requests; 390px.')
 
@@ -146,7 +146,7 @@ def main():
             assert fixture.Target.uploads == [fixture.image()]
             assert not any('/stream' in path or '/capture' in path for path in fixture.Target.paths)
             assert not errors, errors
-            output = ROOT.parent / 'build-host'
+            output = ROOT.parent / 'build/checks/browser'
             output.mkdir(exist_ok=True)
             page.screenshot(path=str(output / 'upper-ota-verified.png'), full_page=True)
             page.set_viewport_size({'width': 390, 'height': 844})

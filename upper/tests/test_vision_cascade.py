@@ -14,7 +14,7 @@ if importlib.util.find_spec('cv2') is None:
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path[:0]=[str(ROOT/'upper'),str(ROOT/'vision')]
+sys.path[:0]=[str(ROOT/'upper/src'),str(ROOT/'vision/src')]
 import device_client
 from path_guidance import PathGuidance
 from station import Workstation
@@ -254,9 +254,9 @@ class RuntimeBridgeTests(unittest.TestCase):
         cv_names=['namedWindow','resizeWindow','moveWindow','setMouseCallback','imshow','destroyAllWindows','getWindowProperty','waitKey']
         with patch.object(web_runtime,'WebBridge',return_value=bridge),patch.object(vision_app,'main',exercise), \
              patch.object(vision_app,'RoboFishComm',vision_app.RoboFishComm), \
-             patch.dict(os.environ,{'ROBOFISH_VISION_OUTPUT':str(ROOT/'build/host-vision')}), \
+             patch.dict(os.environ,{'ROBOFISH_VISION_OUTPUT':str(ROOT/'build/checks/host-vision')}), \
              patch.multiple(cv2,**{name:getattr(cv2,name) for name in cv_names}):
-            web_runtime.run('0',str(ROOT/'vision/fish_body_yolo/best.pt'))
+            web_runtime.run('0',str(ROOT/'vision/models/fish_body_yolo/best.pt'))
 
 
 if __name__=='__main__':unittest.main()

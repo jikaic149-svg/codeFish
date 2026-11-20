@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 from pool_perspective import PoolPerspective,image_heading,heading_arrow,transform_points
 from web_runtime import WebBridge
 
@@ -61,7 +61,7 @@ class PoolTests(unittest.TestCase):
             with self.subTest(points=points),self.assertRaises(ValueError):PoolPerspective().calibrate(points,SHAPE)
 
     def test_saved_matrix_is_bound_to_source_and_resolution(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/'build/host-vision') as folder:
+        with tempfile.TemporaryDirectory(dir=ROOT/'build/checks/host-vision') as folder:
             path=Path(folder)/'pool.json';pool=PoolPerspective().calibrate(POINTS,SHAPE);pool.save(path,'sample.mp4')
             loaded=PoolPerspective();self.assertTrue(loaded.load(path,'sample.mp4',SHAPE))
             self.assertEqual(loaded.describe('sample.mp4')['dimension_source'],'configured')
@@ -83,7 +83,7 @@ class PoolTests(unittest.TestCase):
 
     def test_existing_calibration_saves_one_test_image_and_serves_point_transforms(self):
         import vision_app
-        with tempfile.TemporaryDirectory(dir=ROOT/'build/host-vision') as folder, \
+        with tempfile.TemporaryDirectory(dir=ROOT/'build/checks/host-vision') as folder, \
                 patch.dict(os.environ,{'ROBOFISH_PARENT_TOKEN':'fixture','ROBOFISH_VISION_TOKEN':'fixture'}):
             bridge=WebBridge()
             client=bridge.app.test_client();headers={'Authorization':'Bearer fixture'}

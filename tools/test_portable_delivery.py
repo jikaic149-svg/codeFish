@@ -82,7 +82,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
                 assert response.status == 200 and response.read()
         with opener.open(address + '/api/vision/config', timeout=4) as response:
             config = json.load(response)
-        assert config['default_model'] == 'vision/fish_body_yolo/best.pt'
+        assert config['default_model'] == 'vision/models/fish_body_yolo/best.pt'
     finally:
         run([python, '-I', '-B', root / 'portable.py', 'stop', '--no-browser'])
     report['host_start_stop'] = True

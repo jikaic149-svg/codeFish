@@ -15,10 +15,10 @@ def main():
     from ultralytics import YOLO
     from ultralytics.utils import SETTINGS
     settings = {'datasets_dir': str(root / 'datasets'), 'runs_dir': str(root / 'state/training'),
-                'weights_dir': str(root / 'project/vision/fish_body_yolo'),
+                'weights_dir': str(root / 'project/vision/models/fish_body_yolo'),
                 'sync': False, 'hub': False, 'wandb': False, 'comet': False, 'mlflow': False}
     SETTINGS.update({key: value for key, value in settings.items() if key in SETTINGS})
-    model = YOLO(str(root / 'project/vision/fish_body_yolo/best.pt'))
+    model = YOLO(str(root / 'project/vision/models/fish_body_yolo/best.pt'))
     data = root / 'datasets/fish/dataset.yaml'
     if args.action == 'validate':
         model.val(data=str(data), split='test', imgsz=args.imgsz, batch=args.batch, device='cpu',

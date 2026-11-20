@@ -28,6 +28,8 @@ $env:IDF_TOOLS_PATH = $toolsRoot
 $env:IDF_PYTHON_ENV_PATH = Split-Path -Parent $pythonScripts
 $env:IDF_COMPONENT_MANAGER = '0'
 $env:PYTHONNOUSERSITE = '1'
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$pythonScripts;D:/CMAKE/bin;D:/Ninja;" + $env:PATH
 . $export
 if ($LASTEXITCODE -ne 0) { throw "ESP-IDF environment export failed: $LASTEXITCODE" }
@@ -37,17 +39,17 @@ $env:PATH = "D:/CMAKE/bin;D:/Ninja;" + $env:PATH
 Push-Location -LiteralPath $project
 try {
     # Components are local; this command only configures/compiles this project.
-    & $python (Join-Path $idfRoot 'tools/idf.py') -B (Join-Path $project 'build') `
+    & $python (Join-Path $idfRoot 'tools/idf.py') -B (Join-Path $project 'build/firmware') `
         -DIDF_COMPONENT_MANAGER=0 build
     if ($LASTEXITCODE -ne 0) { throw "ESP-IDF compilation failed: $LASTEXITCODE" }
-    $application = Join-Path $project 'build/robotfish.bin'
+    $application = Join-Path $project 'build/firmware/robotfish.bin'
     if (-not (Test-Path -LiteralPath $application -PathType Leaf)) {
         throw "Application image was not generated: $application"
     }
-    $artifacts = Join-Path $project 'artifacts'
-    New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+    $releases = Join-Path $project 'build/releases'
+    New-Item -ItemType Directory -Path $releases -Force | Out-Null
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $otaImage = Join-Path $artifacts "RobotFish-ESP32S3-OTA-$timestamp.bin"
+    $otaImage = Join-Path $releases "RobotFish-ESP32S3-OTA-$timestamp.bin"
     Copy-Item -LiteralPath $application -Destination $otaImage
     $digest = (Get-FileHash -LiteralPath $otaImage -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Output "OTA application: $otaImage"

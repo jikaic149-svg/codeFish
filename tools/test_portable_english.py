@@ -27,7 +27,7 @@ def main():
     han = re.compile(r'[\u3400-\u9fff]')
     node = root / 'tools/node/node.exe'
     scripts = []
-    for path in (root / 'project/upper').glob('*.js'):
+    for path in (root / 'project/upper/web').glob('*.js'):
         subprocess.run([str(node), '--check', str(path)], env=env, check=True, capture_output=True)
         scripts.append(path.name)
     class InlineScripts(HTMLParser):
@@ -39,7 +39,7 @@ def main():
             if tag == 'script': self.active = False
         def handle_data(self, value):
             if self.active and value.strip(): self.scripts.append(value)
-    for path in (root / 'project/main/control.html', root / 'project/upper/index.html', root / 'project/upper/dynamics.html'):
+    for path in (root / 'project/main/control.html', root / 'project/upper/web/index.html', root / 'project/upper/web/dynamics.html'):
         parsed = InlineScripts(); parsed.feed(path.read_text(encoding='utf-8'))
         for script in parsed.scripts:
             subprocess.run([str(node), '--check', '-'], input=script, env=env, text=True,

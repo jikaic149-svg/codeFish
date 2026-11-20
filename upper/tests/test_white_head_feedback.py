@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 from observer_runtime import ObserverSession
 from pool_perspective import PoolPerspective
 from web_runtime import WebBridge, WorkstationComm

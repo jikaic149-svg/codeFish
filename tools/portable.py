@@ -269,7 +269,7 @@ def select_usb_port():
 
 
 def ota_upgrade(extra):
-    sys.path.insert(0, str(PROJECT / 'upper'))
+    sys.path.insert(0, str(PROJECT / 'upper/src'))
     import device_client
     import robotfish
     if len(extra) > 1:
@@ -364,7 +364,7 @@ def check(env):
     from ultralytics import YOLO
     from ultralytics.utils import SETTINGS
     settings = {'datasets_dir': str(ROOT / 'datasets'), 'runs_dir': str(STATE / 'training'),
-                'weights_dir': str(PROJECT / 'vision/fish_body_yolo'), 'sync': False,
+                'weights_dir': str(PROJECT / 'vision/models/fish_body_yolo'), 'sync': False,
                 'hub': False, 'wandb': False, 'comet': False, 'mlflow': False}
     SETTINGS.update({key: value for key, value in settings.items() if key in SETTINGS})
     assert torch.version.cuda is None, 'The delivery must use the CPU build'
@@ -387,7 +387,7 @@ def check(env):
     sample = sorted((ROOT / 'datasets/fish/images/test').glob('*'))[0]
     image = cv2.imread(str(sample))
     assert image is not None
-    model = YOLO(str(PROJECT / 'vision/fish_body_yolo/best.pt'))
+    model = YOLO(str(PROJECT / 'vision/models/fish_body_yolo/best.pt'))
     prediction = model.predict(image, imgsz=960, device='cpu', verbose=False)[0]
     report = {'ok': True, 'root': str(ROOT), 'python': sys.version.split()[0],
               'torch': torch.__version__, 'opencv': cv2.__version__, 'numpy': numpy.__version__,
@@ -412,19 +412,13 @@ def check(env):
 
 
 def tests(env):
-    compiler = ROOT / 'tools/ucrt64/bin/g++.exe'
-    print('NOTE: historical tests/attitude/regression.cpp assumes Kp=5 and sub-deadband convergence; retained outside this targeted regression set.')
-    for script in ('motion/run.ps1', 'control/run_calibration.ps1',
-                   'wifi_http/run.ps1', 'radio_board/run.ps1'):
-        execute(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                 PROJECT / 'tests' / script, '-Compiler', compiler], environment(idf=True))
+    print('NOTE: root firmware tests/ was removed; running the retained upper/tests checks only.')
     for name in ('test_curve_speed.py', 'test_path_guidance.py', 'test_measured_speed_profile.py',
                  'test_observer_continuity.py', 'test_vision_continuity.py',
                  'test_dynamics_calibration.py', 'test_dynamics_control.py', 'test_video_recording.py'):
         execute([PYTHON, '-B', '-m', 'unittest', 'discover', '-s', 'upper/tests', '-p', name, '-v'], env)
     execute([ROOT / 'tools/node/node.exe', 'upper/tests/test_dynamics_steps.js'], env)
-    execute([ROOT / 'tools/node/node.exe', 'tests/control/web_status.js'], env)
-    print('PASS: portable native, Python and JavaScript regression checks')
+    print('PASS: portable Python and JavaScript regression checks')
 
 
 def host(action, extra, env):
@@ -496,9 +490,9 @@ def main():
                              '/；设备连接状态以页面显示为准。' if args.action == 'start'
                              else '本包上位机后台已停止或确认未在运行。')
     elif args.action == 'debug-host':
-        os.chdir(PROJECT / 'upper')
-        sys.path.insert(0, str(PROJECT / 'upper'))
-        runpy.run_path(str(PROJECT / 'upper/server.py'), run_name='__main__')
+        os.chdir(PROJECT / 'upper/src')
+        sys.path.insert(0, str(PROJECT / 'upper/src'))
+        runpy.run_path(str(PROJECT / 'upper/src/server.py'), run_name='__main__')
         result['summary'] = '调试后台已正常退出。'
     elif args.action == 'shell':
         execute(['cmd.exe', '/K', 'title RobotFish Portable Development'], env)

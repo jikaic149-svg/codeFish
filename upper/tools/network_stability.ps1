@@ -7,7 +7,7 @@ param(
     [string]$StatePath = ''
 )
 $ErrorActionPreference = 'Stop'
-if (-not $StatePath) { $StatePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..\validation\windows-wifi-policy.json' }
+if (-not $StatePath) { $StatePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..\build\workstation\network\windows-wifi-policy.json' }
 $wifiSubgroup = '19cbb8fa-5279-450e-9fac-8a3d5fedd0c1'
 $wifiPowerSetting = '12bbebe6-58d6-4636-95bb-3217ef867c1a'
 

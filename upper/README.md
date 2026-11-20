@@ -4,7 +4,9 @@
 
 双击 `start.cmd`，或在本目录运行 `python -B launch.py`，打开 `http://127.0.0.1:8766/`。新服务身份为 `robotfish-local`，独立于旧工作站的 8765；不会结束其他目录或其他程序的进程。可用 `ROBOFISH_HOST_PORT` 同时调整启动器与服务端口。
 
-本版源码服务修订为 `workstation-36-steering-priority`，当前配套固件为 `2.7.7-steering-priority`，包含实测推进前馈所需的尾攻角循迹分配；旧固件需升级后再启动新循迹。连接 LoRa 串口后可独立手动控制，无需 Wi-Fi；连接机器鱼 Wi-Fi 后自动识别地址并建立控制连接。同目录旧版后台占用端口时，启动器核对服务身份和目录，结束旧版后启动新版；同版本则复用，不重复启动。仅刷新浏览器不能更新已运行的 Python 后台；重新打开启动器可以载入新版本，电脑网络无需切换。本次未自动烧录固件或发送实鱼目标。
+目录分层：`src/` 保存 Python 后台，`web/` 保存 HTML／JS／CSS；`tests/`、`tools/`、`logs/` 分别用于保留测试、开发工具和运行日志。根 `launch.py`、`start.cmd`、`stop.cmd` 入口不变。以下未注明工作目录的工具命令在 `upper/` 内执行；当前项目进度先读根 [process.md](../process.md)。
+
+本版源码服务修订为 `workstation-37-layout`，目录迁移时同步更新服务修订，防止启动器复用仍按旧路径读资源的后台；控制算法不变。当前配套固件为 `2.7.7-steering-priority`，包含实测推进前馈所需的尾攻角循迹分配；旧固件需升级后再启动新循迹。连接 LoRa 串口后可独立手动控制，无需 Wi-Fi；连接机器鱼 Wi-Fi 后自动识别地址并建立控制连接。同目录旧版后台占用端口时，启动器核对服务身份和目录，沿用未导出数据确认和原退出保护，再启动新版；同版本则复用，不重复启动。仅刷新浏览器不能更新已运行的 Python 后台；重新打开启动器可以载入新版本，电脑网络无需切换。本次未自动重启已有后台、烧录固件或发送实鱼目标。
 
 视觉页默认只观测；完成实时相机场地／鱼头标定并画好路径后，点击“开始自动循迹 · Wi-Fi”才发送运动目标。PC根据局部路径切向、曲率和横移速度规划航向；未圆整的尖角附近改用宽弦线。最大预览曲率和实际航向失准限制前速，默认巡航0.08m/s，速度PID仍为60／10／6，S3负责本地yaw PID。配置集中在 `vision/configs/control.json`，没有恢复速度输入上限。启动自动循迹会全停、关闭本机LoRa发送端、连接Wi-Fi控制并等待原3秒LoRa健康窗口释放；之后最高10Hz提交最新目标，不积压补发。控制使用最新有效IMU，视觉测量仍按图像时刻配对。录像回放只允许观测。完整参数、日志字段与仿真边界见[循迹说明](../docs/guides/vision-control.md)。
 
@@ -52,7 +54,7 @@ RobotFish 前台遥测按约 100 ms（目标 10 Hz）请求，慢请求完成后
 
 “视觉”页用于外接电脑摄像头或录像回放，当前机器鱼板没有板载相机，对应入口隐藏。原图输入预览、MP4与同步CSV、截图、二值阈值滑条、曝光、对比度、调试叠加、路径绘制／自动循迹、转弯采样均可使用；打开画面、绘制路径和采样不会启动运动，执行路线需要明确启动自动循迹。四点标定完成后主画面显示透视校正图，“显示视角”可切完整原图；框选机器鱼使用全局图，鱼头标定冻结并保留当前视角，透视点击按同一矩阵反算原图。预览默认15fps，可选3／10／15／30fps，鱼头标定后保持显示，主动关闭预览也不停止录像与采样。图像绝对定位于固定预览区域并完整缩放，避免Grid固有尺寸撑开轨道而裁切。
 
-点击开始／停止CSV采样记录独立角度、X/Y、IMU与原生PID／执行器指令，导出CSV及包含各次标定的JSON；“采样与测试图文件”打开 `build/vision`。录像保存完整原图叠加与同步数据，文件正常结束后才标为已保存。正常停止视觉会收尾CSV和MP4，异常退出或磁盘错误不显示完整保存成功。
+点击开始／停止CSV采样记录独立角度、X/Y、IMU与原生PID／执行器指令，导出CSV及包含各次标定的JSON；“采样与测试图文件”打开 `build/records/vision`。录像保存完整原图叠加与同步数据，文件正常结束后才标为已保存。正常停止视觉会收尾CSV和MP4，异常退出或磁盘错误不显示完整保存成功。
 
 视觉使用本机已有 `D:/python/venvs/yolo/ultralytics/8.4.118/Scripts/python.exe`，可通过 `ROBOFISH_VISION_PYTHON` 指定已有 OpenCV／NumPy／Flask／Pillow 环境。回放默认读取工程同级的 `屏幕录制 2026-10-18 115851.mp4`，可用 `ROBOFISH_VISION_SAMPLES` 指定测试目录。
 
@@ -60,11 +62,11 @@ RobotFish 前台遥测按约 100 ms（目标 10 Hz）请求，慢请求完成后
 
 点击“鱼头方向”后只冻结预览，后台继续采样。暗色厚身体像素先透视到米制场地，再拟合独立光学主轴；点头选择前后并建立视觉0°。实时相机按配置camera_latency_s（默认0.30s估计值）寻找图像对应IMU，建立同一参考；IMU增量不再次做透视。独立光学轴不使用IMU或运动方向，没有清晰视觉时留空。缺少对时或设备重启时不能同步控制零位；正常32位计时回绕保留参考。该光学轴并非已训练头部关键点的精度真值。
 
-每次成功标定额外保存一张最长边1000像素的透视测试PNG（4×2时为1000×500）和矩阵JSON，位于 `build/vision`；场地标定卡片可下载。按用户最新要求，实时主预览也显示透视图，warp只在显示帧率内执行；YOLO、独立角度和位置仍使用完整原图及同一H。透视画面的鼠标点先反算回原图坐标，冻结标定则只接受原图坐标，避免坐标错配。`POST /api/vision/transform`复用缓存矩阵提供采样点换算。几何换算和测试图导出不发送机器鱼指令。
+每次成功标定额外保存一张最长边1000像素的透视测试PNG（4×2时为1000×500）和矩阵JSON，位于 `build/records/vision`；场地标定卡片可下载。按用户最新要求，实时主预览也显示透视图，warp只在显示帧率内执行；YOLO、独立角度和位置仍使用完整原图及同一H。透视画面的鼠标点先反算回原图坐标，冻结标定则只接受原图坐标，避免坐标错配。`POST /api/vision/transform`复用缓存矩阵提供采样点换算。几何换算和测试图导出不发送机器鱼指令。
 
 右上角“开始记录”启动后台每秒一条记录，切页后继续；停止后可以选择“记录回放”。CSV／JSON 导出全部保留样本，PNG 导出当前曲线，冻结只暂停图表，实时数字和后台记录继续更新。清空只删除已记录数据，不中断实时预览。表格显示 Roll／Pitch／Yaw、两路桨、通信往返和安全状态，电池未测时留空。新版后台修复了 Wi-Fi 往返延迟未写入记录，以及断线样本被错误记为其他来源、导致停止后无法续录的问题。
 
-“yaw 角度闭环（默认关闭）”及 Kp、Ki、Kd 输入属于 S3 同一个角度 PID。点击应用后以鱼端回读为准，不把串口排队当作执行确认。参数仅更新 RAM；重启恢复 main/config/AttitudeConfig.h 的 Kp=5、Ki=0.02、Kd=0.1，yaw 范围±100%，原极性+1保持。指定航向执行中可单独调 PID；手动转向、配置接管和全停仍按原鱼端规则优先。
+“yaw 角度闭环（默认关闭）”及 Kp、Ki、Kd 输入属于 S3 同一个角度 PID。点击应用后以鱼端回读为准，不把串口排队当作执行确认。参数仅更新 RAM；重启恢复 main/config/AttitudeConfig.h 的 Kp=2.5、Ki=0.02、Kd=0.1，yaw 范围±100%，原极性+1保持。指定航向执行中可单独调 PID；手动转向、配置接管和全停仍按原鱼端规则优先。
 
 `2.6.1-yaw-hold` 开启后选择舵机与双螺旋桨混合模式，在首个有效 IMU 样本记录当前航向；即使没有前进目标，静止偏转也会驱动执行器纠偏。普通松键归零保留原目标和 PID；手动转向优先，松开后记录新航向，倒退仍手动。全停会关闭闭环并清除目标和积分，中立输出成功后也不自动恢复；IMU 失效／过期或重新开启会重新记录航向。姿态 PID 每 100 ms 在 S3 本地更新，现有 20 ms 摆尾分配、50 Hz PWM 保留；更新周期不是舵机转到目标所需的时间。yaw 的误差和 D 差分均按最短圆弧计算。用户侧航向显示保持左转增大，内部 FRD 与右转命令为正，并在显示／导出中明确区分。仅调 Kp/Ki/Kd 不启动闭环。
 
@@ -82,7 +84,7 @@ Wi-Fi 控制接口为 `POST /api/v1/control`，由本地服务通过 `X-OTA-Pass
 
 多个上位机页面复用本机设备会话时，`/api/station/control`、`/api/station/target` 另带每页独立的 `client_id`，后端分别拒绝各页面的旧请求，再统一分配设备序号，避免另一页的全停被误判为旧请求。页面标识只供本机排序，不发到机器鱼或 LoRa；未传标识的旧调用仍保留原排序检查。
 
-“开发”页为识别到的 RobotFish 显示 Wi-Fi OTA。选择本工程的 `build/robotfish.bin` 并手动输入现有 OTA 密码，不预填密码。PC 检查 ESP32-S3、`robotfish` 项目名、0x330000 字节上限、镜像段边界、校验和与附加 SHA256；这是完整性检查，BIN 没有签名。设备接收后，必须同时报告目标版本、应用槽切换与 `ota_confirmed=true`、`runtime_ready=true` 才显示完成。同版本重刷也要求换槽。首次 USB 安装使用工程的 `idf.py flash`。
+“开发”页为识别到的 RobotFish 显示 Wi-Fi OTA。选择本工程的 `build/firmware/robotfish.bin` 并手动输入现有 OTA 密码，不预填密码。PC 检查 ESP32-S3、`robotfish` 项目名、0x330000 字节上限、镜像段边界、校验和与附加 SHA256；这是完整性检查，BIN 没有签名。设备接收后，必须同时报告目标版本、应用槽切换与 `ota_confirmed=true`、`runtime_ready=true` 才显示完成。同版本重刷也要求换槽。首次 USB 安装在工程根目录使用 `idf.py -B build/firmware -p COM端口 flash`。
 
 旧 `rlyoulink` 的 Cookie 登录和 `.amphipkg` 路径保留。独立复制的本目录不包含其签名工具；需要时设置 `ROBOFISH_FLASH_HOME` 指向旧工程 `embedding/s3/tools`。旧 STM32 离线模型与 EmberProbe 功能未随本交付提供。
 
@@ -92,21 +94,21 @@ Wi-Fi 控制接口为 `POST /api/v1/control`，由本地服务通过 `X-OTA-Pass
 
 运行 `python -B tools/verify_realtime.py` 验证约 10 Hz 遥测、连接复用、操控/记录、断网/回执丢失后的会话保留、旧目标不重放、恢复次数上限、真实接管退出、慢响应过期与静默日志。仅创建本机临时 HTTP 夹具和独立的无界面 Edge，不操作电脑网络或现有上位机服务，也不打开真实串口。
 
-`python -B tools/verify_lora_standalone.py` 使用真实网页、后台与发送线程，配合假 UART 和本机模拟鱼，验证串口枚举、无设备、多个端口手动选择、刷新保留、消失后清空和选择不自动打开；随后验证无 Wi-Fi 登录的 LoRa 状态、模式、组合方向、松开、全停，Wi-Fi 中断后继续控制，串口写入失败、重连不重放旧目标；实际校验 UART 地址头、CRC 和三轴数值。截图位于 `build/host-lora`，不打开真实串口。
+`python -B tools/verify_lora_standalone.py` 使用真实网页、后台与发送线程，配合假 UART 和本机模拟鱼，验证串口枚举、无设备、多个端口手动选择、刷新保留、消失后清空和选择不自动打开；随后验证无 Wi-Fi 登录的 LoRa 状态、模式、组合方向、松开、全停，Wi-Fi 中断后继续控制，串口写入失败、重连不重放旧目标；实际校验 UART 地址头、CRC 和三轴数值。截图位于 `build/checks/host-lora`，不打开真实串口。
 
-`tools/measure_lora_sender.py --port <已确认的串口> --output <结果JSON>` 是显式真实串口测量工具，只发送 STOP、零目标与心跳，支持 `--implementation` 对比原发送器快照。运行前需断开上位机对此串口的占用；工具沿用发送源和持久序号文件，停止时提交STOP并关闭串口。结果区分全停、限速零目标、保持后目标变化，时间范围为提交发送器到 Windows 串口写入完成，不测鱼端接收。2026-10-24 COM13／CH340实测，8轮的中位数：全停33.273→1.539ms、保持后新变化358.878→1.497ms；连续限速场景379.661→380.479ms，仍受500ms间隔约束。此次仅改变零目标的推进比例以模拟新目标，不发送非零运动。报告位于 `build/host-lora/latency/com13-before-full.json` 和 `com13-after.json`；当前没有LoRa回执，未把这些数值当作空口或鱼端执行时间。
+`tools/measure_lora_sender.py --port <已确认的串口> --output <结果JSON>` 是显式真实串口测量工具，只发送 STOP、零目标与心跳，支持 `--implementation` 对比原发送器快照。运行前需断开上位机对此串口的占用；工具沿用发送源和持久序号文件，停止时提交STOP并关闭串口。结果区分全停、限速零目标、保持后目标变化，时间范围为提交发送器到 Windows 串口写入完成，不测鱼端接收。2026-10-24 COM13／CH340实测，8轮的中位数：全停33.273→1.539ms、保持后新变化358.878→1.497ms；连续限速场景379.661→380.479ms，仍受500ms间隔约束。此次仅改变零目标的推进比例以模拟新目标，不发送非零运动。报告位于 `build/checks/host-lora/latency/com13-before-full.json` 和 `com13-after.json`；当前没有LoRa回执，未把这些数值当作空口或鱼端执行时间。
 
-`python -B tools/verify_data.py` 验证未记录时的实时曲线、连续角度、冻结／恢复、过期与断线缺口、切页后台记录、CSV／JSON／PNG、清空与移动布局；测试不发送运动目标。桌面和移动预览保存在工程 `build/host-data/data-desktop.png` 与 `data-mobile.png`。
+`python -B tools/verify_data.py` 验证未记录时的实时曲线、连续角度、冻结／恢复、过期与断线缺口、切页后台记录、CSV／JSON／PNG、清空与移动布局；测试不发送运动目标。桌面和移动预览保存在工程 `build/checks/host-data/data-desktop.png` 与 `data-mobile.png`。
 
-在上述 OpenCV 环境运行 `python -B upper/tests/test_video_recording.py`（工程根目录）检查真实编码／解码、尺寸、CSV、编码失败与空录像。`upper/tools/verify_video_recording.py` 通过真实视觉子进程录制合成视频并重新解码，验证源帧去重、FPS、主动停止和退出保存；随后用工作站 Python 运行 `upper/tools/verify_vision_browser.py` 验证网页按钮和保存状态。所有测试不打开摄像头，不发非零运动目标，输出位于 `build/host-vision`。
+在上述 OpenCV 环境运行 `python -B upper/tests/test_video_recording.py`（工程根目录）检查真实编码／解码、尺寸、CSV、编码失败与空录像。`upper/tools/verify_video_recording.py` 通过真实视觉子进程录制合成视频并重新解码，验证源帧去重、FPS、主动停止和退出保存；随后用工作站 Python 运行 `upper/tools/verify_vision_browser.py` 验证网页按钮和保存状态。所有测试不打开摄像头，不发非零运动目标，输出位于 `build/checks/host-vision`。
 
 `python -B tools/verify_autoconnect.py` 在本机模拟鱼上验证不填地址/密码即可连接、多页面全停与独立排序、尊重其他空闲会话、手动接管、不自动夺回控制、自定义密码只输入一次、自动/手动登录迟到回包不能撤销退出，以及密码不进入网页或日志。`tests/test_server_sessions.py` 在本机 HTTP 接口交错执行登录与退出，验证认证和密钥保存先完成，退出最后生效。测试密钥只保存在临时目录，结束后删除，不写入真实用户密钥文件。
 
-无线省电核查脚本为 `tools/network_stability.ps1`，默认 `-Mode Audit` 只读。`-Mode Stage` 仅对已核查的 Realtek 8922AE 保存标准 Windows 无线电池省电档位为最高性能，先备份至工程 `validation/windows-wifi-policy.json`，不调用电源计划重新激活、网卡重启、SSID/IP 修改或驱动安装。调整留待电源策略下次加载；不能据保存成功认定当前掉线已根治。`-Mode Restore -WhatIf` 可预演回滚，去掉 `-WhatIf` 恢复备份档位，同样不重新激活计划。PowerShell 限制脚本运行时，可仅对此进程使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/network_stability.ps1 -Mode Audit`，不更改全局执行策略。
+无线省电核查脚本为 `tools/network_stability.ps1`，默认 `-Mode Audit` 只读。`-Mode Stage` 仅对已核查的 Realtek 8922AE 保存标准 Windows 无线电池省电档位为最高性能，先备份至工程 `build/workstation/network/windows-wifi-policy.json`，不调用电源计划重新激活、网卡重启、SSID/IP 修改或驱动安装。调整留待电源策略下次加载；不能据保存成功认定当前掉线已根治。`-Mode Restore -WhatIf` 可预演回滚，去掉 `-WhatIf` 恢复备份档位，同样不重新激活计划。旧 validation 备份已随目录移入回收站；需恢复旧设置时先找回原备份，再用 `-StatePath` 明确指定，不能用新快照冒充旧备份。PowerShell 限制脚本运行时，可仅对此进程使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/network_stability.ps1 -Mode Audit`，不更改全局执行策略。本轮仅调整默认输出路径，未执行网络策略操作。
 
-`python -B tools/verify_attitude.py` 用本机模拟鱼验证默认关闭、未标定／旧固件／旧后台兼容、单独调参不启动闭环、静止保持、人工浮沉和转向优先、松开后重记航向、失效撤除辅助、倒车保持人工控制。该脚本不打开真实串口，不连接实鱼，不更改电脑网络。从工程根目录运行 `python -B tests/wifi_http/telemetry.py`，可编译实际遥测构造代码并检查包含姿态字段后的固定响应容量和运行时波特率显示。
+`python -B tools/verify_attitude.py` 用本机模拟鱼验证默认关闭、未标定／旧固件／旧后台兼容、单独调参不启动闭环、静止保持、人工浮沉和转向优先、松开后重记航向、失效撤除辅助、倒车保持人工控制。该脚本不打开真实串口，不连接实鱼，不更改电脑网络。根目录旧固件 `tests/` 已按要求移除，不再提供旧遥测构造测试脚本。
 
-在工程根目录使用上述 OpenCV Python 运行 `upper/tools/verify_perspective_control.py`，可串接生产 PC 引导／速度环与真实 C++ S3 协议／PID／分配器，检查直线、S弯、掉头在矩形、原视频和强透视三种相机下的一致性。水动力仅为注明参数的仿真模型；曲线、逐帧CSV和报告保存在 `build/host-vision/perspective-control`，不能当作实鱼性能指标。
+旧 `upper/tools/verify_perspective_control.py` 依赖已删除的根目录固件测试夹具，现只保留历史入口并在缺少夹具时明确报错，不纳入可运行验证清单。其历史结果保留在 `build/checks/host-vision/perspective-control`。当前过程循迹联合仿真使用工程根目录的 `tools/simulate_coupled_tracking.py`，需已有 C++ 编译器与对应动力参考数据；水动力为降阶假设，不能当作实鱼性能指标。
 
 ## 循迹调试终端与角度环
 
@@ -118,6 +120,6 @@ Wi-Fi 控制接口为 `POST /api/v1/control`，由本地服务通过 `X-OTA-Pass
 
 ## 自动循迹
 
-实时相机 → YOLO鱼框中心P → 四点H变换得到米制位置 → 局部单向路径投影 → LOS目标航向与弯道／末段速度目标 → 视觉速度PID给推进百分比 → Wi-Fi航向目标 → S3本地yaw PID及混合驱动。路径3cm重采样，前视距离直线24cm、弯道／偏离时缩至10cm，默认目标0.30m/s，距终点40cm开始减速，终点距离与剩余弧长均不超过20cm时请求全停。
+实时相机 → YOLO鱼框中心P → 四点H变换得到米制位置 → 连续弧长投影与跳点拒绝 → 切向／尖角弦线目标航向与弯道／末段限速 → 视觉速度PID给推进百分比 → Wi-Fi航向目标 → S3本地yaw PID及混合驱动。当前默认巡航0.08m/s，具体几何、停车边界与参数以 `vision/configs/control.json` 和[循迹说明](../docs/guides/vision-control.md)为准。
 
-“开始自动循迹 · Wi-Fi”明确接管，途中全停／人工输入会取消旧视觉任务。停止自动循迹、退出视觉、重新选鱼／标定／画线会退出自动控制。关闭预览或停止CSV采样不停止正在运行的自动循迹。完全断网时PC无法保证全停命令到达，鱼端仍沿用原先无运动超时的目标保持语义；终端和状态文字不把未确认的全停写成已停。此轮按用户要求未执行实机或回归测试，只做语法检查和固件编译。
+“开始自动循迹 · Wi-Fi”明确接管，途中全停／人工输入会取消旧视觉任务。停止自动循迹、退出视觉、重新选鱼／标定／画线会退出自动控制。关闭预览或停止CSV采样不停止正在运行的自动循迹。完全断网时PC无法保证全停命令到达，鱼端仍沿用原先无运动超时的目标保持语义；终端和状态文字不把未确认的全停写成已停。当前软件检查与未覆盖事项见根 `process.md`，不将主机回归或历史固件编译视为实鱼验收。

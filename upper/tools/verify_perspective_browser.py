@@ -11,7 +11,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'upper'))
+sys.path.insert(0,str(ROOT/'upper/src'))
 import device_client
 import server
 from vision_service import VisionService
@@ -20,7 +20,7 @@ POINTS=[[272,151],[1201,122],[1206,633],[260,607]]
 
 
 def main():
-    output=ROOT/'build/host-vision/perspective-test';output.mkdir(parents=True,exist_ok=True)
+    output=ROOT/'build/checks/host-vision/perspective-test';output.mkdir(parents=True,exist_ok=True)
     configuration=output/('integrated-config-'+str(time.time_ns()));configuration.mkdir()
     service=VisionService();service.output=output/'exports'
     web=ThreadingHTTPServer(('127.0.0.1',0),server.Handler);server.PORT=web.server_port
@@ -42,7 +42,7 @@ def main():
             page=browser.new_page(viewport={'width':1440,'height':1000})
             page.on('pageerror',lambda error:errors.append(str(error)))
             page.goto(url+'/#vision')
-            page.wait_for_function("visionConfiguration?.default_model==='vision/fish_body_yolo/best.pt'")
+            page.wait_for_function("visionConfiguration?.default_model==='vision/models/fish_body_yolo/best.pt'")
             page.locator('[data-page=vision]').click()
             assert page.locator('#vision-profile').count()==0
             page.locator('#vision-source').select_option('sample');page.locator('#vision-start').click()

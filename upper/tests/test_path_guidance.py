@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'vision'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'vision/src'))
 from path_guidance import PathGuidance, resample_polyline, round_polyline, wrap_to_pi
 from control_config import CONTROL
 

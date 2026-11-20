@@ -10,7 +10,7 @@ import sys
 import time
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 import cv2
 import numpy as np
 import torch
@@ -27,12 +27,12 @@ def summary(values):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--frames',type=int,default=300)
     args=parser.parse_args();cv2.setNumThreads(2)
-    output=ROOT/'build/host-vision/heading-observer/profile';output.mkdir(parents=True,exist_ok=True)
+    output=ROOT/'build/checks/host-vision/heading-observer/profile';output.mkdir(parents=True,exist_ok=True)
     for name,key in [('ultralytics','YOLO_CONFIG_DIR'),('matplotlib','MPLCONFIGDIR')]:
         folder=output/name;folder.mkdir(exist_ok=True);os.environ[key]=str(folder)
     samples=os.environ.get('ROBOFISH_VISION_SAMPLES')
     source=next(iter(sorted(Path(samples).glob('*.mp4')))) if samples else ROOT.parent/'屏幕录制 2026-10-18 115851.mp4'
-    model=ROOT/'vision/fish_body_yolo/best.pt'
+    model=ROOT/'vision/models/fish_body_yolo/best.pt'
     os.environ.update(ROBOFISH_PARENT_TOKEN='offline-profile',ROBOFISH_VISION_TOKEN='offline-profile')
     bridge=WebBridge(observer=True) # deliberately not started: no telemetry or HTTP threads
     session=ObserverSession(str(source),model,bridge,output=output,calibration=output/'unused-pool.json')

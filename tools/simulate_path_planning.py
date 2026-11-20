@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vision'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'vision/src'))
 from control_config import CONTROL
 from curve_speed import CurveSpeedPlanner
 from path_guidance import PathGuidance, wrap_to_pi

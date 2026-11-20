@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 from observer_runtime import ObserverSession
 from pool_perspective import PoolPerspective
 from web_runtime import WebBridge,WorkstationComm
@@ -27,7 +27,7 @@ class ObserverContinuityTests(unittest.TestCase):
             bridge.parent=Mock(return_value={'accepted':True,'ready':True,'mode':3,'yaw_owner':'S3'})
             tracker=SimpleNamespace(device='cpu',last_speed={},update=lambda *_:SimpleNamespace(
                 position=(500,250),confidence=.99,metrics={'body_bbox':(400,150,600,350),'track_id':1}))
-            folder=ROOT/'build/host-continuity-check'
+            folder=ROOT/'build/checks/host-continuity-check'
             session=ObserverSession('0','fixture.pt',bridge,detector=tracker,output=folder,calibration=folder/'unused.json')
             self.assertEqual(session.speed_source,'body_center')
             frame=np.full((500,1000,3),200,np.uint8)

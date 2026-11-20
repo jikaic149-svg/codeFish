@@ -9,7 +9,7 @@ import time
 import cv2
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path.insert(0,str(ROOT/'vision'))
+sys.path.insert(0,str(ROOT/'vision/src'))
 os.environ.setdefault('YOLO_OFFLINE','1')
 from yolo_tracker import YoloBodyTracker
 
@@ -17,13 +17,13 @@ from yolo_tracker import YoloBodyTracker
 def main():
     samples=os.environ.get('ROBOFISH_VISION_SAMPLES')
     source=next(iter(sorted(Path(samples).glob('*.mp4')))) if samples else ROOT.parent/'屏幕录制 2026-10-18 115851.mp4'
-    output=ROOT/'build/host-vision/yolo-imu'
+    output=ROOT/'build/checks/host-vision/yolo-imu'
     output.mkdir(parents=True,exist_ok=True)
     capture=cv2.VideoCapture(str(source))
     if not capture.isOpened():raise RuntimeError(source)
     fps=capture.get(cv2.CAP_PROP_FPS);count=int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     width,height=(int(capture.get(key)) for key in (cv2.CAP_PROP_FRAME_WIDTH,cv2.CAP_PROP_FRAME_HEIGHT))
-    tracker=YoloBodyTracker(ROOT/'vision/fish_body_yolo/best.pt')
+    tracker=YoloBodyTracker(ROOT/'vision/models/fish_body_yolo/best.pt')
     writer=cv2.VideoWriter(str(output/'runtime_tracking.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),fps,(width,height))
     if not writer.isOpened():raise RuntimeError('Video writer failed')
     records=[];started=time.perf_counter()

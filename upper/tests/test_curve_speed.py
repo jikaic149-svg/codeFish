@@ -14,7 +14,7 @@ from unittest.mock import patch
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / 'vision'), str(ROOT / 'upper')]
+sys.path[:0] = [str(ROOT / 'vision/src'), str(ROOT / 'upper/src')]
 from control_config import CONTROL
 from curve_speed import CurveSpeedPlanner, DisplacementSpeedCheck
 from path_guidance import PathGuidance, resample_polyline

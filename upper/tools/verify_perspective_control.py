@@ -19,7 +19,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 ROOT=Path(__file__).resolve().parents[2]
-sys.path[:0]=[str(ROOT/'upper'),str(ROOT/'vision')]
+sys.path[:0]=[str(ROOT/'upper/src'),str(ROOT/'vision/src')]
 import station
 from lora_link import LoRaLink
 from path_guidance import PathGuidance,VelocityEstimator,compensate_camera_latency
@@ -29,11 +29,13 @@ from yaw_heading import CalibratedYaw,wrap_radians
 from control_config import CONTROL
 import vision_app
 
-OUTPUT=ROOT/'build/host-vision/perspective-control'
+OUTPUT=ROOT/'build/checks/host-vision/perspective-control'
 COMPILER=Path(os.environ.get('ROBOFISH_CXX','C:/msys64/ucrt64/bin/g++.exe'))
 
 
 def native_model():
+    if not (ROOT/'tests/control/heading_model.cpp').is_file():
+        raise RuntimeError('历史固件 tests/ 已按要求移除；请使用 tools/simulate_coupled_tracking.py 进行现有联合仿真。')
     OUTPUT.mkdir(parents=True,exist_ok=True)
     library=OUTPUT/'heading-model.dll'
     files=['tests/control/heading_model.cpp','main/Service/LoRa/LoraProtocol.cpp',

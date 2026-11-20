@@ -11,7 +11,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path[:0]=[str(ROOT),str(ROOT/'tests'),str(ROOT/'tools')]
+sys.path[:0]=[str(ROOT/'src'),str(ROOT/'tests'),str(ROOT/'tools')]
 import device_client
 import diagnostics
 import server
@@ -21,7 +21,7 @@ from vision_service import VisionService
 
 
 def main():
-    samples=ROOT.parent/'build/host-vision'
+    samples=ROOT.parent/'build/checks/host-vision'
     if not (samples/'auv_record_synthetic.mp4').is_file():
         raise RuntimeError('Run verify_video_recording.py in the installed OpenCV environment first')
     Target.reset()
@@ -67,7 +67,7 @@ def main():
                 page.wait_for_function('!visionState?.running && visionState?.recording?.saved')
                 final=page.evaluate('visionState.recording')
                 assert final['file']!=first['file']
-                output=ROOT.parent/'build/host-vision'
+                output=ROOT.parent/'build/checks/host-vision'
                 page.screenshot(path=str(output/'vision-recording-browser.png'),full_page=True)
                 assert not errors,errors
                 assert not any(any(entry.get('axes',{}).values()) for entry in Target.controls)

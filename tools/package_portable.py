@@ -83,10 +83,10 @@ def main():
     output.mkdir(parents=True, exist_ok=args.resume)
     project = output / 'project'
     project.mkdir(exist_ok=True)
-    for folder in ('main', 'upper', 'tests', 'vision'):
+    for folder in ('main', 'upper', 'vision'):
         def project_ignore(directory, names):
             excluded = set(ignore(directory, names))
-            excluded.update(n for n in names if n in {'logs', 'data', 'runs', 'Ultralytics'}
+            excluded.update(n for n in names if n in {'logs', 'data', 'runs', 'experiments', 'Ultralytics'}
                             or n.endswith('.local.json') or n == 'server.log')
             return list(excluded)
         shutil.copytree(SOURCE / folder, project / folder, ignore=project_ignore, dirs_exist_ok=True)
@@ -94,7 +94,7 @@ def main():
                  'sdkconfig', 'sdkconfig.defaults', 'README.md', 'process.md', 'build.ps1'):
         shutil.copy2(SOURCE / name, project / name)
     # The current model metadata and previews are small; old training console logs are not runtime input.
-    for p in (project / 'vision/fish_body_yolo').glob('*.log'):
+    for p in (project / 'vision/models/fish_body_yolo').glob('*.log'):
         p.unlink()
     (project / 'README.md').write_text(
         '> Portable delivery: docs/ was excluded at the user\'s request. Open ../Editor.cmd and use ../.vscode/launch.json; the parent README.txt describes portable paths. The original source-project notes follow.\n\n'
@@ -183,7 +183,7 @@ def main():
             copy_tree(matches[-1], editor / 'data/extensions' / matches[-1].name)
 
     dataset = output / 'datasets/fish'
-    augmented = SOURCE / 'vision/fish_body_yolo/runs/yolov8n-960-robust-v3/augmentation_dataset'
+    augmented = SOURCE / 'vision/experiments/fish_body_yolo/runs/yolov8n-960-robust-v3/augmentation_dataset'
     for split in ('train', 'val', 'test'):
         image_dir = dataset / 'images' / split
         label_dir = dataset / 'labels' / split
@@ -217,7 +217,7 @@ def main():
                      ('bootloader/bootloader.bin', 'bootloader.bin'),
                      ('partition_table/partition-table.bin', 'partition-table.bin'),
                      ('ota_data_initial.bin', 'ota_data_initial.bin')]:
-        shutil.copy2(SOURCE / 'build' / old, firmware / new)
+        shutil.copy2(SOURCE / 'build/firmware' / old, firmware / new)
     shutil.copy2(SOURCE / 'tools/portable.py', output / 'portable.py')
     shutil.copy2(SOURCE / 'tools/portable_training.py', output / 'portable_training.py')
     shutil.copy2(SOURCE / 'tools/test_portable_delivery.py', output / 'verify_delivery.py')
@@ -231,16 +231,11 @@ def main():
             + action + ' %*\nif errorlevel 1 pause\n', encoding='ascii')
     (project / 'build.ps1').write_text(
         "$ErrorActionPreference = 'Stop'\n& (Join-Path $PSScriptRoot '../runtime/python.exe') -I -B (Join-Path $PSScriptRoot '../portable.py') build\nexit $LASTEXITCODE\n", encoding='ascii')
-    for p in (project / 'tests').rglob('*.ps1'):
-        text = p.read_text(encoding='utf-8')
-        text = text.replace("'C:/msys64/ucrt64/bin/g++.exe'", "$(if ($env:ROBOFISH_CXX) { $env:ROBOFISH_CXX } else { 'g++.exe' })")
-        text = text.replace("'D:/ESP32/ESP-IDF-v5.3.2/components/json/cJSON'", "$(Join-Path $env:IDF_PATH 'components/json/cJSON')")
-        p.write_text(text, encoding='utf-8')
-    cache = (SOURCE / 'build/CMakeCache.txt').read_text(encoding='utf-8')
+    cache = (SOURCE / 'build/firmware/CMakeCache.txt').read_text(encoding='utf-8')
     defines = dict(re.findall(r'(?m)^(ROBOTFISH_[A-Z_]+):BOOL=(ON|OFF)$', cache))
     manifest = {'format': 1, 'platform': 'Windows 10/11 x64', 'firmware': '2.7.7-steering-priority',
                 'entry': '.vscode/launch.json',
-                'known_legacy_test': 'tests/attitude/regression.cpp assumes Kp=5 and sub-deadband convergence; retained unchanged outside the targeted regression set',
+                'firmware_tests_removed': True,
                 'python': '3.13.14', 'torch': '2.11.0+cpu', 'ultralytics': '8.4.118',
                 'cmake_defines': defines,
                 'idf': '5.3.2', 'excluded': ['project/docs', 'original build caches', 'credentials',

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import threading
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import device_client
 import windows_network
 from station import Workstation
